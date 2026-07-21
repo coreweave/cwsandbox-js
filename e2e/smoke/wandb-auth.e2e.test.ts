@@ -73,8 +73,12 @@ describeWithWandbSecrets("live W&B sandbox secrets smoke", { sequential: true },
       );
 
       expect(result.exitCode).toBe(0);
-      expect(result.stdout.trim()).toBe(secret.expected);
       expect(result.stderr).toBe("");
+      // Compare without toBe/toEqual so a mismatch does not print secret values.
+      expect(
+        result.stdout.trim() === secret.expected,
+        "injected secret env var did not match expected value (values redacted)",
+      ).toBe(true);
     },
     testTimeoutMs,
   );
