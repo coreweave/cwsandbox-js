@@ -91,6 +91,7 @@ export type {
   WaitOptions,
   WaitTargetStatus,
 } from "./public/sandbox.js";
+export type { SecretInput, Secrets } from "./public/secrets.js";
 export type {
   DeleteSandboxRequest,
   ExecRequest,

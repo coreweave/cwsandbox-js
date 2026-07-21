@@ -420,6 +420,28 @@ describe("SandboxClient", () => {
       );
     });
 
+    it("throws a typed validation error for invalid secrets", async () => {
+      const client = createClient();
+
+      await expect(
+        client.run(["python"], { secrets: [{ store: "", name: "HF_TOKEN" }] }),
+      ).rejects.toThrow(CWSandboxValidationError);
+      await expect(
+        client.run(["python"], {
+          environmentVariables: { HF_TOKEN: "plaintext" },
+          secrets: [{ store: "wandb-team-secrets", name: "HF_TOKEN" }],
+        }),
+      ).rejects.toThrow(CWSandboxValidationError);
+      await expect(
+        client.run(["python"], {
+          secrets: [
+            { store: "wandb-team-secrets", name: "HF_TOKEN" },
+            { envVar: "HF_TOKEN", name: "OTHER", store: "other-store" },
+          ],
+        }),
+      ).rejects.toThrow(CWSandboxValidationError);
+    });
+
     it("throws a typed validation error for invalid network ports", async () => {
       const client = createClient();
 

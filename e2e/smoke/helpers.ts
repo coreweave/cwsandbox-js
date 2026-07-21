@@ -21,6 +21,15 @@ import { resolveWandbApiKey } from "../../packages/cwsandbox/src/integrations/wa
 export interface SmokeConfig {
   readonly hasCredentials: boolean;
   readonly hasWandbCredentials: boolean;
+  readonly hasWandbSecretsSmoke: boolean;
+  readonly wandbSecretsSmoke:
+    | {
+        readonly envVar: string;
+        readonly expected: string;
+        readonly name: string;
+        readonly store: string;
+      }
+    | undefined;
 }
 
 const smokeDir = dirname(fileURLToPath(import.meta.url));
@@ -109,10 +118,26 @@ export function withStartedSandbox<TResult>(
 }
 
 function createSmokeConfig(): SmokeConfig {
+  const wandbSecretsSmoke = readWandbSecretsSmokeConfig();
   return {
     hasCredentials: Boolean(process.env["CWSANDBOX_API_KEY"]?.trim()),
     hasWandbCredentials: hasWandbCredentials(),
+    hasWandbSecretsSmoke: hasWandbCredentials() && wandbSecretsSmoke !== undefined,
+    wandbSecretsSmoke,
   };
+}
+
+function readWandbSecretsSmokeConfig(): SmokeConfig["wandbSecretsSmoke"] {
+  const name = process.env["CWSANDBOX_SMOKE_SECRET_NAME"]?.trim();
+  const expected = process.env["CWSANDBOX_SMOKE_SECRET_EXPECTED"]?.trim();
+  if (name === undefined || name === "" || expected === undefined || expected === "") {
+    return undefined;
+  }
+
+  const store = process.env["CWSANDBOX_SMOKE_SECRET_STORE"]?.trim() || "wandb-team-secrets";
+  const envVar = process.env["CWSANDBOX_SMOKE_SECRET_ENV_VAR"]?.trim() || name;
+
+  return { envVar, expected, name, store };
 }
 
 function hasWandbCredentials(): boolean {

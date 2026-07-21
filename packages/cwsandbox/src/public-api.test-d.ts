@@ -45,6 +45,8 @@ import {
   type SandboxRunOptions,
   type SandboxStatus,
   type SandboxTag,
+  type SecretInput,
+  type Secrets,
   SandboxClient,
   type StartSandboxResult,
   type StartCommandOptionsWithStdin,
@@ -309,6 +311,27 @@ expectTypeOf(
     waitUntilRunning: false,
   }),
 ).toEqualTypeOf<ReturnType<SandboxClient["run"]>>();
+
+const secret: SecretInput = { store: "wandb-team-secrets", name: "HF_TOKEN" };
+const secrets = [
+  secret,
+  {
+    envVar: "DB_PASS",
+    field: "password",
+    name: "db-credentials",
+    store: "wandb-team-secrets",
+  },
+] as const satisfies Secrets;
+expectTypeOf(
+  client.run(["python"], {
+    secrets,
+  }),
+).toEqualTypeOf<ReturnType<SandboxClient["run"]>>();
+expectTypeOf(
+  client.create({
+    secrets: [{ store: "wandb-team-secrets", name: "SMOKE_SECRET" }],
+  }),
+).toEqualTypeOf<ReturnType<SandboxClient["create"]>>();
 
 const command: string[] = ["echo"];
 expectTypeOf(client.run(command)).toEqualTypeOf<ReturnType<SandboxClient["run"]>>();
