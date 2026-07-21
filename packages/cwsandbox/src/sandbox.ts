@@ -57,6 +57,7 @@ export class Sandbox {
     };
     this.runtime = {
       sandboxId: this.sandboxId,
+      streamingFallbackNotified: false,
       transport: options.transport,
     };
     this.commands = createSandboxCommands(this.runtime);

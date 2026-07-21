@@ -44,17 +44,17 @@ export async function execCommand(
   return result;
 }
 
-function startCommand(
+export function startCommand(
   runtime: SandboxRuntime,
   command: CommandInput,
   options: StartCommandOptionsWithStdin,
 ): Promise<CommandProcessWithStdin>;
-function startCommand(
+export function startCommand(
   runtime: SandboxRuntime,
   command: CommandInput,
   options?: StartCommandOptions,
 ): Promise<CommandProcess>;
-async function startCommand(
+export async function startCommand(
   runtime: SandboxRuntime,
   command: CommandInput,
   options: StartCommandOptions = {},

@@ -21,6 +21,8 @@ export type CWSandboxTransportKind = "fetch" | "grpc" | "http";
 export interface CWSandboxTransportErrorOptions extends ErrorOptions {
   readonly metadata?: Readonly<Record<string, string | string[]>>;
   readonly operation?: string;
+  /** AIP-193 ErrorInfo.reason when present on the transport failure. */
+  readonly reason?: string;
   readonly sandboxId?: string;
   readonly transport?: CWSandboxTransportKind;
   readonly transportCode?: number | string;
@@ -71,6 +73,7 @@ export class CWSandboxExecutionError extends CWSandboxError {
 export class CWSandboxTransportError extends CWSandboxError {
   public readonly metadata: Readonly<Record<string, string | string[]>> | undefined;
   public readonly operation: string | undefined;
+  public readonly reason: string | undefined;
   public readonly sandboxId: string | undefined;
   public readonly transport: CWSandboxTransportKind | undefined;
   public readonly transportCode: number | string | undefined;
@@ -84,6 +87,7 @@ export class CWSandboxTransportError extends CWSandboxError {
     this.name = "CWSandboxTransportError";
     this.metadata = options.metadata;
     this.operation = options.operation;
+    this.reason = options.reason;
     this.sandboxId = options.sandboxId;
     this.transport = options.transport;
     this.transportCode = options.transportCode;

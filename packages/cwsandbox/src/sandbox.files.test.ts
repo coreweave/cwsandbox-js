@@ -2,10 +2,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { CWSandboxValidationError, type SandboxTransport } from "./index.js";
-import { createClient, createFakeTransport } from "./test/helpers.js";
+import {
+  CWSandboxResourceExhaustedError,
+  CWSandboxTransportError,
+  CWSandboxValidationError,
+  type CommandProcessWithStdin,
+  type SandboxTransport,
+} from "./index.js";
+import { CWSANDBOX_FILE_TOO_LARGE } from "./internal/error-info.js";
+import {
+  DEFAULT_FILE_OPERATION_CAP_BYTES,
+  MAX_AUTO_FALLBACK_BYTES,
+} from "./internal/file-limits.js";
+import {
+  createClient,
+  createCommandInputWriter,
+  createCommandProcess,
+  createFakeTransport,
+  createProcessResult,
+} from "./test/helpers.js";
 
 describe("Sandbox files", () => {
   it("writes string files through the files namespace", async () => {
@@ -262,5 +279,186 @@ describe("Sandbox files", () => {
       signal,
       timeoutMs: 1234,
     });
+  });
+
+  it("proactively routes writes above the unary cap through StreamExec", async () => {
+    const content = new Uint8Array(DEFAULT_FILE_OPERATION_CAP_BYTES + 1);
+    const writeFile = vi.fn(async () => undefined);
+    let startRequest: Parameters<SandboxTransport["startCommand"]>[0] | undefined;
+    const stdinChunks: Uint8Array[] = [];
+
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      writeFile,
+      async startCommand(request) {
+        startRequest = request;
+        const process = createCommandProcess(request.command, true) as CommandProcessWithStdin;
+        const stdin = createCommandInputWriter();
+        return {
+          ...process,
+          stdin: {
+            ...stdin,
+            async write(data) {
+              stdinChunks.push(typeof data === "string" ? new TextEncoder().encode(data) : data);
+            },
+          },
+          async wait() {
+            return createProcessResult(request.command, { exitCode: 0 });
+          },
+        };
+      },
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"]);
+
+    await sandbox.files.write("/tmp/large.bin", content);
+
+    expect(writeFile).not.toHaveBeenCalled();
+    expect(startRequest?.command[0]).toBe("/bin/sh");
+    expect(startRequest?.command).toContain("/tmp/large.bin");
+    // At least one stdin write session; verify session has no stdin.
+    expect(stdinChunks.reduce((total, chunk) => total + chunk.byteLength, 0)).toBe(content.byteLength);
+  });
+
+  it("falls back to StreamExec when unary write reports FILE_TOO_LARGE", async () => {
+    const content = new Uint8Array(1024);
+    const startCommand = vi.fn(async (request: Parameters<SandboxTransport["startCommand"]>[0]) => {
+      if (request.stdin === true) {
+        const process = createCommandProcess(request.command, true) as CommandProcessWithStdin;
+        return {
+          ...process,
+          async wait() {
+            return createProcessResult(request.command, { exitCode: 0 });
+          },
+        };
+      }
+      return createCommandProcess(request.command);
+    });
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async writeFile() {
+        throw new CWSandboxTransportError("file payload exceeds configured max-file-operation-bytes", {
+          operation: "Write file",
+          reason: CWSANDBOX_FILE_TOO_LARGE,
+          sandboxId: "sandbox-for-echo",
+        });
+      },
+      startCommand,
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"]);
+
+    await sandbox.files.write("/tmp/small.bin", content);
+
+    expect(startCommand.mock.calls.some((call) => call[0].stdin === true)).toBe(true);
+  });
+
+  it("falls back to StreamExec when unary read reports FILE_TOO_LARGE with size", async () => {
+    const content = new Uint8Array([9, 8, 7]);
+    const startCommand = vi.fn(async (request: Parameters<SandboxTransport["startCommand"]>[0]) => {
+      const process = createCommandProcess(request.command);
+      return {
+        ...process,
+        async wait() {
+          return createProcessResult(request.command, {
+            exitCode: 0,
+            stdoutBytes: content,
+          });
+        },
+      };
+    });
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async readFile() {
+        throw new CWSandboxTransportError("file too large", {
+          metadata: {
+            size_bytes: "3",
+          },
+          operation: "Read file",
+          reason: CWSANDBOX_FILE_TOO_LARGE,
+          sandboxId: "sandbox-for-echo",
+        });
+      },
+      startCommand,
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"]);
+
+    await expect(sandbox.files.read("/tmp/large.bin")).resolves.toEqual(content);
+    expect(startCommand).toHaveBeenCalledOnce();
+    expect(startCommand.mock.calls[0]?.[0].command[0]).toBe("/bin/sh");
+  });
+
+  it("falls back to StreamExec when unary read is resource exhausted", async () => {
+    const content = new Uint8Array([1, 2]);
+    const startCommand = vi.fn(async (request: Parameters<SandboxTransport["startCommand"]>[0]) => {
+      const process = createCommandProcess(request.command);
+      return {
+        ...process,
+        async wait() {
+          return createProcessResult(request.command, {
+            exitCode: 0,
+            stdoutBytes: content,
+          });
+        },
+      };
+    });
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async readFile() {
+        throw new CWSandboxResourceExhaustedError("resource exhausted", {
+          operation: "Read file",
+          sandboxId: "sandbox-for-echo",
+        });
+      },
+      startCommand,
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"]);
+
+    await expect(sandbox.files.read("/tmp/large.bin")).resolves.toEqual(content);
+    expect(startCommand).toHaveBeenCalledOnce();
+  });
+
+  it("refuses writes above the auto-fallback ceiling without StreamExec", async () => {
+    const content = new Uint8Array(MAX_AUTO_FALLBACK_BYTES + 1);
+    const writeFile = vi.fn(async () => undefined);
+    const startCommand = vi.fn(async (request: Parameters<SandboxTransport["startCommand"]>[0]) =>
+      createCommandProcess(request.command, true),
+    );
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      writeFile,
+      startCommand,
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"]);
+
+    await expect(sandbox.files.write("/tmp/huge.bin", content)).rejects.toMatchObject({
+      message: expect.stringContaining("auto-fallback ceiling"),
+      reason: CWSANDBOX_FILE_TOO_LARGE,
+    });
+    expect(writeFile).not.toHaveBeenCalled();
+    expect(startCommand).not.toHaveBeenCalled();
+  });
+
+  it("does not auto-fallback reads when FILE_TOO_LARGE size exceeds the ceiling", async () => {
+    const startCommand = vi.fn(async (request: Parameters<SandboxTransport["startCommand"]>[0]) =>
+      createCommandProcess(request.command),
+    );
+    const error = new CWSandboxTransportError("file too large", {
+      metadata: {
+        size_bytes: String(MAX_AUTO_FALLBACK_BYTES + 1),
+      },
+      operation: "Read file",
+      reason: CWSANDBOX_FILE_TOO_LARGE,
+      sandboxId: "sandbox-for-echo",
+    });
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async readFile() {
+        throw error;
+      },
+      startCommand,
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"]);
+
+    await expect(sandbox.files.read("/tmp/huge.bin")).rejects.toBe(error);
+    expect(startCommand).not.toHaveBeenCalled();
   });
 });

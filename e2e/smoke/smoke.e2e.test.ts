@@ -7,11 +7,19 @@ import { createSandboxClientFromEnv } from "@coreweave/cwsandbox/node";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
+  createPatternedPayload,
+  expectBytesEqual,
   expectRunning,
+  LARGE_FILE_200_MIB,
+  LARGE_FILE_64_MIB,
+  largeFileTimeout200Ms,
+  largeFileTimeout64Ms,
   listIncludesSandbox,
+  logCaughtError,
   logProcessResult,
   mountedBinaryContent,
   noInternetProbeScript,
+  patternedFileWriteScript,
   portProtocols,
   resourceProbeScript,
   runPython,
@@ -467,6 +475,91 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
       },
       testTimeoutMs,
     );
+  });
+
+  describe("large files", () => {
+    const largeFileCases = [
+      {
+        label: "64 MiB",
+        sizeBytes: LARGE_FILE_64_MIB,
+        timeoutMs: largeFileTimeout64Ms,
+      },
+      {
+        label: "200 MiB",
+        sizeBytes: LARGE_FILE_200_MIB,
+        timeoutMs: largeFileTimeout200Ms,
+      },
+    ] as const;
+
+    for (const { label, sizeBytes, timeoutMs } of largeFileCases) {
+      it(
+        `large file write path round-trips ${label}`,
+        async () => {
+          expect.hasAssertions();
+
+          const payload = createPatternedPayload(sizeBytes);
+          const path = `/tmp/cwsandbox-js-large-write-${sizeBytes}.bin`;
+
+          // StreamExec write buffers stdin in the runner; default sandbox memory
+          // OOMs around 64 MiB (exit 137). Match the working Python repro: 4Gi.
+          await withStartedSandbox(
+            client,
+            {
+              resources: { cpu: "1", memory: "4Gi" },
+              tags: [uniqueSmokeTag()],
+            },
+            async (sandbox) => {
+              try {
+                await sandbox.files.write(path, payload);
+                const readBack = await sandbox.files.read(path);
+                expectBytesEqual(readBack, payload);
+              } catch (error) {
+                logCaughtError(`large file write ${label}`, error);
+                throw error;
+              }
+            },
+          );
+        },
+        timeoutMs,
+      );
+
+      it(
+        `large file read path reads ${label} created via commands`,
+        async () => {
+          const payload = createPatternedPayload(sizeBytes);
+          const path = `/tmp/cwsandbox-js-large-read-${sizeBytes}.bin`;
+
+          await withStartedSandbox(
+            client,
+            {
+              resources: { cpu: "1", memory: "4Gi" },
+              tags: [uniqueSmokeTag()],
+            },
+            async (sandbox) => {
+              try {
+                const createResult = await runPython(
+                  sandbox,
+                  patternedFileWriteScript(path, sizeBytes),
+                  {
+                    timeoutMs,
+                  },
+                );
+                logProcessResult(`large file create ${label}`, createResult);
+                expect(createResult.exitCode).toBe(0);
+                expect(createResult.stdout.trim()).toBe(String(sizeBytes));
+
+                const readBack = await sandbox.files.read(path);
+                expectBytesEqual(readBack, payload);
+              } catch (error) {
+                logCaughtError(`large file read ${label}`, error);
+                throw error;
+              }
+            },
+          );
+        },
+        timeoutMs,
+      );
+    }
   });
 
   describe("logs", () => {

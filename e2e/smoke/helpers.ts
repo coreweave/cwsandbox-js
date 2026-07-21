@@ -6,17 +6,25 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type {
-  ExecOptions,
-  ProcessResult,
-  Sandbox,
-  SandboxClient,
-  SandboxRunOptions,
-  SandboxTag,
+import {
+  isCWSandboxError,
+  type ExecOptions,
+  type ProcessResult,
+  type Sandbox,
+  type SandboxClient,
+  type SandboxRunOptions,
+  type SandboxTag,
 } from "@coreweave/cwsandbox";
 import { expect } from "vitest";
 
 import { resolveWandbApiKey } from "../../packages/cwsandbox/src/integrations/wandb/auth.js";
+
+/** Just above typical unary file caps; should green after StreamExec fallback. */
+export const LARGE_FILE_64_MIB = 64 * 1024 * 1024;
+/** Stress size still under Python ~256 MiB auto-fallback ceiling. */
+export const LARGE_FILE_200_MIB = 200 * 1024 * 1024;
+export const largeFileTimeout64Ms = 300_000;
+export const largeFileTimeout200Ms = 600_000;
 
 export interface SmokeConfig {
   readonly hasCredentials: boolean;
@@ -79,6 +87,71 @@ export function logProcessResult(name: string, result: ProcessResult): void {
   console.log(`${name} exit code: ${result.exitCode}`);
   console.log(`${name} stdout: ${JSON.stringify(result.stdout)}`);
   console.log(`${name} stderr: ${JSON.stringify(result.stderr)}`);
+}
+
+export function createPatternedPayload(byteLength: number): Uint8Array {
+  const payload = new Uint8Array(byteLength);
+  for (let i = 0; i < byteLength; i += 1) {
+    payload[i] = i % 251;
+  }
+  return payload;
+}
+
+/** Write patterned bytes inside the sandbox without putting the payload on argv. */
+export function patternedFileWriteScript(path: string, byteLength: number): string {
+  return `
+path = ${JSON.stringify(path)}
+size = ${byteLength}
+chunk = 1024 * 1024
+with open(path, "wb") as f:
+    written = 0
+    while written < size:
+        n = min(chunk, size - written)
+        f.write(bytearray((written + i) % 251 for i in range(n)))
+        written += n
+print(written)
+`.trim();
+}
+
+export function expectBytesEqual(actual: Uint8Array, expected: Uint8Array): void {
+  expect(actual.byteLength).toBe(expected.byteLength);
+
+  const actualBuf = Buffer.from(actual.buffer, actual.byteOffset, actual.byteLength);
+  const expectedBuf = Buffer.from(expected.buffer, expected.byteOffset, expected.byteLength);
+  const comparison = Buffer.compare(actualBuf, expectedBuf);
+  if (comparison === 0) {
+    return;
+  }
+
+  let firstDiff = -1;
+  for (let i = 0; i < actual.byteLength; i += 1) {
+    if (actual[i] !== expected[i]) {
+      firstDiff = i;
+      break;
+    }
+  }
+
+  expect.fail(
+    `byte payloads differ (compare=${comparison}, firstDiff=${firstDiff}, len=${actual.byteLength})`,
+  );
+}
+
+export function logCaughtError(label: string, error: unknown): void {
+  if (isCWSandboxError(error)) {
+    console.log(`${label} error:`, {
+      code: error.code,
+      message: error.message,
+      name: error.name,
+    });
+    return;
+  }
+
+  if (error instanceof Error) {
+    console.log(`${label} error:`, { message: error.message, name: error.name });
+    return;
+  }
+
+  console.log(`${label} error:`, error);
 }
 
 export function runPython(

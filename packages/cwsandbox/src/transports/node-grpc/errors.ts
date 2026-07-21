@@ -13,6 +13,8 @@ import {
   CWSandboxUnavailableError,
   type CWSandboxTransportErrorOptions,
 } from "../../errors.js";
+import { CWSANDBOX_ERROR_DOMAIN } from "../../internal/error-info.js";
+import { parseErrorInfoFromMetadata } from "./error-info.js";
 
 export interface GrpcErrorContext {
   readonly operation: string;
@@ -52,10 +54,23 @@ function grpcErrorOptions(
   error: RpcError,
   context: GrpcErrorContext,
 ): CWSandboxTransportErrorOptions {
+  const parsed = parseErrorInfoFromMetadata(error.meta);
+  const trusted =
+    parsed !== undefined &&
+    parsed.domain === CWSANDBOX_ERROR_DOMAIN &&
+    parsed.reason.length > 0;
+
   return {
     ...context,
     cause: grpcErrorCause(error),
-    metadata: error.meta,
+    metadata:
+      parsed === undefined
+        ? error.meta
+        : {
+            ...error.meta,
+            ...parsed.metadata,
+          },
+    ...(trusted ? { reason: parsed.reason } : {}),
     transport: "grpc",
     transportCode: error.code,
   };

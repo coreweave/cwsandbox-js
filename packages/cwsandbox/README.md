@@ -412,6 +412,8 @@ const text = await sandbox.files.readText("/tmp/hello.txt");
 const bytes = await sandbox.files.read("/tmp/hello.txt");
 ```
 
+Payloads up to about 32 MiB use unary gRPC. Larger files (up to about 256 MiB) automatically fall back to StreamExec (`sh` + `cat`) while the public API still returns a full `Uint8Array`. Writes above the unary cap are split across append sessions so runner stdin buffering does not OOM. Above the ~256 MiB ceiling, writes are refused and oversized reads are not auto-routed. The sandbox image needs `/bin/sh`, `cat`, and (for writes) `wc`.
+
 The same methods also accept batch inputs:
 
 ```ts
