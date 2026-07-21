@@ -5,9 +5,12 @@
 /**
  * A secret reference resolved server-side and injected as an environment variable.
  *
- * Values are never sent by the client. `store` must match a Gateway-registered
- * secret store name for the organization (for W&B, typically `wandb-team-secrets`).
- * When `envVar` is omitted it defaults to `name`.
+ * Shape matches the Python SDK `Secret` (`store`, `name`, `field`, `env_var`), with
+ * camelCase `envVar` for TypeScript. Values are never sent by the client.
+ *
+ * `store` must match a Gateway-registered secret store name for the organization
+ * (for W&B, typically `wandb-team-secrets`). When `envVar` is omitted it defaults
+ * to `name`. On the wire, `name` is sent as proto `SecretMapping.path`.
  */
 export interface SecretInput {
   readonly envVar?: string;

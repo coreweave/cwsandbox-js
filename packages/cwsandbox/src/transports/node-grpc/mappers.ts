@@ -6,7 +6,7 @@ import { commandForWorkingDirectory } from "../../internal/commands.js";
 import { normalizeFileContent, normalizeMountedFiles } from "../../internal/mounted-files.js";
 import { normalizePorts } from "../../internal/network.js";
 import { isAdvancedResources } from "../../internal/resources.js";
-import { normalizeSecrets } from "../../internal/secrets.js";
+import { groupSecretsByStore, normalizeSecrets } from "../../internal/secrets.js";
 import type { Command, ProcessResult } from "../../public/commands.js";
 import type { NetworkOptions } from "../../public/network.js";
 import type { ResourceOptions, ResourceSpec } from "../../public/resources.js";
@@ -73,21 +73,13 @@ export function toProtoStartRequest(request: StartSandboxRequest): ProtoStartSan
 }
 
 function toProtoSecretStores(secrets: StartSandboxRequest["secrets"]): ProtoSecretStoreReference[] {
-  const grouped = new Map<string, ProtoSecretStoreReference["secrets"]>();
-
-  for (const secret of normalizeSecrets(secrets)) {
-    const mappings = grouped.get(secret.store) ?? [];
-    mappings.push({
+  return groupSecretsByStore(normalizeSecrets(secrets)).map((group) => ({
+    secrets: group.secrets.map((secret) => ({
       envVar: secret.envVar,
       field: secret.field,
       path: secret.name,
-    });
-    grouped.set(secret.store, mappings);
-  }
-
-  return [...grouped.entries()].map(([storeName, storeSecrets]) => ({
-    secrets: storeSecrets,
-    storeName,
+    })),
+    storeName: group.store,
   }));
 }
 

@@ -47,7 +47,6 @@ describeWithWandbSecrets("live W&B sandbox secrets smoke", { sequential: true },
       if (secret === undefined) {
         return;
       }
-      console.log("secret", secret);
 
       const client = createSandboxClientFromEnv();
       const result = await client.withSandbox(

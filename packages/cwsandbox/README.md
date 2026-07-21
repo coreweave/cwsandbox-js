@@ -512,6 +512,11 @@ Pass secret-store references at create/run time. The gateway resolves them
 server-side and injects the values as environment variables. The client never
 sends secret values.
 
+Field names match the Python SDK `Secret` (`store`, `name`, `field`, `env_var`),
+with camelCase `envVar` for TypeScript. On the wire, `name` is sent as proto
+`SecretMapping.path`. At most 50 secrets may be referenced per sandbox (Gateway
+pre-resolve limit).
+
 ```ts
 await client.create({
   secrets: [
@@ -528,7 +533,7 @@ await client.create({
 
 - `store` must match a Gateway-registered secret store name for the organization.
   For W&B team secrets this is typically `wandb-team-secrets`.
-- `name` is the secret path/id in that store.
+- `name` is the secret id in that store (proto `path`).
 - `field` is optional for structured secrets.
 - `envVar` defaults to `name` when omitted.
 

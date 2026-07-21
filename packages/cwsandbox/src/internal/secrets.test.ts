@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import { CWSandboxValidationError } from "../errors.js";
-import { MAX_SECRETS, normalizeSecrets, validateSecrets } from "./secrets.js";
+import { groupSecretsByStore, MAX_SECRETS, normalizeSecrets, validateSecrets } from "./secrets.js";
 
 describe("normalizeSecrets", () => {
   it("defaults envVar to name and field to empty string", () => {
@@ -89,7 +89,7 @@ describe("validateSecrets", () => {
     ).not.toThrow();
   });
 
-  it("rejects duplicate envVar targets", () => {
+  it("rejects duplicate envVar targets after normalizing defaults", () => {
     expect(() =>
       validateSecrets([
         { store: "wandb-team-secrets", name: "HF_TOKEN" },
@@ -113,5 +113,59 @@ describe("validateSecrets", () => {
     }));
 
     expect(() => validateSecrets(secrets)).toThrow(/50 entries or fewer/);
+  });
+});
+
+describe("groupSecretsByStore", () => {
+  it("groups a single store", () => {
+    expect(
+      groupSecretsByStore(
+        normalizeSecrets([
+          { store: "wandb-team-secrets", name: "HF_TOKEN" },
+          {
+            envVar: "DB_PASS",
+            field: "password",
+            name: "db-credentials",
+            store: "wandb-team-secrets",
+          },
+        ]),
+      ),
+    ).toEqual([
+      {
+        secrets: [
+          { envVar: "HF_TOKEN", field: "", name: "HF_TOKEN" },
+          { envVar: "DB_PASS", field: "password", name: "db-credentials" },
+        ],
+        store: "wandb-team-secrets",
+      },
+    ]);
+  });
+
+  it("preserves first-seen store order across multiple stores", () => {
+    expect(
+      groupSecretsByStore(
+        normalizeSecrets([
+          { store: "wandb-team-secrets", name: "HF_TOKEN" },
+          { store: "other-store", name: "API_KEY" },
+          { envVar: "OPENAI_KEY", name: "OPENAI_API_KEY", store: "wandb-team-secrets" },
+        ]),
+      ),
+    ).toEqual([
+      {
+        secrets: [
+          { envVar: "HF_TOKEN", field: "", name: "HF_TOKEN" },
+          { envVar: "OPENAI_KEY", field: "", name: "OPENAI_API_KEY" },
+        ],
+        store: "wandb-team-secrets",
+      },
+      {
+        secrets: [{ envVar: "API_KEY", field: "", name: "API_KEY" }],
+        store: "other-store",
+      },
+    ]);
+  });
+
+  it("returns an empty list for no secrets", () => {
+    expect(groupSecretsByStore([])).toEqual([]);
   });
 });
