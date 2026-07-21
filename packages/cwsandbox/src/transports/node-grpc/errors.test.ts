@@ -109,9 +109,13 @@ describe("mapGrpcError", () => {
   it("attaches trusted ErrorInfo reason and metadata from status details", () => {
     const detailsBin =
       "CAkSOGZpbGUgcGF5bG9hZCBleGNlZWRzIGNvbmZpZ3VyZWQgbWF4LWZpbGUtb3BlcmF0aW9uLWJ5dGVzGrkBCih0eXBlLmdvb2dsZWFwaXMuY29tL2dvb2dsZS5ycGMuRXJyb3JJbmZvEowBChhDV1NBTkRCT1hfRklMRV9UT09fTEFSR0USDWN3c2FuZGJveC5jb20aEgoIZmlsZXBhdGgSBi90bXAveBoaCg5tYXhfc2l6ZV9ieXRlcxIIMzM1NTQ0MzIaFgoKc2l6ZV9ieXRlcxIINjcxMDg4NjQaGQoJb3BlcmF0aW9uEgxSZXRyaWV2ZUZpbGU=";
-    const cause = new RpcError("file payload exceeds configured max-file-operation-bytes", "FAILED_PRECONDITION", {
-      "grpc-status-details-bin": detailsBin,
-    });
+    const cause = new RpcError(
+      "file payload exceeds configured max-file-operation-bytes",
+      "FAILED_PRECONDITION",
+      {
+        "grpc-status-details-bin": detailsBin,
+      },
+    );
 
     const error = mapGrpcError(cause, {
       operation: "Read file",

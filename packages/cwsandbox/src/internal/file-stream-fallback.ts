@@ -126,8 +126,7 @@ async function writeStreamSession(
 
   const result = await process.wait(options);
   if (result.exitCode !== 0) {
-    const detail =
-      result.stderr.trim() || `fallback command exited with status ${result.exitCode}`;
+    const detail = result.stderr.trim() || `fallback command exited with status ${result.exitCode}`;
     throw new CWSandboxTransportError(
       `Failed to write file '${path}' via exec-stream fallback: ${detail}. ` +
         "The target may be partial or truncated.",
@@ -147,14 +146,7 @@ async function verifyWrittenSize(
 ): Promise<void> {
   const process = await startCommand(
     runtime,
-    [
-      "/bin/sh",
-      "-c",
-      VERIFY_WRITE_SCRIPT,
-      "cwsandbox-verify-write",
-      path,
-      String(expectedBytes),
-    ],
+    ["/bin/sh", "-c", VERIFY_WRITE_SCRIPT, "cwsandbox-verify-write", path, String(expectedBytes)],
     {
       ...options,
       bufferedMaxKiB: 64,
@@ -164,8 +156,7 @@ async function verifyWrittenSize(
 
   const result = await process.wait(options);
   if (result.exitCode !== 0) {
-    const detail =
-      result.stderr.trim() || `fallback command exited with status ${result.exitCode}`;
+    const detail = result.stderr.trim() || `fallback command exited with status ${result.exitCode}`;
     throw new CWSandboxTransportError(
       `Failed to write file '${path}' via exec-stream fallback: ${detail}. ` +
         "The target may be partial or truncated.",
@@ -199,8 +190,7 @@ export async function readFileViaStreamExec(
 
   const result = await process.wait(options);
   if (result.exitCode !== 0) {
-    const detail =
-      result.stderr.trim() || `fallback command exited with status ${result.exitCode}`;
+    const detail = result.stderr.trim() || `fallback command exited with status ${result.exitCode}`;
     if (result.exitCode === 2) {
       throw new CWSandboxNotFoundError(`File operation failed: ${detail}`, {
         operation: "Read file",

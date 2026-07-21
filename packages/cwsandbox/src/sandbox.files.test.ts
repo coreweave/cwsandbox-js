@@ -316,7 +316,9 @@ describe("Sandbox files", () => {
     expect(startRequest?.command[0]).toBe("/bin/sh");
     expect(startRequest?.command).toContain("/tmp/large.bin");
     // At least one stdin write session; verify session has no stdin.
-    expect(stdinChunks.reduce((total, chunk) => total + chunk.byteLength, 0)).toBe(content.byteLength);
+    expect(stdinChunks.reduce((total, chunk) => total + chunk.byteLength, 0)).toBe(
+      content.byteLength,
+    );
   });
 
   it("falls back to StreamExec when unary write reports FILE_TOO_LARGE", async () => {
@@ -336,11 +338,14 @@ describe("Sandbox files", () => {
     const transport: SandboxTransport = {
       ...createFakeTransport(),
       async writeFile() {
-        throw new CWSandboxTransportError("file payload exceeds configured max-file-operation-bytes", {
-          operation: "Write file",
-          reason: CWSANDBOX_FILE_TOO_LARGE,
-          sandboxId: "sandbox-for-echo",
-        });
+        throw new CWSandboxTransportError(
+          "file payload exceeds configured max-file-operation-bytes",
+          {
+            operation: "Write file",
+            reason: CWSANDBOX_FILE_TOO_LARGE,
+            sandboxId: "sandbox-for-echo",
+          },
+        );
       },
       startCommand,
     };

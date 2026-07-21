@@ -56,9 +56,7 @@ function grpcErrorOptions(
 ): CWSandboxTransportErrorOptions {
   const parsed = parseErrorInfoFromMetadata(error.meta);
   const trusted =
-    parsed !== undefined &&
-    parsed.domain === CWSANDBOX_ERROR_DOMAIN &&
-    parsed.reason.length > 0;
+    parsed !== undefined && parsed.domain === CWSANDBOX_ERROR_DOMAIN && parsed.reason.length > 0;
 
   return {
     ...context,
