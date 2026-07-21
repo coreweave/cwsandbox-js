@@ -6,15 +6,15 @@
     "coreweave",
     "sandbox"
   ],
-  "homepage": "https://github.com/coreweave/cwsandbox-client-js/tree/main/packages/cwsandbox#readme",
+  "homepage": "https://github.com/coreweave/cwsandbox-js/tree/main/packages/cwsandbox#readme",
   "bugs": {
-    "url": "https://github.com/coreweave/cwsandbox-client-js/issues"
+    "url": "https://github.com/coreweave/cwsandbox-js/issues"
   },
   "license": "Apache-2.0",
   "author": "CoreWeave, Inc.",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/coreweave/cwsandbox-client-js.git",
+    "url": "git+https://github.com/coreweave/cwsandbox-js.git",
     "directory": "packages/cwsandbox"
   },
   "source": "./src/index.ts",
