@@ -117,13 +117,7 @@ async function readSingleFile(
       throw error;
     }
 
-    notifyStreamingFallbackOnce(
-      runtime,
-      "Read file",
-      path,
-      decision.expectedSize ?? 0,
-      "read_file_streaming",
-    );
+    notifyStreamingFallbackOnce(runtime, "Read file", path, decision.expectedSize ?? 0);
     return readFileViaStreamExec(runtime, path, options, decision.expectedSize);
   }
 }
@@ -191,7 +185,7 @@ async function writeSingleFile(
 
   const cap = fileOperationCapBytes();
   if (size > cap) {
-    notifyStreamingFallbackOnce(runtime, "Write file", path, size, "write_file_streaming");
+    notifyStreamingFallbackOnce(runtime, "Write file", path, size);
     await writeFileViaStreamExec(runtime, path, bytes, options);
     return;
   }
@@ -208,7 +202,7 @@ async function writeSingleFile(
       throw error;
     }
 
-    notifyStreamingFallbackOnce(runtime, "Write file", path, size, "write_file_streaming");
+    notifyStreamingFallbackOnce(runtime, "Write file", path, size);
     await writeFileViaStreamExec(runtime, path, bytes, options);
   }
 }

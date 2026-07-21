@@ -208,6 +208,27 @@ export async function readFileViaStreamExec(
     );
   }
 
+  const delivered = result.stdoutBytes.byteLength;
+  if (result.stdoutTruncated) {
+    throw new CWSandboxTransportError(
+      `StreamExec read of '${path}' was truncated after ${delivered} bytes ` +
+        `(client buffer limit). Retry with a higher memory budget or read in parts.`,
+      {
+        operation: "Read file",
+        sandboxId: runtime.sandboxId,
+      },
+    );
+  }
+  if (expectedSize !== undefined && expectedSize > 0 && delivered < expectedSize) {
+    throw new CWSandboxTransportError(
+      `StreamExec read of '${path}' was short: got ${delivered} of ${expectedSize} bytes.`,
+      {
+        operation: "Read file",
+        sandboxId: runtime.sandboxId,
+      },
+    );
+  }
+
   return result.stdoutBytes;
 }
 
@@ -216,7 +237,6 @@ export function notifyStreamingFallbackOnce(
   operation: string,
   filepath: string,
   size: number,
-  suggestMethod: string,
 ): void {
   if (runtime.streamingFallbackNotified) {
     console.debug(`Streaming fallback for ${operation} on ${filepath} (${size} bytes)`);
@@ -224,8 +244,8 @@ export function notifyStreamingFallbackOnce(
   }
 
   console.info(
-    `${operation} for '${filepath}' (${size} bytes) is being streamed; ` +
-      `prefer ${suggestMethod}() for large files.`,
+    `${operation} for '${filepath}' (${size} bytes) used StreamExec fallback ` +
+      `(unary file size limit).`,
   );
   runtime.streamingFallbackNotified = true;
 }
