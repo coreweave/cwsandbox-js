@@ -1,0 +1,47 @@
+// SPDX-FileCopyrightText: 2026 CoreWeave, Inc.
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-PackageName: cwsandbox
+
+import { describe, expect, it } from "vitest";
+
+import {
+  CWSandboxConfigurationError,
+  CWSandboxError,
+  CWSandboxTimeoutError,
+  CWSandboxValidationError,
+  isCWSandboxError,
+} from "./errors.js";
+
+describe("SDK error boundaries", () => {
+  it("identifies SDK errors with a type guard", () => {
+    const error = new CWSandboxValidationError("bad input");
+
+    expect(isCWSandboxError(error)).toBe(true);
+    expect(isCWSandboxError(new Error("boom"))).toBe(false);
+    expect(isCWSandboxError("boom")).toBe(false);
+  });
+
+  it("preserves cause on local SDK errors", () => {
+    const cause = new Error("invalid config source");
+    const error = new CWSandboxConfigurationError("Invalid CWSandbox config.", { cause });
+
+    expect(error).toBeInstanceOf(CWSandboxError);
+    expect(error.code).toBe("configuration_error");
+    expect(error.cause).toBe(cause);
+  });
+
+  it("keeps transport context on specialized transport errors", () => {
+    const error = new CWSandboxTimeoutError("Timed out.", {
+      operation: "Wait for sandbox",
+      sandboxId: "sandbox-123",
+      transport: "grpc",
+      transportCode: "DEADLINE_EXCEEDED",
+    });
+
+    expect(error.code).toBe("timeout_error");
+    expect(error.operation).toBe("Wait for sandbox");
+    expect(error.sandboxId).toBe("sandbox-123");
+    expect(error.transport).toBe("grpc");
+    expect(error.transportCode).toBe("DEADLINE_EXCEEDED");
+  });
+});

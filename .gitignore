@@ -1,0 +1,31 @@
+# deps / build
+node_modules/
+dist/
+*.tsbuildinfo
+*.tgz
+
+# local test/codegen artifacts
+.readme-examples/
+.package-consumers/
+.stress-artifacts/
+
+# secrets / env
+.env
+.env.*
+!.env.example
+
+# OS / IDE / caches
+.DS_Store
+.idea/
+.vscode/
+coverage/
+.vitest/
+*.log
+logs/
+
+# local agent
+.claude/settings.local.json
+CLAUDE.local.md
+
+# optional example outputs
+wandb/

@@ -1,0 +1,129 @@
+// SPDX-FileCopyrightText: 2026 CoreWeave, Inc.
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-PackageName: cwsandbox
+
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import type {
+  ExecOptions,
+  ProcessResult,
+  Sandbox,
+  SandboxClient,
+  SandboxRunOptions,
+  SandboxTag,
+} from "@coreweave/cwsandbox";
+import { expect } from "vitest";
+
+import { resolveWandbApiKey } from "../../packages/cwsandbox/src/integrations/wandb/auth.js";
+
+export interface SmokeConfig {
+  readonly hasCredentials: boolean;
+  readonly hasWandbCredentials: boolean;
+}
+
+const smokeDir = dirname(fileURLToPath(import.meta.url));
+
+export const mountedBinaryContent = new Uint8Array([0, 1, 2, 127, 128, 255]);
+export const noInternetProbeScript = readSmokeScript("no-internet-probe.py");
+export const portProtocols = ["TCP", "UDP", "SCTP"] as const;
+export const resourceProbeScript = readSmokeScript("resource-probe.py");
+export const smokeConfig = createSmokeConfig();
+export const testTimeoutMs = 120_000;
+
+export async function expectRunning(sandbox: Sandbox): Promise<void> {
+  await sandbox.wait();
+  await expect(sandbox.getStatus()).resolves.toBe("running");
+}
+
+export async function listIncludesSandbox(
+  client: SandboxClient,
+  sandboxId: string,
+  tags: readonly SandboxTag[] = [],
+  options: { readonly pageSize?: number } = {},
+): Promise<boolean> {
+  let pageToken: string | undefined;
+
+  for (let pageCount = 0; pageCount < 10; pageCount += 1) {
+    const result = await client.list({
+      pageSize: options.pageSize ?? 100,
+      ...(pageToken === undefined ? {} : { pageToken }),
+      ...(tags.length === 0 ? {} : { tags }),
+    });
+
+    if (result.sandboxes.some((sandbox) => sandbox.sandboxId === sandboxId)) {
+      return true;
+    }
+
+    if (result.nextPageToken === undefined) {
+      return false;
+    }
+
+    pageToken = result.nextPageToken;
+  }
+
+  return false;
+}
+
+export function logProcessResult(name: string, result: ProcessResult): void {
+  console.log(`${name} exit code: ${result.exitCode}`);
+  console.log(`${name} stdout: ${JSON.stringify(result.stdout)}`);
+  console.log(`${name} stderr: ${JSON.stringify(result.stderr)}`);
+}
+
+export function runPython(
+  sandbox: Sandbox,
+  script: string,
+  options: ExecOptions = {},
+): Promise<ProcessResult> {
+  return sandbox.commands.run(["python", "-c", script], options);
+}
+
+export function startOptionsForInternetNetwork(): SandboxRunOptions {
+  return {
+    network: {
+      egressMode: "internet",
+    },
+  };
+}
+
+export function startOptionsForNoInternetNetwork(): SandboxRunOptions {
+  return {
+    network: {
+      egressMode: "none",
+    },
+  };
+}
+
+export function uniqueSmokeTag(): SandboxTag {
+  return `cwsandbox-js-smoke-${Date.now()}-${Math.random().toString(36).slice(2, 10)}x`;
+}
+
+export function withStartedSandbox<TResult>(
+  client: SandboxClient,
+  options: SandboxRunOptions,
+  callback: (sandbox: Sandbox) => Promise<TResult> | TResult,
+): Promise<TResult> {
+  return client.withSandbox(callback, options);
+}
+
+function createSmokeConfig(): SmokeConfig {
+  return {
+    hasCredentials: Boolean(process.env["CWSANDBOX_API_KEY"]?.trim()),
+    hasWandbCredentials: hasWandbCredentials(),
+  };
+}
+
+function hasWandbCredentials(): boolean {
+  try {
+    resolveWandbApiKey();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function readSmokeScript(filename: string): string {
+  return readFileSync(join(smokeDir, "..", "scripts", filename), "utf8");
+}

@@ -1,0 +1,9 @@
+version: v2
+clean: true
+plugins:
+  - remote: buf.build/community/timostamm-protobuf-ts:v2.11.1
+    out: src/transports/node-grpc/generated
+    opt:
+      - client_generic
+      - generate_dependencies
+      - long_type_string

@@ -1,0 +1,48 @@
+{
+  "name": "cwsandbox-js",
+  "version": "0.0.0",
+  "private": true,
+  "description": "CoreWeave Sandbox TypeScript SDK monorepo.",
+  "license": "Apache-2.0",
+  "author": "CoreWeave, Inc.",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm --filter @coreweave/cwsandbox build",
+    "lint": "oxlint .",
+    "lint:fix": "oxlint --fix .",
+    "format": "oxfmt --check .",
+    "format:fix": "oxfmt .",
+    "fix": "pnpm lint:fix && pnpm format:fix",
+    "example:tanstack": "pnpm --filter @coreweave/cwsandbox-tanstack build && pnpm --dir examples/tanstack start",
+    "example:tanstack:typecheck": "pnpm --filter @coreweave/cwsandbox-tanstack build && pnpm --dir examples/tanstack typecheck",
+    "example:weave": "pnpm --dir examples/weave start",
+    "example:weave:typecheck": "pnpm --dir examples/weave typecheck",
+    "package:tanstack:build": "pnpm --filter @coreweave/cwsandbox-tanstack build",
+    "package:tanstack:test": "pnpm --filter @coreweave/cwsandbox-tanstack test",
+    "package:tanstack:typecheck": "pnpm --filter @coreweave/cwsandbox-tanstack typecheck",
+    "proto:update": "pnpm --filter @coreweave/cwsandbox proto:update",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "smoke": "pnpm test:e2e",
+    "smoke:stress": "tsx scripts/stress-smoke.ts",
+    "typecheck": "pnpm --filter @coreweave/cwsandbox typecheck",
+    "test": "pnpm --filter @coreweave/cwsandbox test",
+    "test:package": "pnpm build && vitest run --config vitest.package.config.ts",
+    "test:readme": "vitest run --config vitest.readme.config.ts",
+    "test:types": "pnpm --filter @coreweave/cwsandbox test:types",
+    "check": "pnpm lint && pnpm format && pnpm typecheck && pnpm test && pnpm test:types && pnpm test:readme && pnpm test:package && pnpm example:weave:typecheck && pnpm package:tanstack:typecheck && pnpm package:tanstack:test && pnpm example:tanstack:typecheck"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "^1.71.0",
+    "@coreweave/cwsandbox": "workspace:*",
+    "@types/node": "^22.20.1",
+    "oxfmt": "^0.59.0",
+    "oxlint": "^1.74.0",
+    "tsx": "^4.23.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@10.33.2"
+}

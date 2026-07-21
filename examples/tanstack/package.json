@@ -1,0 +1,22 @@
+{
+  "name": "@coreweave/cwsandbox-example-tanstack",
+  "version": "0.0.0",
+  "private": true,
+  "license": "BSD-3-Clause",
+  "author": "CoreWeave, Inc.",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "start": "pnpm build && node dist/index.js",
+    "typecheck": "tsc --noEmit --project tsconfig.json"
+  },
+  "dependencies": {
+    "@coreweave/cwsandbox-tanstack": "workspace:*",
+    "@tanstack/ai": "^0.39.1",
+    "@tanstack/ai-sandbox": "^0.2.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "typescript": "^6.0.3"
+  }
+}

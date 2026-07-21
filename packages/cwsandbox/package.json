@@ -1,0 +1,78 @@
+{
+  "name": "@coreweave/cwsandbox",
+  "version": "0.1.0-beta.0",
+  "description": "TypeScript SDK for CoreWeave Sandbox.",
+  "keywords": [
+    "coreweave",
+    "sandbox"
+  ],
+  "homepage": "https://github.com/coreweave/cwsandbox-client-js/tree/main/packages/cwsandbox#readme",
+  "bugs": {
+    "url": "https://github.com/coreweave/cwsandbox-client-js/issues"
+  },
+  "license": "Apache-2.0",
+  "author": "CoreWeave, Inc.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/coreweave/cwsandbox-client-js.git",
+    "directory": "packages/cwsandbox"
+  },
+  "source": "./src/index.ts",
+  "files": [
+    "dist",
+    "CHANGELOG.md",
+    "LICENSE-Apache-2.0.txt",
+    "NOTICE",
+    "README.md"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node/index.d.ts",
+      "import": "./dist/node/index.js",
+      "default": "./dist/node/index.js"
+    },
+    "./wandb": {
+      "types": "./dist/wandb/index.d.ts",
+      "import": "./dist/wandb/index.js",
+      "default": "./dist/wandb/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup && tsc --project tsconfig.build.json",
+    "prepack": "pnpm build",
+    "proto:update": "buf generate buf.build/coreweave/sandbox --template buf.gen.yaml --path coreweave/sandbox/v1beta2/gateway.proto --path coreweave/sandbox/v1beta2/secrets.proto --path coreweave/sandbox/v1beta2/streaming.proto && tsx scripts/postprocess-generated.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --config vitest.config.ts",
+    "test:types": "vitest --typecheck.only --config vitest.config.ts"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.14.4",
+    "@protobuf-ts/grpc-transport": "^2.11.1",
+    "@protobuf-ts/runtime": "^2.11.1",
+    "@protobuf-ts/runtime-rpc": "^2.11.1"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "^1.71.0",
+    "@types/node": "^22.20.1",
+    "tsup": "^8.5.1",
+    "tsx": "^4.23.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
