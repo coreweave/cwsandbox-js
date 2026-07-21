@@ -15,6 +15,7 @@ import type {
 import { validateMountedFiles } from "../mounted-files.js";
 import { validateNetworkOptions } from "../network.js";
 import { validateResources } from "../resources.js";
+import { validateSecrets } from "../secrets.js";
 import { validateAnnotations } from "./annotations.js";
 import { validateUniqueStringList } from "./string-list.js";
 import { validateTags } from "./tags.js";
@@ -54,6 +55,7 @@ export function validateSandboxRunOptions(options: SandboxRunOptions): void {
   validateMountedFiles(options.mountedFiles);
   validateNetworkOptions(options.ports, options.network);
   validateResources(options.resources);
+  validateSecrets(options.secrets, options.environmentVariables);
   validateUniqueStringList(options.profileIds, "profileIds");
   validateUniqueStringList(options.profileNames, "profileNames");
   validateUniqueStringList(options.runnerIds, "runnerIds");

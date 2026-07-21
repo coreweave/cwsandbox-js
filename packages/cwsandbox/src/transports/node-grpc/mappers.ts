@@ -6,6 +6,7 @@ import { commandForWorkingDirectory } from "../../internal/commands.js";
 import { normalizeFileContent, normalizeMountedFiles } from "../../internal/mounted-files.js";
 import { normalizePorts } from "../../internal/network.js";
 import { isAdvancedResources } from "../../internal/resources.js";
+import { groupSecretsByStore, normalizeSecrets } from "../../internal/secrets.js";
 import type { Command, ProcessResult } from "../../public/commands.js";
 import type { NetworkOptions } from "../../public/network.js";
 import type { ResourceOptions, ResourceSpec } from "../../public/resources.js";
@@ -37,6 +38,7 @@ import type {
   StartSandboxRequest as ProtoStartSandboxRequest,
   StartSandboxResponse as ProtoStartSandboxResponse,
 } from "./generated/coreweave/sandbox/v1beta2/gateway.js";
+import type { SecretStoreReference as ProtoSecretStoreReference } from "./generated/coreweave/sandbox/v1beta2/secrets.js";
 import type { Timestamp as ProtoTimestamp } from "./generated/google/protobuf/timestamp.js";
 
 const textDecoder = new TextDecoder();
@@ -66,8 +68,19 @@ export function toProtoStartRequest(request: StartSandboxRequest): ProtoStartSan
     ...toProtoStartNetwork(request),
     ...toProtoStartPlacement(request),
     runnerClusterSecrets: [],
-    secretStores: [],
+    secretStores: toProtoSecretStores(request.secrets),
   };
+}
+
+function toProtoSecretStores(secrets: StartSandboxRequest["secrets"]): ProtoSecretStoreReference[] {
+  return groupSecretsByStore(normalizeSecrets(secrets)).map((group) => ({
+    secrets: group.secrets.map((secret) => ({
+      envVar: secret.envVar,
+      field: secret.field,
+      path: secret.name,
+    })),
+    storeName: group.store,
+  }));
 }
 
 function toProtoStartMetadata(request: StartSandboxRequest): {

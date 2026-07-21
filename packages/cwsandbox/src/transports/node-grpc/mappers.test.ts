@@ -284,6 +284,74 @@ describe("node transport mappers", () => {
 
       expect(request.tags).toEqual(["project-demo", "purpose-smoke"]);
     });
+
+    it("maps secrets with default envVar to a single secret store", () => {
+      const request = toProtoStartRequest({
+        command: ["python"],
+        secrets: [{ store: "wandb-team-secrets", name: "HF_TOKEN" }],
+      });
+
+      expect(request.secretStores).toEqual([
+        {
+          secrets: [{ envVar: "HF_TOKEN", field: "", path: "HF_TOKEN" }],
+          storeName: "wandb-team-secrets",
+        },
+      ]);
+    });
+
+    it("maps optional field and envVar on secrets", () => {
+      const request = toProtoStartRequest({
+        command: ["python"],
+        secrets: [
+          {
+            envVar: "DB_PASS",
+            field: "password",
+            name: "db-credentials",
+            store: "wandb-team-secrets",
+          },
+        ],
+      });
+
+      expect(request.secretStores).toEqual([
+        {
+          secrets: [{ envVar: "DB_PASS", field: "password", path: "db-credentials" }],
+          storeName: "wandb-team-secrets",
+        },
+      ]);
+    });
+
+    it("groups secrets by store name", () => {
+      const request = toProtoStartRequest({
+        command: ["python"],
+        secrets: [
+          { store: "wandb-team-secrets", name: "HF_TOKEN" },
+          { store: "other-store", name: "API_KEY" },
+          { envVar: "OPENAI_KEY", name: "OPENAI_API_KEY", store: "wandb-team-secrets" },
+        ],
+      });
+
+      expect(request.secretStores).toEqual([
+        {
+          secrets: [
+            { envVar: "HF_TOKEN", field: "", path: "HF_TOKEN" },
+            { envVar: "OPENAI_KEY", field: "", path: "OPENAI_API_KEY" },
+          ],
+          storeName: "wandb-team-secrets",
+        },
+        {
+          secrets: [{ envVar: "API_KEY", field: "", path: "API_KEY" }],
+          storeName: "other-store",
+        },
+      ]);
+    });
+
+    it("maps omitted secrets to an empty secretStores list", () => {
+      const request = toProtoStartRequest({
+        command: ["python"],
+      });
+
+      expect(request.secretStores).toEqual([]);
+    });
   });
 
   describe("start and get responses", () => {

@@ -504,7 +504,45 @@ await client.run(["python"], {
 });
 ```
 
-Do not put secrets in annotations.
+Do not put secrets in annotations. Use `secrets` for store-backed injection.
+
+### Secrets
+
+Pass secret-store references at create/run time. The gateway resolves them
+server-side and injects the values as environment variables. The client never
+sends secret values.
+
+Field names match the Python SDK `Secret` (`store`, `name`, `field`, `env_var`),
+with camelCase `envVar` for TypeScript. On the wire, `name` is sent as proto
+`SecretMapping.path`. At most 50 secrets may be referenced per sandbox (Gateway
+pre-resolve limit).
+
+```ts
+await client.create({
+  secrets: [
+    { store: "wandb-team-secrets", name: "HF_TOKEN" },
+    {
+      store: "wandb-team-secrets",
+      name: "db-credentials",
+      field: "password",
+      envVar: "DB_PASS",
+    },
+  ],
+});
+```
+
+- `store` must match a Gateway-registered secret store name for the organization.
+  For W&B team secrets this is typically `wandb-team-secrets`.
+- `name` is the secret id in that store (proto `path`).
+- `field` is optional for structured secrets.
+- `envVar` defaults to `name` when omitted.
+
+For W&B-backed stores, authenticate through the W&B client path
+(`@coreweave/cwsandbox/wandb`) so identity claims can resolve team secrets.
+Create the secret in the W&B team Secret Manager first; registering the org
+secret store on Gateway is a one-time admin step.
+
+Do not put secret values in `environmentVariables`, annotations, or tags.
 
 ### Network And Ports
 
@@ -733,7 +771,8 @@ WANDB_PROJECT=
 WANDB_SANDBOX_BASE_URL=
 ```
 
-Do not put secrets in `environmentVariables`, `annotations`, or tags. Use the secrets feature when it lands.
+Do not put secret values in `environmentVariables`, `annotations`, or tags.
+Use `secrets` for store-backed injection (see [Secrets](#secrets)).
 
 ## Development
 

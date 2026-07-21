@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { logProcessResult, smokeConfig, testTimeoutMs, uniqueSmokeTag } from "./helpers.js";
 
 const describeWithWandbCredentials = smokeConfig.hasWandbCredentials ? describe : describe.skip;
+const describeWithWandbSecrets = smokeConfig.hasWandbSecretsSmoke ? describe : describe.skip;
 
 describeWithWandbCredentials("live W&B sandbox auth smoke", { sequential: true }, () => {
   it(
@@ -36,3 +37,61 @@ describeWithWandbCredentials("live W&B sandbox auth smoke", { sequential: true }
     testTimeoutMs,
   );
 });
+
+describeWithWandbSecrets("live W&B sandbox secrets smoke", { sequential: true }, () => {
+  it(
+    "injects a referenced W&B team secret as an environment variable",
+    async () => {
+      const secret = smokeConfig.wandbSecretsSmoke;
+      expect(secret).toBeDefined();
+      if (secret === undefined) {
+        return;
+      }
+
+      const client = createSandboxClientFromEnv();
+      const result = await client.withSandbox(
+        async (sandbox) => {
+          const processResult = await sandbox.commands.run(["printenv", secret.envVar]);
+          // Avoid echoing secret values into CI logs.
+          console.log(`wandb secrets exit code: ${processResult.exitCode}`);
+          console.log(
+            `wandb secrets stdout: ${JSON.stringify(processResult.ok ? "<redacted>" : processResult.stdout)}`,
+          );
+          console.log(`wandb secrets stderr: ${JSON.stringify(processResult.stderr)}`);
+          return processResult;
+        },
+        {
+          secrets: [
+            {
+              envVar: secret.envVar,
+              name: secret.name,
+              store: secret.store,
+            },
+          ],
+          tags: [uniqueSmokeTag()],
+        },
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      // Compare without toBe/toEqual so a mismatch does not print secret values.
+      expect(
+        result.stdout.trim() === secret.expected,
+        "injected secret env var did not match expected value (values redacted)",
+      ).toBe(true);
+    },
+    testTimeoutMs,
+  );
+});
+
+if (!smokeConfig.hasWandbCredentials) {
+  console.log(
+    "Skipping live W&B sandbox auth smoke: WANDB_API_KEY / W&B .netrc credential is not set.",
+  );
+}
+
+if (!smokeConfig.hasWandbSecretsSmoke) {
+  console.log(
+    "Skipping live W&B sandbox secrets smoke: set CWSANDBOX_SMOKE_SECRET_NAME and CWSANDBOX_SMOKE_SECRET_EXPECTED with W&B auth.",
+  );
+}

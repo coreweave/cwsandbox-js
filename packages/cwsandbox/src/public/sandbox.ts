@@ -6,6 +6,7 @@ import type { RequestOptions, Seconds } from "./common.js";
 import type { MountedFiles } from "./files.js";
 import type { NetworkOptions, PortInput } from "./network.js";
 import type { ResourceOptions, ResourceSpec } from "./resources.js";
+import type { Secrets } from "./secrets.js";
 
 export type EnvironmentVariables = Readonly<Record<string, string>>;
 export type FromIdOptions = RequestOptions;
@@ -43,6 +44,12 @@ export interface SandboxRunOptions extends RequestOptions {
   readonly profileNames?: readonly string[];
   readonly resources?: ResourceOptions;
   readonly runnerIds?: readonly string[];
+  /**
+   * Secret-store references to resolve server-side and inject as environment variables.
+   *
+   * Do not put secret values in `environmentVariables`, annotations, or tags.
+   */
+  readonly secrets?: Secrets;
   readonly tags?: readonly SandboxTag[];
   /**
    * Wait for the sandbox to reach `running` before resolving creation helpers.
