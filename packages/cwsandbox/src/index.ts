@@ -3,7 +3,7 @@
 // SPDX-PackageName: cwsandbox
 
 export { SandboxClient, type SandboxClientOptions, type WithSandboxCallback } from "./client.js";
-export { DEFAULT_KEEP_ALIVE_COMMAND } from "./defaults.js";
+export { DEFAULT_KEEP_ALIVE_COMMAND, DEFAULT_LIST_ALL_TIMEOUT_MS } from "./defaults.js";
 export {
   CWSandboxAuthenticationError,
   type CWSandboxErrorCode,
@@ -75,6 +75,7 @@ export type {
   EnvironmentVariables,
   FromIdOptions,
   GetSandboxResult,
+  ListAllSandboxesOptions,
   ListSandboxesOptions,
   ListSandboxesResult,
   SandboxAnnotations,

@@ -15,11 +15,14 @@ import type { RequestOptions } from "./public/common.js";
 import type {
   FromIdOptions,
   GetSandboxResult,
+  ListAllSandboxesOptions,
   ListSandboxesOptions,
   ListSandboxesResult,
   SandboxId,
+  SandboxInfo,
   SandboxRunOptions,
 } from "./public/sandbox.js";
+import { iterateListPages, listAllFromPages } from "./runtime/list-all.js";
 import { Sandbox } from "./sandbox.js";
 import type { SandboxTransport } from "./transport.js";
 
@@ -95,6 +98,46 @@ export class SandboxClient {
   public async list(options: ListSandboxesOptions = {}): Promise<ListSandboxesResult> {
     validateListSandboxesOptions(options);
     return this.transport.list(options);
+  }
+
+  /**
+   * List every sandbox matching the filters by following `nextPageToken`.
+   *
+   * Unlike `list()`, this returns `Sandbox` handles for all pages. `timeoutMs`
+   * is a wall-clock budget across pages (default 300s), not a per-page timeout.
+   */
+  public async listAll(options: ListAllSandboxesOptions = {}): Promise<readonly Sandbox[]> {
+    validateListSandboxesOptions(options);
+    return listAllFromPages(
+      (pageOptions) => this.list(pageOptions),
+      (info) => this.toSandbox(info),
+      options,
+    );
+  }
+
+  /**
+   * Iterate sandbox list pages by following `nextPageToken`.
+   *
+   * Use when you want to process each page as it arrives. Same timeout /
+   * abort / loop guards as `listAll()`.
+   */
+  public async *listPages(
+    options: ListAllSandboxesOptions = {},
+  ): AsyncGenerator<readonly Sandbox[], void, undefined> {
+    validateListSandboxesOptions(options);
+    yield* iterateListPages(
+      (pageOptions) => this.list(pageOptions),
+      (info) => this.toSandbox(info),
+      options,
+    );
+  }
+
+  private toSandbox(info: SandboxInfo): Sandbox {
+    return new Sandbox({
+      metadata: info,
+      sandboxId: info.sandboxId,
+      transport: this.transport,
+    });
   }
 
   public async delete(sandboxId: SandboxId, options: RequestOptions = {}): Promise<void> {

@@ -649,6 +649,25 @@ const { sandboxes, nextPageToken } = await client.list({
 });
 ```
 
+`list()` returns one page. Use `listAll()` when you want every matching sandbox as `Sandbox` handles (follows `nextPageToken` until exhausted). Use `listPages()` to process each page as it arrives. For both helpers, `timeoutMs` is a wall-clock budget across pages and defaults to 300 seconds:
+
+```ts
+const sandboxes = await client.listAll({
+  tags: ["project-demo"],
+  pageSize: 25,
+});
+
+await Promise.all(sandboxes.map((sandbox) => sandbox.delete()));
+```
+
+```ts
+for await (const page of client.listPages({ tags: ["project-demo"], pageSize: 25 })) {
+  for (const sandbox of page) {
+    await sandbox.delete();
+  }
+}
+```
+
 Delete through the client or sandbox instance:
 
 ```ts

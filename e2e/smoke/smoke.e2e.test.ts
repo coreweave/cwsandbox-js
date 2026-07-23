@@ -631,6 +631,37 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     );
 
     it(
+      "lists matching sandboxes page by page via listPages",
+      async () => {
+        const tag = uniqueSmokeTag();
+        const count = 3;
+        const created: Sandbox[] = [];
+
+        try {
+          const batch = await Promise.all(
+            Array.from({ length: count }, () => client.create({ tags: [tag] })),
+          );
+          created.push(...batch);
+
+          // pageSize: 1 forces nextPageToken follow-up across the created batch.
+          const listedIds = new Set<string>();
+          for await (const page of client.listPages({ pageSize: 1, tags: [tag] })) {
+            for (const sandbox of page) {
+              listedIds.add(sandbox.sandboxId);
+            }
+          }
+
+          for (const sandbox of created) {
+            expect(listedIds.has(sandbox.sandboxId)).toBe(true);
+          }
+        } finally {
+          await Promise.allSettled(created.map((sandbox) => sandbox.delete()));
+        }
+      },
+      testTimeoutMs,
+    );
+
+    it(
       "starts a sandbox with environment variables",
       async () => {
         await withStartedSandbox(
