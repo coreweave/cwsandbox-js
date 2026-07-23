@@ -76,6 +76,14 @@ export interface ListSandboxesOptions extends RequestOptions {
   readonly tags?: readonly SandboxTag[];
 }
 
+/**
+ * Options for `SandboxClient.listSandboxes()` and `SandboxClient.listAll()`.
+ *
+ * Omits `pageToken` because the helper owns pagination. `timeoutMs` is a
+ * wall-clock budget across all pages (default 300s), not a per-page RPC timeout.
+ */
+export type SandboxListOptions = Omit<ListSandboxesOptions, "pageToken">;
+
 export interface SandboxExposedPort {
   readonly name?: string;
   readonly port: number;

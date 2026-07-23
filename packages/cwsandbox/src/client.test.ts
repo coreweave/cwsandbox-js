@@ -2,12 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { MAX_LIST_ALL_PAGES } from "./defaults.js";
 import {
   CWSandboxNotFoundError,
+  CWSandboxTimeoutError,
+  CWSandboxTransportError,
   CWSandboxValidationError,
   DEFAULT_KEEP_ALIVE_COMMAND,
+  DEFAULT_LIST_ALL_TIMEOUT_MS,
   Sandbox,
   type ResourceOptions,
   type SandboxRunOptions,
@@ -228,6 +232,268 @@ describe("SandboxClient", () => {
       });
     });
 
+    it("lists all sandboxes across pages as Sandbox handles", async () => {
+      const listRequests: Parameters<SandboxTransport["list"]>[0][] = [];
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async list(options) {
+          listRequests.push(options);
+          if (listRequests.length === 1) {
+            return {
+              nextPageToken: "page-2",
+              sandboxes: [
+                {
+                  sandboxId: "sandbox-a",
+                  status: "running",
+                },
+              ],
+            };
+          }
+          if (listRequests.length === 2) {
+            return {
+              nextPageToken: "page-3",
+              sandboxes: [
+                {
+                  sandboxId: "sandbox-b",
+                  status: "running",
+                },
+              ],
+            };
+          }
+          return {
+            sandboxes: [
+              {
+                sandboxId: "sandbox-c",
+                status: "running",
+              },
+            ],
+          };
+        },
+      };
+
+      const sandboxes = await createClient(transport).listAll({
+        pageSize: 10,
+        tags: ["tag-a"],
+        timeoutMs: 5_000,
+      });
+
+      expect(sandboxes).toHaveLength(3);
+      expect(sandboxes.every((sandbox) => sandbox instanceof Sandbox)).toBe(true);
+      expect(sandboxes.map((sandbox) => sandbox.sandboxId)).toEqual([
+        "sandbox-a",
+        "sandbox-b",
+        "sandbox-c",
+      ]);
+      expect(listRequests).toEqual([
+        { pageSize: 10, tags: ["tag-a"], timeoutMs: 5_000 },
+        { pageSize: 10, pageToken: "page-2", tags: ["tag-a"], timeoutMs: expect.any(Number) },
+        { pageSize: 10, pageToken: "page-3", tags: ["tag-a"], timeoutMs: expect.any(Number) },
+      ]);
+    });
+
+    it("yields sandboxes one by one via listSandboxes", async () => {
+      let calls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async list() {
+          calls += 1;
+          if (calls === 1) {
+            return {
+              nextPageToken: "page-2",
+              sandboxes: [{ sandboxId: "sandbox-a", status: "running" }],
+            };
+          }
+          return {
+            sandboxes: [{ sandboxId: "sandbox-b", status: "running" }],
+          };
+        },
+      };
+
+      const ids: string[] = [];
+      for await (const sandbox of createClient(transport).listSandboxes({ timeoutMs: 5_000 })) {
+        ids.push(sandbox.sandboxId);
+      }
+
+      expect(ids).toEqual(["sandbox-a", "sandbox-b"]);
+    });
+
+    it("yields sandboxes page by page via listSandboxes().byPage()", async () => {
+      let calls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async list() {
+          calls += 1;
+          if (calls === 1) {
+            return {
+              nextPageToken: "page-2",
+              sandboxes: [{ sandboxId: "sandbox-a", status: "running" }],
+            };
+          }
+          return {
+            sandboxes: [{ sandboxId: "sandbox-b", status: "running" }],
+          };
+        },
+      };
+
+      const pages: string[][] = [];
+      for await (const page of createClient(transport)
+        .listSandboxes({ timeoutMs: 5_000 })
+        .byPage()) {
+        pages.push(page.map((sandbox) => sandbox.sandboxId));
+      }
+
+      expect(pages).toEqual([["sandbox-a"], ["sandbox-b"]]);
+    });
+
+    it("collects sandboxes via listSandboxes().collect()", async () => {
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async list() {
+          return {
+            sandboxes: [{ sandboxId: "sandbox-a", status: "running" }],
+          };
+        },
+      };
+
+      const sandboxes = await createClient(transport).listSandboxes({ timeoutMs: 5_000 }).collect();
+
+      expect(sandboxes.map((sandbox) => sandbox.sandboxId)).toEqual(["sandbox-a"]);
+      expect(sandboxes.every((sandbox) => sandbox instanceof Sandbox)).toBe(true);
+    });
+
+    it("applies the default listAll timeout budget when timeoutMs is omitted", async () => {
+      let listRequest: Parameters<SandboxTransport["list"]>[0] | undefined;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async list(options) {
+          listRequest = options;
+          return { sandboxes: [] };
+        },
+      };
+
+      await createClient(transport).listAll({ tags: ["tag-a"] });
+
+      expect(listRequest?.timeoutMs).toBe(DEFAULT_LIST_ALL_TIMEOUT_MS);
+    });
+
+    it("treats timeoutMs as a wall-clock budget across pages", async () => {
+      vi.useFakeTimers();
+      const timeouts: number[] = [];
+
+      try {
+        const transport: SandboxTransport = {
+          ...createFakeTransport(),
+          async list(options) {
+            timeouts.push(options.timeoutMs ?? -1);
+            vi.advanceTimersByTime(40);
+            if (timeouts.length === 1) {
+              return {
+                nextPageToken: "page-2",
+                sandboxes: [{ sandboxId: "sandbox-a", status: "running" }],
+              };
+            }
+            return {
+              sandboxes: [{ sandboxId: "sandbox-b", status: "running" }],
+            };
+          },
+        };
+
+        await createClient(transport).listAll({ timeoutMs: 100 });
+
+        expect(timeouts).toEqual([100, 60]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("times out when the listAll wall-clock budget is exhausted", async () => {
+      vi.useFakeTimers();
+
+      try {
+        const transport: SandboxTransport = {
+          ...createFakeTransport(),
+          async list() {
+            vi.advanceTimersByTime(100);
+            return {
+              nextPageToken: "page-2",
+              sandboxes: [{ sandboxId: "sandbox-a", status: "running" }],
+            };
+          },
+        };
+
+        await expect(createClient(transport).listAll({ timeoutMs: 100 })).rejects.toThrow(
+          CWSandboxTimeoutError,
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("detects repeated listAll page tokens", async () => {
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async list() {
+          return {
+            nextPageToken: "same-token",
+            sandboxes: [{ sandboxId: "sandbox-a", status: "running" }],
+          };
+        },
+      };
+
+      await expect(createClient(transport).listAll({ timeoutMs: 5_000 })).rejects.toThrow(
+        CWSandboxTransportError,
+      );
+    });
+
+    it("rejects when listAll exceeds the page cap", async () => {
+      let calls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async list() {
+          calls += 1;
+          return {
+            nextPageToken: `token-${calls}`,
+            sandboxes: [{ sandboxId: `sandbox-${calls}`, status: "running" }],
+          };
+        },
+      };
+
+      await expect(createClient(transport).listAll({ timeoutMs: 60_000 })).rejects.toThrow(
+        CWSandboxTransportError,
+      );
+      expect(calls).toBe(MAX_LIST_ALL_PAGES);
+    });
+
+    it("honors AbortSignal during listAll", async () => {
+      const controller = new AbortController();
+      const reason = new Error("aborted");
+      controller.abort(reason);
+
+      await expect(
+        createClient().listAll({ signal: controller.signal, timeoutMs: 5_000 }),
+      ).rejects.toBe(reason);
+    });
+
+    it("discards partial results when a later listAll page fails", async () => {
+      let calls = 0;
+      const error = new Error("list failed");
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async list() {
+          calls += 1;
+          if (calls === 1) {
+            return {
+              nextPageToken: "page-2",
+              sandboxes: [{ sandboxId: "sandbox-a", status: "running" }],
+            };
+          }
+          throw error;
+        },
+      };
+
+      await expect(createClient(transport).listAll({ timeoutMs: 5_000 })).rejects.toBe(error);
+    });
+
     it("deletes sandboxes through the configured transport", async () => {
       let deleteRequest: Parameters<SandboxTransport["delete"]>[0] | undefined;
       const transport: SandboxTransport = {
@@ -276,6 +542,7 @@ describe("SandboxClient", () => {
       await expect(client.list({ pageSize: -1 })).rejects.toThrow(CWSandboxValidationError);
       await expect(client.list({ pageSize: 1.5 })).rejects.toThrow(CWSandboxValidationError);
       await expect(client.list({ pageSize: Number.NaN })).rejects.toThrow(CWSandboxValidationError);
+      await expect(client.listAll({ pageSize: -1 })).rejects.toThrow(CWSandboxValidationError);
     });
 
     it("throws a typed validation error for empty run commands", async () => {

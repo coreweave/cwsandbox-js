@@ -18,8 +18,11 @@ import type {
   ListSandboxesOptions,
   ListSandboxesResult,
   SandboxId,
+  SandboxInfo,
+  SandboxListOptions,
   SandboxRunOptions,
 } from "./public/sandbox.js";
+import { SandboxList } from "./runtime/sandbox-list.js";
 import { Sandbox } from "./sandbox.js";
 import type { SandboxTransport } from "./transport.js";
 
@@ -95,6 +98,40 @@ export class SandboxClient {
   public async list(options: ListSandboxesOptions = {}): Promise<ListSandboxesResult> {
     validateListSandboxesOptions(options);
     return this.transport.list(options);
+  }
+
+  /**
+   * List matching sandboxes by following `nextPageToken`.
+   *
+   * Returns a lazy `SandboxList`: iterate sandboxes one-by-one, call
+   * `.byPage()` for page batches, or `.collect()` for a full array. Handles
+   * are built from list metadata only. `timeoutMs` is a wall-clock budget
+   * across pages (default 300s), not a per-page timeout.
+   */
+  public listSandboxes(options: SandboxListOptions = {}): SandboxList {
+    validateListSandboxesOptions(options);
+    return new SandboxList(
+      (pageOptions) => this.list(pageOptions),
+      (info) => this.toSandbox(info),
+      options,
+    );
+  }
+
+  /**
+   * List every sandbox matching the filters by following `nextPageToken`.
+   *
+   * Alias of `listSandboxes(options).collect()`.
+   */
+  public async listAll(options: SandboxListOptions = {}): Promise<readonly Sandbox[]> {
+    return this.listSandboxes(options).collect();
+  }
+
+  private toSandbox(info: SandboxInfo): Sandbox {
+    return new Sandbox({
+      metadata: info,
+      sandboxId: info.sandboxId,
+      transport: this.transport,
+    });
   }
 
   public async delete(sandboxId: SandboxId, options: RequestOptions = {}): Promise<void> {

@@ -37,9 +37,12 @@ import {
   type PortOptions,
   type ProcessResult,
   type ResourceRequestsAndLimits,
+  type Sandbox,
   type SandboxAnnotations,
   type SandboxExposedPort,
   type SandboxInfo,
+  type SandboxList,
+  type SandboxListOptions,
   type SandboxMetadata,
   type SandboxResourceSpec,
   type SandboxRunOptions,
@@ -301,6 +304,22 @@ expectTypeOf(
   }),
 ).toEqualTypeOf<ReturnType<SandboxClient["run"]>>();
 expectTypeOf(client.list({ tags })).toEqualTypeOf<Promise<ListSandboxesResult>>();
+expectTypeOf(client.listSandboxes({ tags })).toEqualTypeOf<SandboxList>();
+expectTypeOf(client.listAll({ tags })).toEqualTypeOf<Promise<readonly Sandbox[]>>();
+const listOptions = {
+  includeStopped: true,
+  pageSize: 25,
+  tags,
+  timeoutMs: 1_000,
+} as const satisfies SandboxListOptions;
+expectTypeOf(client.listSandboxes(listOptions)).toEqualTypeOf<SandboxList>();
+expectTypeOf(client.listAll(listOptions)).toEqualTypeOf<Promise<readonly Sandbox[]>>();
+expectTypeOf(client.listSandboxes(listOptions).collect()).toEqualTypeOf<
+  Promise<readonly Sandbox[]>
+>();
+expectTypeOf(client.listSandboxes(listOptions).byPage()).toEqualTypeOf<
+  AsyncIterable<readonly Sandbox[]>
+>();
 const annotations = {
   purpose: "smoke-test",
   team: "platform",
@@ -503,7 +522,15 @@ expectTypeOf(client.get("sandbox-123", { timeoutMs: 1 })).toEqualTypeOf<
   Promise<GetSandboxResult>
 >();
 expectTypeOf(client.list()).toEqualTypeOf<Promise<ListSandboxesResult>>();
+expectTypeOf(client.listSandboxes()).toEqualTypeOf<SandboxList>();
+expectTypeOf(client.listAll()).toEqualTypeOf<Promise<readonly Sandbox[]>>();
 expectTypeOf(client.delete("sandbox-123")).toEqualTypeOf<Promise<void>>();
+
+// @ts-expect-error listSandboxes owns pagination and does not accept pageToken.
+client.listSandboxes({ pageToken: "page-1" });
+
+// @ts-expect-error listAll owns pagination and does not accept pageToken.
+client.listAll({ pageToken: "page-1" });
 expectTypeOf(sandbox.stop({ gracefulShutdownSeconds: 5, snapshotOnStop: true })).toEqualTypeOf<
   Promise<void>
 >();

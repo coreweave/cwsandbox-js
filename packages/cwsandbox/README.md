@@ -640,7 +640,36 @@ const sandbox = await client.fromId("sandbox-id");
 
 Use `fromId()` when you need to run commands, read files, stream logs, or manage lifecycle through a `Sandbox` instance. Use `get()` when you only need current metadata.
 
-List active sandboxes:
+List sandboxes — most callers want every match as usable handles:
+
+```ts
+const sandboxes = await client.listAll({
+  tags: ["project-demo"],
+  pageSize: 25,
+});
+
+await Promise.all(sandboxes.map((sandbox) => sandbox.delete()));
+```
+
+`listAll()` is an alias of `listSandboxes(...).collect()`. Both return `Sandbox` instances built from list metadata (no extra RPCs until you call methods on a handle). `list()` returns one page of `SandboxInfo` metadata plus an optional `nextPageToken` if you are managing pagination yourself. On the helpers, `timeoutMs` is a wall-clock budget across all pages (default 300 seconds), not a per-page RPC timeout.
+
+Stream sandboxes as pages arrive:
+
+```ts
+for await (const sandbox of client.listSandboxes({ tags: ["project-demo"], pageSize: 25 })) {
+  await sandbox.delete();
+}
+```
+
+Process page batches:
+
+```ts
+for await (const page of client.listSandboxes({ tags: ["project-demo"], pageSize: 25 }).byPage()) {
+  await Promise.all(page.map((sandbox) => sandbox.delete()));
+}
+```
+
+One page at a time (manual pagination):
 
 ```ts
 const { sandboxes, nextPageToken } = await client.list({
@@ -661,11 +690,11 @@ Delete is idempotent: deleting a missing or already deleted sandbox resolves suc
 Clean up interrupted work by listing with the same tags you used at start:
 
 ```ts
-const { sandboxes } = await client.list({
+const sandboxes = await client.listAll({
   tags: ["project-demo"],
 });
 
-await Promise.all(sandboxes.map((sandbox) => client.delete(sandbox.sandboxId)));
+await Promise.all(sandboxes.map((sandbox) => sandbox.delete()));
 ```
 
 ## Error Handling

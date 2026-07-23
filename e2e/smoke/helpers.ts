@@ -75,6 +75,20 @@ export async function listIncludesSandbox(
   return false;
 }
 
+export async function listAllIncludesSandbox(
+  client: SandboxClient,
+  sandboxId: string,
+  tags: readonly SandboxTag[] = [],
+  options: { readonly pageSize?: number } = {},
+): Promise<Sandbox | undefined> {
+  const sandboxes = await client.listAll({
+    pageSize: options.pageSize ?? 100,
+    ...(tags.length === 0 ? {} : { tags }),
+  });
+
+  return sandboxes.find((sandbox) => sandbox.sandboxId === sandboxId);
+}
+
 export function logProcessResult(name: string, result: ProcessResult): void {
   console.log(`${name} exit code: ${result.exitCode}`);
   console.log(`${name} stdout: ${JSON.stringify(result.stdout)}`);
