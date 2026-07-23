@@ -69,6 +69,7 @@ export function toProtoStartRequest(request: StartSandboxRequest): ProtoStartSan
     ...toProtoStartPlacement(request),
     runnerClusterSecrets: [],
     secretStores: toProtoSecretStores(request.secrets),
+    volumes: [],
   };
 }
 
@@ -212,6 +213,7 @@ export function toProtoListSandboxesRequest(
     runnerIds: [...(request.runnerIds ?? [])],
     status: toProtoSandboxStatus(request.status),
     tags: [...(request.tags ?? [])],
+    volumeIds: [],
   };
 }
 

@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@coreweave/cwsandbox": "workspace:*",
-    "weave": "^0.15.1"
+    "weave": "^0.16.3"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",

@@ -467,6 +467,7 @@ describe("node transport mappers", () => {
         runnerIds: ["runner-id"],
         status: ProtoSandboxStatus.RUNNING,
         tags: ["tag-a"],
+        volumeIds: [],
       });
     });
 
