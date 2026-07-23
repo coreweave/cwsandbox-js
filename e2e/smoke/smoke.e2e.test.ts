@@ -636,6 +636,7 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
         const tag = uniqueSmokeTag();
         const count = 3;
         const created: Sandbox[] = [];
+        const listOptions = { pageSize: 1 as const, tags: [tag] };
 
         try {
           const batch = await Promise.all(
@@ -644,13 +645,30 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
           created.push(...batch);
 
           // pageSize: 1 forces nextPageToken follow-up across the created batch.
-          const listedIds = new Set<string>();
-          for await (const sandbox of client.listSandboxes({ pageSize: 1, tags: [tag] })) {
-            listedIds.add(sandbox.sandboxId);
+          const fromItems = new Set<string>();
+          for await (const sandbox of client.listSandboxes(listOptions)) {
+            fromItems.add(sandbox.sandboxId);
           }
 
+          const fromPages = new Set<string>();
+          for await (const page of client.listSandboxes(listOptions).byPage()) {
+            for (const sandbox of page) {
+              fromPages.add(sandbox.sandboxId);
+            }
+          }
+
+          const fromCollect = new Set(
+            (await client.listSandboxes(listOptions).collect()).map((sandbox) => sandbox.sandboxId),
+          );
+          const fromListAll = new Set(
+            (await client.listAll(listOptions)).map((sandbox) => sandbox.sandboxId),
+          );
+
           for (const sandbox of created) {
-            expect(listedIds.has(sandbox.sandboxId)).toBe(true);
+            expect(fromItems.has(sandbox.sandboxId)).toBe(true);
+            expect(fromPages.has(sandbox.sandboxId)).toBe(true);
+            expect(fromCollect.has(sandbox.sandboxId)).toBe(true);
+            expect(fromListAll.has(sandbox.sandboxId)).toBe(true);
           }
         } finally {
           await Promise.allSettled(created.map((sandbox) => sandbox.delete()));
