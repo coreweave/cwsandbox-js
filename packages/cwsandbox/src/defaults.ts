@@ -8,8 +8,8 @@ export const DEFAULT_KEEP_ALIVE_COMMAND = [
   "trap 'exit 0' TERM INT; sleep infinity & wait",
 ] as const;
 
-/** Overall wall-clock budget for `listAll()` / `listPages()` when `timeoutMs` is omitted. */
+/** Overall wall-clock budget for `listSandboxes()` / `listAll()` when `timeoutMs` is omitted. */
 export const DEFAULT_LIST_ALL_TIMEOUT_MS = 300_000;
 
-/** Maximum pages followed by `listAll()` / `listPages()` before failing. */
+/** Maximum pages followed by `listSandboxes()` / `listAll()` before failing. */
 export const MAX_LIST_ALL_PAGES = 100;

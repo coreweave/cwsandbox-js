@@ -631,7 +631,7 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     );
 
     it(
-      "lists matching sandboxes page by page via listPages",
+      "lists matching sandboxes via listSandboxes",
       async () => {
         const tag = uniqueSmokeTag();
         const count = 3;
@@ -645,10 +645,8 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
 
           // pageSize: 1 forces nextPageToken follow-up across the created batch.
           const listedIds = new Set<string>();
-          for await (const page of client.listPages({ pageSize: 1, tags: [tag] })) {
-            for (const sandbox of page) {
-              listedIds.add(sandbox.sandboxId);
-            }
+          for await (const sandbox of client.listSandboxes({ pageSize: 1, tags: [tag] })) {
+            listedIds.add(sandbox.sandboxId);
           }
 
           for (const sandbox of created) {

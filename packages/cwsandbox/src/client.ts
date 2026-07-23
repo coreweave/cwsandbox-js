@@ -15,14 +15,14 @@ import type { RequestOptions } from "./public/common.js";
 import type {
   FromIdOptions,
   GetSandboxResult,
-  ListAllSandboxesOptions,
   ListSandboxesOptions,
   ListSandboxesResult,
   SandboxId,
   SandboxInfo,
+  SandboxListOptions,
   SandboxRunOptions,
 } from "./public/sandbox.js";
-import { iterateListPages, listAllFromPages } from "./runtime/list-all.js";
+import { SandboxList } from "./runtime/sandbox-list.js";
 import { Sandbox } from "./sandbox.js";
 import type { SandboxTransport } from "./transport.js";
 
@@ -101,14 +101,16 @@ export class SandboxClient {
   }
 
   /**
-   * List every sandbox matching the filters by following `nextPageToken`.
+   * List matching sandboxes by following `nextPageToken`.
    *
-   * Unlike `list()`, this returns `Sandbox` handles for all pages. `timeoutMs`
-   * is a wall-clock budget across pages (default 300s), not a per-page timeout.
+   * Returns a lazy `SandboxList`: iterate sandboxes one-by-one, call
+   * `.byPage()` for page batches, or `.collect()` for a full array. Handles
+   * are built from list metadata only. `timeoutMs` is a wall-clock budget
+   * across pages (default 300s), not a per-page timeout.
    */
-  public async listAll(options: ListAllSandboxesOptions = {}): Promise<readonly Sandbox[]> {
+  public listSandboxes(options: SandboxListOptions = {}): SandboxList {
     validateListSandboxesOptions(options);
-    return listAllFromPages(
+    return new SandboxList(
       (pageOptions) => this.list(pageOptions),
       (info) => this.toSandbox(info),
       options,
@@ -116,20 +118,12 @@ export class SandboxClient {
   }
 
   /**
-   * Iterate sandbox list pages by following `nextPageToken`.
+   * List every sandbox matching the filters by following `nextPageToken`.
    *
-   * Use when you want to process each page as it arrives. Same timeout /
-   * abort / loop guards as `listAll()`.
+   * Alias of `listSandboxes(options).collect()`.
    */
-  public async *listPages(
-    options: ListAllSandboxesOptions = {},
-  ): AsyncGenerator<readonly Sandbox[], void, undefined> {
-    validateListSandboxesOptions(options);
-    yield* iterateListPages(
-      (pageOptions) => this.list(pageOptions),
-      (info) => this.toSandbox(info),
-      options,
-    );
+  public async listAll(options: SandboxListOptions = {}): Promise<readonly Sandbox[]> {
+    return this.listSandboxes(options).collect();
   }
 
   private toSandbox(info: SandboxInfo): Sandbox {

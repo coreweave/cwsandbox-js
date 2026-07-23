@@ -22,6 +22,7 @@ export {
   CWSandboxValidationError,
 } from "./errors.js";
 export { Sandbox } from "./sandbox.js";
+export { SandboxList } from "./runtime/sandbox-list.js";
 export type { SandboxTransport } from "./transport.js";
 export type {
   Command,
@@ -75,13 +76,13 @@ export type {
   EnvironmentVariables,
   FromIdOptions,
   GetSandboxResult,
-  ListAllSandboxesOptions,
   ListSandboxesOptions,
   ListSandboxesResult,
   SandboxAnnotations,
   SandboxExposedPort,
   SandboxId,
   SandboxInfo,
+  SandboxListOptions,
   SandboxMetadata,
   SandboxResourceSpec,
   SandboxRunOptions,

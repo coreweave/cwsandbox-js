@@ -291,7 +291,33 @@ describe("SandboxClient", () => {
       ]);
     });
 
-    it("yields sandboxes page by page via listPages", async () => {
+    it("yields sandboxes one by one via listSandboxes", async () => {
+      let calls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async list() {
+          calls += 1;
+          if (calls === 1) {
+            return {
+              nextPageToken: "page-2",
+              sandboxes: [{ sandboxId: "sandbox-a", status: "running" }],
+            };
+          }
+          return {
+            sandboxes: [{ sandboxId: "sandbox-b", status: "running" }],
+          };
+        },
+      };
+
+      const ids: string[] = [];
+      for await (const sandbox of createClient(transport).listSandboxes({ timeoutMs: 5_000 })) {
+        ids.push(sandbox.sandboxId);
+      }
+
+      expect(ids).toEqual(["sandbox-a", "sandbox-b"]);
+    });
+
+    it("yields sandboxes page by page via listSandboxes().byPage()", async () => {
       let calls = 0;
       const transport: SandboxTransport = {
         ...createFakeTransport(),
@@ -310,11 +336,29 @@ describe("SandboxClient", () => {
       };
 
       const pages: string[][] = [];
-      for await (const page of createClient(transport).listPages({ timeoutMs: 5_000 })) {
+      for await (const page of createClient(transport)
+        .listSandboxes({ timeoutMs: 5_000 })
+        .byPage()) {
         pages.push(page.map((sandbox) => sandbox.sandboxId));
       }
 
       expect(pages).toEqual([["sandbox-a"], ["sandbox-b"]]);
+    });
+
+    it("collects sandboxes via listSandboxes().collect()", async () => {
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async list() {
+          return {
+            sandboxes: [{ sandboxId: "sandbox-a", status: "running" }],
+          };
+        },
+      };
+
+      const sandboxes = await createClient(transport).listSandboxes({ timeoutMs: 5_000 }).collect();
+
+      expect(sandboxes.map((sandbox) => sandbox.sandboxId)).toEqual(["sandbox-a"]);
+      expect(sandboxes.every((sandbox) => sandbox instanceof Sandbox)).toBe(true);
     });
 
     it("applies the default listAll timeout budget when timeoutMs is omitted", async () => {

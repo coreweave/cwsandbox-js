@@ -651,25 +651,31 @@ const sandboxes = await client.listAll({
 await Promise.all(sandboxes.map((sandbox) => sandbox.delete()));
 ```
 
-`listAll()` and `listPages()` return `Sandbox` instances. `list()` returns one page of `SandboxInfo` metadata plus an optional `nextPageToken` if you are managing pagination yourself. On the helpers, `timeoutMs` is a wall-clock budget across all pages (default 300 seconds), not a per-page RPC timeout.
+`listAll()` is an alias of `listSandboxes(...).collect()`. Both return `Sandbox` instances built from list metadata (no extra RPCs until you call methods on a handle). `list()` returns one page of `SandboxInfo` metadata plus an optional `nextPageToken` if you are managing pagination yourself. On the helpers, `timeoutMs` is a wall-clock budget across all pages (default 300 seconds), not a per-page RPC timeout.
 
-One page at a time:
+Stream sandboxes as pages arrive:
+
+```ts
+for await (const sandbox of client.listSandboxes({ tags: ["project-demo"], pageSize: 25 })) {
+  await sandbox.delete();
+}
+```
+
+Process page batches:
+
+```ts
+for await (const page of client.listSandboxes({ tags: ["project-demo"], pageSize: 25 }).byPage()) {
+  await Promise.all(page.map((sandbox) => sandbox.delete()));
+}
+```
+
+One page at a time (manual pagination):
 
 ```ts
 const { sandboxes, nextPageToken } = await client.list({
   tags: ["project-demo"],
   pageSize: 25,
 });
-```
-
-Process each page as it arrives:
-
-```ts
-for await (const page of client.listPages({ tags: ["project-demo"], pageSize: 25 })) {
-  for (const sandbox of page) {
-    await sandbox.delete();
-  }
-}
 ```
 
 Delete through the client or sandbox instance:

@@ -5,10 +5,10 @@
 import { DEFAULT_LIST_ALL_TIMEOUT_MS, MAX_LIST_ALL_PAGES } from "../defaults.js";
 import { CWSandboxTimeoutError, CWSandboxTransportError } from "../errors.js";
 import type {
-  ListAllSandboxesOptions,
   ListSandboxesOptions,
   ListSandboxesResult,
   SandboxInfo,
+  SandboxListOptions,
 } from "../public/sandbox.js";
 
 const LIST_OPERATION = "List sandboxes";
@@ -16,7 +16,7 @@ const LIST_OPERATION = "List sandboxes";
 export async function* iterateListPages<TSandbox>(
   listPage: (options: ListSandboxesOptions) => Promise<ListSandboxesResult>,
   toSandbox: (info: SandboxInfo) => TSandbox,
-  options: ListAllSandboxesOptions = {},
+  options: SandboxListOptions = {},
 ): AsyncGenerator<readonly TSandbox[], void, undefined> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_LIST_ALL_TIMEOUT_MS;
   const deadline = Date.now() + timeoutMs;
@@ -66,7 +66,7 @@ export async function* iterateListPages<TSandbox>(
 export async function listAllFromPages<TSandbox>(
   listPage: (options: ListSandboxesOptions) => Promise<ListSandboxesResult>,
   toSandbox: (info: SandboxInfo) => TSandbox,
-  options: ListAllSandboxesOptions = {},
+  options: SandboxListOptions = {},
 ): Promise<readonly TSandbox[]> {
   const sandboxes: TSandbox[] = [];
 
