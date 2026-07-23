@@ -32,11 +32,11 @@
     "check": "pnpm lint && pnpm format && pnpm typecheck && pnpm test && pnpm test:types && pnpm test:readme && pnpm test:package && pnpm example:weave:typecheck && pnpm package:tanstack:typecheck && pnpm package:tanstack:test && pnpm example:tanstack:typecheck"
   },
   "devDependencies": {
-    "@bufbuild/buf": "^1.71.0",
+    "@bufbuild/buf": "^1.72.0",
     "@coreweave/cwsandbox": "workspace:*",
     "@types/node": "^22.20.1",
-    "oxfmt": "^0.59.0",
-    "oxlint": "^1.74.0",
+    "oxfmt": "^0.60.0",
+    "oxlint": "^1.75.0",
     "tsx": "^4.23.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10"

@@ -232,6 +232,44 @@ export interface FileSystemSnapshotSource {
     fileSystemSnapshotId: string;
 }
 /**
+ * VolumeAttachment mounts a registered Volume (an org-registered shared
+ * storage resource, managed via the v1 VolumeService) into the sandbox.
+ * Mounts are live views of the shared backing data: writes are immediately
+ * visible to every other mounter. A Volume with a cluster-local source pins
+ * scheduling to the runner that owns it.
+ *
+ * @generated from protobuf message coreweave.sandbox.v1beta2.VolumeAttachment
+ */
+export interface VolumeAttachment {
+    /**
+     * The registered Volume to mount.
+     *
+     * @generated from protobuf field: string volume_id = 1
+     */
+    volumeId: string;
+    /**
+     * Absolute path to mount at inside the sandbox container.
+     *
+     * @generated from protobuf field: string mount_path = 2
+     */
+    mountPath: string;
+    /**
+     * Relative path inside the volume to mount instead of its root — the
+     * per-sandbox isolation knob. Composed under the volume source's own
+     * sub_path. Must be relative and canonical (no "." / "..").
+     *
+     * @generated from protobuf field: string sub_path = 3
+     */
+    subPath: string;
+    /**
+     * Mount read-only. The volume-level read_only flag is a floor: when it is
+     * true every mount is read-only regardless of this field.
+     *
+     * @generated from protobuf field: bool read_only = 4
+     */
+    readOnly: boolean;
+}
+/**
  * SandboxFileSystemMount describes a scratch filesystem mounted into the
  * sandbox. V1 implements File System Snapshot-backed EmptyDir semantics;
  * live/shared filesystem sources are reserved for a future product shape.
@@ -345,6 +383,18 @@ export interface ObjectStorageAccess {
      * @generated from protobuf field: coreweave.sandbox.v1beta2.ObjectStoragePermission permission = 2
      */
     permission: ObjectStoragePermission; // Required access level
+    /**
+     * Optional object-key prefix that scopes the vended credential to keys under it,
+     * applied to every bucket in the grant (e.g. "tenants/<org>/cache/"). When unset,
+     * the credential is not prefix-scoped. The caller owns and supplies this scope.
+     *
+     * Validated (InvalidArgument otherwise): must start with an alphanumeric, contain
+     * only characters [a-zA-Z0-9._/-], contain no ".." or "//", be at most 512 bytes,
+     * and end with "/".
+     *
+     * @generated from protobuf field: string object_prefix = 3
+     */
+    objectPrefix: string;
 }
 // ----------------------------------------------------------------------------------
 // Request/Response Messages
@@ -448,6 +498,10 @@ export interface StartSandboxRequest {
      * @generated from protobuf field: coreweave.sandbox.v1beta2.ResourceRequest resource_requests = 32
      */
     resourceRequests?: ResourceRequest; // The requested resource request. If provided, resource_limits must also be set. resource_request attributes must always be equal to or lower than their resource_limit counterpart.
+    /**
+     * @generated from protobuf field: repeated coreweave.sandbox.v1beta2.VolumeAttachment volumes = 34
+     */
+    volumes: VolumeAttachment[]; // Registered Volumes to mount (live shared storage). Max 8 per sandbox. A cluster-local volume pins scheduling to its owning runner.
 }
 /**
  * StartSandboxResponse returns identifiers and metadata for a started sandbox.
@@ -645,6 +699,15 @@ export interface FileSystemSnapshot {
      * @generated from protobuf field: string idempotency_key = 10
      */
     idempotencyKey: string;
+    /**
+     * The object-storage bucket this snapshot's archive was written to. Lets a
+     * customer see which snapshots a bucket change stranded: when object_bucket
+     * differs from the org's current FSS bucket, restore returns
+     * CWSANDBOX_FSS_BUCKET_MISMATCH (reversible by reverting the bucket).
+     *
+     * @generated from protobuf field: string object_bucket = 11
+     */
+    objectBucket: string;
 }
 /**
  * GetFileSystemSnapshotRequest gets an org-scoped FSS by id.
@@ -850,6 +913,10 @@ export interface ListSandboxesRequest {
      * @generated from protobuf field: string page_token = 9
      */
     pageToken: string;
+    /**
+     * @generated from protobuf field: repeated string volume_ids = 10
+     */
+    volumeIds: string[]; // Filter by attached registered Volumes
 }
 /**
  * ListSandboxesResponse returns a list of sandboxes.
@@ -1315,6 +1382,63 @@ export interface DeleteObjectStorageWIFConfigRequest {
 export interface DeleteObjectStorageWIFConfigResponse {
 }
 /**
+ * FileSystemSnapshotBucketConfig is an organization's FSS bucket configuration.
+ * The mode is implied by field presence: supply bucket_name (+ region) to bring
+ * your own bucket; leave both empty for CoreWeave-managed (the default).
+ *
+ * @generated from protobuf message coreweave.sandbox.v1beta2.FileSystemSnapshotBucketConfig
+ */
+export interface FileSystemSnapshotBucketConfig {
+    /**
+     * Bring-your-own bucket name. Empty means CoreWeave manages the bucket.
+     *
+     * @generated from protobuf field: string bucket_name = 1
+     */
+    bucketName: string;
+    /**
+     * Object-store region for the bring-your-own bucket. Required iff bucket_name is set.
+     *
+     * @generated from protobuf field: string region = 2
+     */
+    region: string;
+    /**
+     * The effective ownership mode, derived by the server.
+     *
+     * @generated from protobuf field: coreweave.sandbox.v1beta2.FileSystemSnapshotBucketMode mode = 3
+     */
+    mode: FileSystemSnapshotBucketMode;
+    /**
+     * The bucket actually in effect: the customer bucket, or the CoreWeave-managed derived name.
+     *
+     * @generated from protobuf field: string effective_bucket_name = 4
+     */
+    effectiveBucketName: string;
+}
+/**
+ * No fields — org_id is derived from auth context.
+ *
+ * @generated from protobuf message coreweave.sandbox.v1beta2.GetFileSystemSnapshotBucketConfigRequest
+ */
+export interface GetFileSystemSnapshotBucketConfigRequest {
+}
+/**
+ * @generated from protobuf message coreweave.sandbox.v1beta2.SetFileSystemSnapshotBucketConfigRequest
+ */
+export interface SetFileSystemSnapshotBucketConfigRequest {
+    /**
+     * Bring-your-own bucket name. Empty reverts the org to CoreWeave-managed (full-replace PUT).
+     *
+     * @generated from protobuf field: string bucket_name = 1
+     */
+    bucketName: string;
+    /**
+     * Object-store region for the bring-your-own bucket. Required iff bucket_name is set.
+     *
+     * @generated from protobuf field: string region = 2
+     */
+    region: string;
+}
+/**
  * OutputPolicy selects how exec output is returned.
  *
  * @generated from protobuf enum coreweave.sandbox.v1beta2.OutputPolicy
@@ -1565,6 +1689,34 @@ export enum ObjectStoragePermission {
      * @generated from protobuf enum value: OBJECT_STORAGE_PERMISSION_READ_WRITE = 2;
      */
     READ_WRITE = 2
+}
+// ----------------------------------------------------------------------------------
+// File System Snapshot Bucket Configuration
+// ----------------------------------------------------------------------------------
+
+/**
+ * FileSystemSnapshotBucketMode is the effective FSS bucket-ownership mode for an
+ * org, derived by the server from whether a customer bucket is configured.
+ *
+ * @generated from protobuf enum coreweave.sandbox.v1beta2.FileSystemSnapshotBucketMode
+ */
+export enum FileSystemSnapshotBucketMode {
+    /**
+     * @generated from protobuf enum value: FILE_SYSTEM_SNAPSHOT_BUCKET_MODE_UNSPECIFIED = 0;
+     */
+    UNSPECIFIED = 0,
+    /**
+     * CoreWeave lazily provisions and manages the org's FSS bucket.
+     *
+     * @generated from protobuf enum value: FILE_SYSTEM_SNAPSHOT_BUCKET_MODE_CW_MANAGED = 1;
+     */
+    CW_MANAGED = 1,
+    /**
+     * The customer brings and owns the bucket; CoreWeave performs no admin operations on it.
+     *
+     * @generated from protobuf enum value: FILE_SYSTEM_SNAPSHOT_BUCKET_MODE_BRING_YOUR_OWN = 2;
+     */
+    BRING_YOUR_OWN = 2
 }
 // @generated message type with reflection information, may provide speed optimized methods
 class MountedFile$Type extends MessageType<MountedFile> {
@@ -2164,6 +2316,77 @@ class FileSystemSnapshotSource$Type extends MessageType<FileSystemSnapshotSource
  */
 export const FileSystemSnapshotSource = new FileSystemSnapshotSource$Type();
 // @generated message type with reflection information, may provide speed optimized methods
+class VolumeAttachment$Type extends MessageType<VolumeAttachment> {
+    constructor() {
+        super("coreweave.sandbox.v1beta2.VolumeAttachment", [
+            { no: 1, name: "volume_id", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["REQUIRED"] } },
+            { no: 2, name: "mount_path", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["REQUIRED"] } },
+            { no: 3, name: "sub_path", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
+            { no: 4, name: "read_only", kind: "scalar", T: 8 /*ScalarType.BOOL*/, options: { "google.api.field_behavior": ["OPTIONAL"] } }
+        ]);
+    }
+    create(value?: PartialMessage<VolumeAttachment>): VolumeAttachment {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.volumeId = "";
+        message.mountPath = "";
+        message.subPath = "";
+        message.readOnly = false;
+        if (value !== undefined)
+            reflectionMergePartial<VolumeAttachment>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: VolumeAttachment): VolumeAttachment {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* string volume_id */ 1:
+                    message.volumeId = reader.string();
+                    break;
+                case /* string mount_path */ 2:
+                    message.mountPath = reader.string();
+                    break;
+                case /* string sub_path */ 3:
+                    message.subPath = reader.string();
+                    break;
+                case /* bool read_only */ 4:
+                    message.readOnly = reader.bool();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: VolumeAttachment, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* string volume_id = 1; */
+        if (message.volumeId !== "")
+            writer.tag(1, WireType.LengthDelimited).string(message.volumeId);
+        /* string mount_path = 2; */
+        if (message.mountPath !== "")
+            writer.tag(2, WireType.LengthDelimited).string(message.mountPath);
+        /* string sub_path = 3; */
+        if (message.subPath !== "")
+            writer.tag(3, WireType.LengthDelimited).string(message.subPath);
+        /* bool read_only = 4; */
+        if (message.readOnly !== false)
+            writer.tag(4, WireType.Varint).bool(message.readOnly);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message coreweave.sandbox.v1beta2.VolumeAttachment
+ */
+export const VolumeAttachment = new VolumeAttachment$Type();
+// @generated message type with reflection information, may provide speed optimized methods
 class SandboxFileSystemMount$Type extends MessageType<SandboxFileSystemMount> {
     constructor() {
         super("coreweave.sandbox.v1beta2.SandboxFileSystemMount", [
@@ -2447,13 +2670,15 @@ class ObjectStorageAccess$Type extends MessageType<ObjectStorageAccess> {
     constructor() {
         super("coreweave.sandbox.v1beta2.ObjectStorageAccess", [
             { no: 1, name: "buckets", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/ },
-            { no: 2, name: "permission", kind: "enum", T: () => ["coreweave.sandbox.v1beta2.ObjectStoragePermission", ObjectStoragePermission, "OBJECT_STORAGE_PERMISSION_"] }
+            { no: 2, name: "permission", kind: "enum", T: () => ["coreweave.sandbox.v1beta2.ObjectStoragePermission", ObjectStoragePermission, "OBJECT_STORAGE_PERMISSION_"] },
+            { no: 3, name: "object_prefix", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } }
         ]);
     }
     create(value?: PartialMessage<ObjectStorageAccess>): ObjectStorageAccess {
         const message = globalThis.Object.create((this.messagePrototype!));
         message.buckets = [];
         message.permission = 0;
+        message.objectPrefix = "";
         if (value !== undefined)
             reflectionMergePartial<ObjectStorageAccess>(this, message, value);
         return message;
@@ -2468,6 +2693,9 @@ class ObjectStorageAccess$Type extends MessageType<ObjectStorageAccess> {
                     break;
                 case /* coreweave.sandbox.v1beta2.ObjectStoragePermission permission */ 2:
                     message.permission = reader.int32();
+                    break;
+                case /* string object_prefix */ 3:
+                    message.objectPrefix = reader.string();
                     break;
                 default:
                     let u = options.readUnknownField;
@@ -2487,6 +2715,9 @@ class ObjectStorageAccess$Type extends MessageType<ObjectStorageAccess> {
         /* coreweave.sandbox.v1beta2.ObjectStoragePermission permission = 2; */
         if (message.permission !== 0)
             writer.tag(2, WireType.Varint).int32(message.permission);
+        /* string object_prefix = 3; */
+        if (message.objectPrefix !== "")
+            writer.tag(3, WireType.LengthDelimited).string(message.objectPrefix);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -2522,7 +2753,8 @@ class StartSandboxRequest$Type extends MessageType<StartSandboxRequest> {
             { no: 26, name: "pod_annotations", kind: "map", K: 9 /*ScalarType.STRING*/, V: { kind: "scalar", T: 9 /*ScalarType.STRING*/ }, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 30, name: "secret_stores", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => SecretStoreReference, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 31, name: "resource_limits", kind: "message", T: () => ResourceRequest, options: { "google.api.field_behavior": ["OPTIONAL"] } },
-            { no: 32, name: "resource_requests", kind: "message", T: () => ResourceRequest, options: { "google.api.field_behavior": ["OPTIONAL"] } }
+            { no: 32, name: "resource_requests", kind: "message", T: () => ResourceRequest, options: { "google.api.field_behavior": ["OPTIONAL"] } },
+            { no: 34, name: "volumes", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => VolumeAttachment, options: { "google.api.field_behavior": ["OPTIONAL"] } }
         ]);
     }
     create(value?: PartialMessage<StartSandboxRequest>): StartSandboxRequest {
@@ -2542,6 +2774,7 @@ class StartSandboxRequest$Type extends MessageType<StartSandboxRequest> {
         message.runnerClusterSecrets = [];
         message.podAnnotations = {};
         message.secretStores = [];
+        message.volumes = [];
         if (value !== undefined)
             reflectionMergePartial<StartSandboxRequest>(this, message, value);
         return message;
@@ -2616,6 +2849,9 @@ class StartSandboxRequest$Type extends MessageType<StartSandboxRequest> {
                     break;
                 case /* coreweave.sandbox.v1beta2.ResourceRequest resource_requests */ 32:
                     message.resourceRequests = ResourceRequest.internalBinaryRead(reader, reader.uint32(), options, message.resourceRequests);
+                    break;
+                case /* repeated coreweave.sandbox.v1beta2.VolumeAttachment volumes */ 34:
+                    message.volumes.push(VolumeAttachment.internalBinaryRead(reader, reader.uint32(), options));
                     break;
                 default:
                     let u = options.readUnknownField;
@@ -2727,6 +2963,9 @@ class StartSandboxRequest$Type extends MessageType<StartSandboxRequest> {
         /* repeated string profile_names = 33; */
         for (let i = 0; i < message.profileNames.length; i++)
             writer.tag(33, WireType.LengthDelimited).string(message.profileNames[i]);
+        /* repeated coreweave.sandbox.v1beta2.VolumeAttachment volumes = 34; */
+        for (let i = 0; i < message.volumes.length; i++)
+            VolumeAttachment.internalBinaryWrite(message.volumes[i], writer.tag(34, WireType.LengthDelimited).fork(), options).join();
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -3162,7 +3401,8 @@ class FileSystemSnapshot$Type extends MessageType<FileSystemSnapshot> {
             { no: 7, name: "completed_at", kind: "message", T: () => Timestamp },
             { no: 8, name: "source_sandbox_id", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
             { no: 9, name: "trigger", kind: "enum", T: () => ["coreweave.sandbox.v1beta2.FileSystemSnapshotTrigger", FileSystemSnapshotTrigger, "FILE_SYSTEM_SNAPSHOT_TRIGGER_"] },
-            { no: 10, name: "idempotency_key", kind: "scalar", T: 9 /*ScalarType.STRING*/ }
+            { no: 10, name: "idempotency_key", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 11, name: "object_bucket", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } }
         ]);
     }
     create(value?: PartialMessage<FileSystemSnapshot>): FileSystemSnapshot {
@@ -3174,6 +3414,7 @@ class FileSystemSnapshot$Type extends MessageType<FileSystemSnapshot> {
         message.sourceSandboxId = "";
         message.trigger = 0;
         message.idempotencyKey = "";
+        message.objectBucket = "";
         if (value !== undefined)
             reflectionMergePartial<FileSystemSnapshot>(this, message, value);
         return message;
@@ -3212,6 +3453,9 @@ class FileSystemSnapshot$Type extends MessageType<FileSystemSnapshot> {
                     break;
                 case /* string idempotency_key */ 10:
                     message.idempotencyKey = reader.string();
+                    break;
+                case /* string object_bucket */ 11:
+                    message.objectBucket = reader.string();
                     break;
                 default:
                     let u = options.readUnknownField;
@@ -3255,6 +3499,9 @@ class FileSystemSnapshot$Type extends MessageType<FileSystemSnapshot> {
         /* string idempotency_key = 10; */
         if (message.idempotencyKey !== "")
             writer.tag(10, WireType.LengthDelimited).string(message.idempotencyKey);
+        /* string object_bucket = 11; */
+        if (message.objectBucket !== "")
+            writer.tag(11, WireType.LengthDelimited).string(message.objectBucket);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -3748,7 +3995,8 @@ class ListSandboxesRequest$Type extends MessageType<ListSandboxesRequest> {
             { no: 5, name: "max_timeout_seconds", kind: "scalar", T: 5 /*ScalarType.INT32*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 6, name: "include_stopped", kind: "scalar", T: 8 /*ScalarType.BOOL*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 8, name: "page_size", kind: "scalar", T: 5 /*ScalarType.INT32*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
-            { no: 9, name: "page_token", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } }
+            { no: 9, name: "page_token", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
+            { no: 10, name: "volume_ids", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } }
         ]);
     }
     create(value?: PartialMessage<ListSandboxesRequest>): ListSandboxesRequest {
@@ -3762,6 +4010,7 @@ class ListSandboxesRequest$Type extends MessageType<ListSandboxesRequest> {
         message.includeStopped = false;
         message.pageSize = 0;
         message.pageToken = "";
+        message.volumeIds = [];
         if (value !== undefined)
             reflectionMergePartial<ListSandboxesRequest>(this, message, value);
         return message;
@@ -3797,6 +4046,9 @@ class ListSandboxesRequest$Type extends MessageType<ListSandboxesRequest> {
                     break;
                 case /* string page_token */ 9:
                     message.pageToken = reader.string();
+                    break;
+                case /* repeated string volume_ids */ 10:
+                    message.volumeIds.push(reader.string());
                     break;
                 default:
                     let u = options.readUnknownField;
@@ -3837,6 +4089,9 @@ class ListSandboxesRequest$Type extends MessageType<ListSandboxesRequest> {
         /* string page_token = 9; */
         if (message.pageToken !== "")
             writer.tag(9, WireType.LengthDelimited).string(message.pageToken);
+        /* repeated string volume_ids = 10; */
+        for (let i = 0; i < message.volumeIds.length; i++)
+            writer.tag(10, WireType.LengthDelimited).string(message.volumeIds[i]);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -5190,6 +5445,170 @@ class DeleteObjectStorageWIFConfigResponse$Type extends MessageType<DeleteObject
  * @generated MessageType for protobuf message coreweave.sandbox.v1beta2.DeleteObjectStorageWIFConfigResponse
  */
 export const DeleteObjectStorageWIFConfigResponse = new DeleteObjectStorageWIFConfigResponse$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class FileSystemSnapshotBucketConfig$Type extends MessageType<FileSystemSnapshotBucketConfig> {
+    constructor() {
+        super("coreweave.sandbox.v1beta2.FileSystemSnapshotBucketConfig", [
+            { no: 1, name: "bucket_name", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
+            { no: 2, name: "region", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
+            { no: 3, name: "mode", kind: "enum", T: () => ["coreweave.sandbox.v1beta2.FileSystemSnapshotBucketMode", FileSystemSnapshotBucketMode, "FILE_SYSTEM_SNAPSHOT_BUCKET_MODE_"], options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } },
+            { no: 4, name: "effective_bucket_name", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } }
+        ]);
+    }
+    create(value?: PartialMessage<FileSystemSnapshotBucketConfig>): FileSystemSnapshotBucketConfig {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.bucketName = "";
+        message.region = "";
+        message.mode = 0;
+        message.effectiveBucketName = "";
+        if (value !== undefined)
+            reflectionMergePartial<FileSystemSnapshotBucketConfig>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: FileSystemSnapshotBucketConfig): FileSystemSnapshotBucketConfig {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* string bucket_name */ 1:
+                    message.bucketName = reader.string();
+                    break;
+                case /* string region */ 2:
+                    message.region = reader.string();
+                    break;
+                case /* coreweave.sandbox.v1beta2.FileSystemSnapshotBucketMode mode */ 3:
+                    message.mode = reader.int32();
+                    break;
+                case /* string effective_bucket_name */ 4:
+                    message.effectiveBucketName = reader.string();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: FileSystemSnapshotBucketConfig, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* string bucket_name = 1; */
+        if (message.bucketName !== "")
+            writer.tag(1, WireType.LengthDelimited).string(message.bucketName);
+        /* string region = 2; */
+        if (message.region !== "")
+            writer.tag(2, WireType.LengthDelimited).string(message.region);
+        /* coreweave.sandbox.v1beta2.FileSystemSnapshotBucketMode mode = 3; */
+        if (message.mode !== 0)
+            writer.tag(3, WireType.Varint).int32(message.mode);
+        /* string effective_bucket_name = 4; */
+        if (message.effectiveBucketName !== "")
+            writer.tag(4, WireType.LengthDelimited).string(message.effectiveBucketName);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message coreweave.sandbox.v1beta2.FileSystemSnapshotBucketConfig
+ */
+export const FileSystemSnapshotBucketConfig = new FileSystemSnapshotBucketConfig$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class GetFileSystemSnapshotBucketConfigRequest$Type extends MessageType<GetFileSystemSnapshotBucketConfigRequest> {
+    constructor() {
+        super("coreweave.sandbox.v1beta2.GetFileSystemSnapshotBucketConfigRequest", []);
+    }
+    create(value?: PartialMessage<GetFileSystemSnapshotBucketConfigRequest>): GetFileSystemSnapshotBucketConfigRequest {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        if (value !== undefined)
+            reflectionMergePartial<GetFileSystemSnapshotBucketConfigRequest>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: GetFileSystemSnapshotBucketConfigRequest): GetFileSystemSnapshotBucketConfigRequest {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: GetFileSystemSnapshotBucketConfigRequest, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message coreweave.sandbox.v1beta2.GetFileSystemSnapshotBucketConfigRequest
+ */
+export const GetFileSystemSnapshotBucketConfigRequest = new GetFileSystemSnapshotBucketConfigRequest$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class SetFileSystemSnapshotBucketConfigRequest$Type extends MessageType<SetFileSystemSnapshotBucketConfigRequest> {
+    constructor() {
+        super("coreweave.sandbox.v1beta2.SetFileSystemSnapshotBucketConfigRequest", [
+            { no: 1, name: "bucket_name", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
+            { no: 2, name: "region", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } }
+        ]);
+    }
+    create(value?: PartialMessage<SetFileSystemSnapshotBucketConfigRequest>): SetFileSystemSnapshotBucketConfigRequest {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.bucketName = "";
+        message.region = "";
+        if (value !== undefined)
+            reflectionMergePartial<SetFileSystemSnapshotBucketConfigRequest>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: SetFileSystemSnapshotBucketConfigRequest): SetFileSystemSnapshotBucketConfigRequest {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* string bucket_name */ 1:
+                    message.bucketName = reader.string();
+                    break;
+                case /* string region */ 2:
+                    message.region = reader.string();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: SetFileSystemSnapshotBucketConfigRequest, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* string bucket_name = 1; */
+        if (message.bucketName !== "")
+            writer.tag(1, WireType.LengthDelimited).string(message.bucketName);
+        /* string region = 2; */
+        if (message.region !== "")
+            writer.tag(2, WireType.LengthDelimited).string(message.region);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message coreweave.sandbox.v1beta2.SetFileSystemSnapshotBucketConfigRequest
+ */
+export const SetFileSystemSnapshotBucketConfigRequest = new SetFileSystemSnapshotBucketConfigRequest$Type();
 /**
  * @generated ServiceType for protobuf service coreweave.sandbox.v1beta2.GatewayService
  */
@@ -5211,5 +5630,7 @@ export const GatewayService = new ServiceType("coreweave.sandbox.v1beta2.Gateway
     { name: "Raw", options: { "google.api.http": { post: "/v1beta2/sandboxes/{sandbox_id}/raw", body: "*" } }, I: RawSandboxRequest, O: RawSandboxResponse },
     { name: "GetObjectStorageWIFConfig", options: { "google.api.http": { get: "/v1beta2/object-storage/wif-config" } }, I: GetObjectStorageWIFConfigRequest, O: ObjectStorageWIFConfig },
     { name: "SetObjectStorageWIFConfig", options: { "google.api.http": { put: "/v1beta2/object-storage/wif-config", body: "*" } }, I: SetObjectStorageWIFConfigRequest, O: ObjectStorageWIFConfig },
-    { name: "DeleteObjectStorageWIFConfig", options: { "google.api.http": { delete: "/v1beta2/object-storage/wif-config" } }, I: DeleteObjectStorageWIFConfigRequest, O: DeleteObjectStorageWIFConfigResponse }
+    { name: "DeleteObjectStorageWIFConfig", options: { "google.api.http": { delete: "/v1beta2/object-storage/wif-config" } }, I: DeleteObjectStorageWIFConfigRequest, O: DeleteObjectStorageWIFConfigResponse },
+    { name: "GetFileSystemSnapshotBucketConfig", options: { "google.api.http": { get: "/v1beta2/file-system-snapshots/bucket-config" } }, I: GetFileSystemSnapshotBucketConfigRequest, O: FileSystemSnapshotBucketConfig },
+    { name: "SetFileSystemSnapshotBucketConfig", options: { "google.api.http": { put: "/v1beta2/file-system-snapshots/bucket-config", body: "*" } }, I: SetFileSystemSnapshotBucketConfigRequest, O: FileSystemSnapshotBucketConfig }
 ]);

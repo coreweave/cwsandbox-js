@@ -5,6 +5,9 @@
 import type { RpcTransport } from "@protobuf-ts/runtime-rpc";
 import type { ServiceInfo } from "@protobuf-ts/runtime-rpc";
 import { GatewayService } from "./gateway.js";
+import type { SetFileSystemSnapshotBucketConfigRequest } from "./gateway.js";
+import type { FileSystemSnapshotBucketConfig } from "./gateway.js";
+import type { GetFileSystemSnapshotBucketConfigRequest } from "./gateway.js";
 import type { DeleteObjectStorageWIFConfigResponse } from "./gateway.js";
 import type { DeleteObjectStorageWIFConfigRequest } from "./gateway.js";
 import type { SetObjectStorageWIFConfigRequest } from "./gateway.js";
@@ -168,6 +171,24 @@ export interface IGatewayServiceClient {
      * @generated from protobuf rpc: DeleteObjectStorageWIFConfig
      */
     deleteObjectStorageWIFConfig(input: DeleteObjectStorageWIFConfigRequest, options?: RpcOptions): UnaryCall<DeleteObjectStorageWIFConfigRequest, DeleteObjectStorageWIFConfigResponse>;
+    // --- File System Snapshot Bucket Config Management ---
+
+    /**
+     * Returns the organization's FSS bucket configuration (org_id derived from the
+     * authenticated caller). Open to any authenticated org member.
+     *
+     * @generated from protobuf rpc: GetFileSystemSnapshotBucketConfig
+     */
+    getFileSystemSnapshotBucketConfig(input: GetFileSystemSnapshotBucketConfigRequest, options?: RpcOptions): UnaryCall<GetFileSystemSnapshotBucketConfigRequest, FileSystemSnapshotBucketConfig>;
+    /**
+     * Creates or replaces the organization's FSS bucket configuration (idempotent
+     * full-replace upsert; org_id derived from the caller). Requires the
+     * sandbox_admin action: changing or clearing the bucket abandons access to
+     * snapshots stored in the prior bucket.
+     *
+     * @generated from protobuf rpc: SetFileSystemSnapshotBucketConfig
+     */
+    setFileSystemSnapshotBucketConfig(input: SetFileSystemSnapshotBucketConfigRequest, options?: RpcOptions): UnaryCall<SetFileSystemSnapshotBucketConfigRequest, FileSystemSnapshotBucketConfig>;
 }
 // ----------------------------------------------------------------------------------
 // Service Definition
@@ -352,5 +373,29 @@ export class GatewayServiceClient implements IGatewayServiceClient, ServiceInfo 
     deleteObjectStorageWIFConfig(input: DeleteObjectStorageWIFConfigRequest, options?: RpcOptions): UnaryCall<DeleteObjectStorageWIFConfigRequest, DeleteObjectStorageWIFConfigResponse> {
         const method = this.methods[17], opt = this._transport.mergeOptions(options);
         return stackIntercept<DeleteObjectStorageWIFConfigRequest, DeleteObjectStorageWIFConfigResponse>("unary", this._transport, method, opt, input);
+    }
+    // --- File System Snapshot Bucket Config Management ---
+
+    /**
+     * Returns the organization's FSS bucket configuration (org_id derived from the
+     * authenticated caller). Open to any authenticated org member.
+     *
+     * @generated from protobuf rpc: GetFileSystemSnapshotBucketConfig
+     */
+    getFileSystemSnapshotBucketConfig(input: GetFileSystemSnapshotBucketConfigRequest, options?: RpcOptions): UnaryCall<GetFileSystemSnapshotBucketConfigRequest, FileSystemSnapshotBucketConfig> {
+        const method = this.methods[18], opt = this._transport.mergeOptions(options);
+        return stackIntercept<GetFileSystemSnapshotBucketConfigRequest, FileSystemSnapshotBucketConfig>("unary", this._transport, method, opt, input);
+    }
+    /**
+     * Creates or replaces the organization's FSS bucket configuration (idempotent
+     * full-replace upsert; org_id derived from the caller). Requires the
+     * sandbox_admin action: changing or clearing the bucket abandons access to
+     * snapshots stored in the prior bucket.
+     *
+     * @generated from protobuf rpc: SetFileSystemSnapshotBucketConfig
+     */
+    setFileSystemSnapshotBucketConfig(input: SetFileSystemSnapshotBucketConfigRequest, options?: RpcOptions): UnaryCall<SetFileSystemSnapshotBucketConfigRequest, FileSystemSnapshotBucketConfig> {
+        const method = this.methods[19], opt = this._transport.mergeOptions(options);
+        return stackIntercept<SetFileSystemSnapshotBucketConfigRequest, FileSystemSnapshotBucketConfig>("unary", this._transport, method, opt, input);
     }
 }
