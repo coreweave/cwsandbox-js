@@ -24,6 +24,8 @@ import { AsyncQueue } from "./async-queue.js";
 const textDecoder = new TextDecoder();
 const textEncoder = new TextEncoder();
 const OUTPUT_ACCUMULATION_LIMIT_BYTES = 1024 * 1024;
+/** Match Python STREAMING_READ_STDERR_CAP_BYTES for binary file reads. */
+const BINARY_STDERR_CAP_BYTES = 16 * 1024;
 
 export type InternalCommandEvent =
   | { readonly sessionId: string; readonly type: "ready" }
@@ -46,6 +48,11 @@ export interface CommandInputController {
 }
 
 export interface CommandProcessOptions {
+  /**
+   * When true, accumulate stdout as bytes only: skip UTF-8 decode into the
+   * text queue and leave ProcessResult.stdout as "".
+   */
+  readonly binaryOutput?: boolean;
   readonly bufferedMaxKiB?: number;
   readonly check?: boolean;
   readonly input?: CommandInputController;
@@ -128,6 +135,7 @@ class StreamingCommandProcess implements CommandProcess {
   private readonly stdoutQueue = new AsyncQueue<string>();
   private readonly stderrAccumulator: OutputAccumulator;
   private readonly stdoutAccumulator: OutputAccumulator;
+  private readonly binaryOutput: boolean;
   private readonly check: boolean;
   private result: ProcessResult | undefined;
   private sessionId: string | undefined;
@@ -148,9 +156,12 @@ class StreamingCommandProcess implements CommandProcess {
         ? OUTPUT_ACCUMULATION_LIMIT_BYTES
         : options.bufferedMaxKiB * 1024;
     this.input = options.input;
+    this.binaryOutput = options.binaryOutput === true;
     this.check = options.check === true;
     this.stdoutAccumulator = new OutputAccumulator(limitBytes);
-    this.stderrAccumulator = new OutputAccumulator(limitBytes);
+    this.stderrAccumulator = new OutputAccumulator(
+      this.binaryOutput ? BINARY_STDERR_CAP_BYTES : limitBytes,
+    );
     this.stdout = this.stdoutQueue;
     this.stderr = this.stderrQueue;
     this.stdin =
@@ -171,7 +182,9 @@ class StreamingCommandProcess implements CommandProcess {
         return;
       case "stdout":
         this.stdoutAccumulator.append(event.data);
-        this.stdoutQueue.tryPush(textDecoder.decode(event.data));
+        if (!this.binaryOutput) {
+          this.stdoutQueue.tryPush(textDecoder.decode(event.data));
+        }
         return;
       case "stderr":
         this.stderrAccumulator.append(event.data);
@@ -193,7 +206,7 @@ class StreamingCommandProcess implements CommandProcess {
           stderrBytes: this.stderrAccumulator.bytesValue(),
           stderrBytesProduced: this.stderrAccumulator.produced(),
           stderrTruncated: this.stderrAccumulator.isTruncated(),
-          stdout: this.stdoutAccumulator.text(),
+          stdout: this.binaryOutput ? "" : this.stdoutAccumulator.text(),
           stdoutBytes: this.stdoutAccumulator.bytesValue(),
           stdoutBytesProduced: this.stdoutAccumulator.produced(),
           stdoutTruncated: this.stdoutAccumulator.isTruncated(),

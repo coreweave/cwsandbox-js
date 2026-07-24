@@ -7,9 +7,14 @@ import { createSandboxClientFromEnv } from "@coreweave/cwsandbox/node";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
+  createPatternedPayload,
+  expectBytesEqual,
   expectRunning,
   expectTerminalStatus,
+  LARGE_FILE_20_MIB,
+  largeFileTimeout20Ms,
   listIncludesSandbox,
+  logCaughtError,
   logProcessResult,
   mountedBinaryContent,
   noInternetProbeScript,
@@ -468,6 +473,39 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
         expect(Array.from(binaryFiles[binaryPath] ?? [])).toEqual(Array.from(binaryContent));
       },
       testTimeoutMs,
+    );
+  });
+
+  describe("large files", () => {
+    it(
+      "round-trips a 20 MiB file (Python known-good size) at 256Mi",
+      async () => {
+        expect.hasAssertions();
+
+        const payload = createPatternedPayload(LARGE_FILE_20_MIB);
+        const path = `/tmp/cwsandbox-js-large-write-${LARGE_FILE_20_MIB}.bin`;
+
+        // Match Python integration defaults (20 MiB @ 256Mi). Above ~64 MiB the
+        // single-session StreamExec path OOMs (exit 137) regardless of memory.
+        await withStartedSandbox(
+          client,
+          {
+            resources: { cpu: "500m", memory: "256Mi" },
+            tags: [uniqueSmokeTag()],
+          },
+          async (sandbox) => {
+            try {
+              await sandbox.files.write(path, payload, { timeoutMs: largeFileTimeout20Ms });
+              const readBack = await sandbox.files.read(path, { timeoutMs: largeFileTimeout20Ms });
+              expectBytesEqual(readBack, payload);
+            } catch (error) {
+              logCaughtError("large file write 20 MiB", error);
+              throw error;
+            }
+          },
+        );
+      },
+      largeFileTimeout20Ms,
     );
   });
 

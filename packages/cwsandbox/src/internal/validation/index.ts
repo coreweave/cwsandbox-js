@@ -47,6 +47,9 @@ function validateCommandOptions(options: ExecOptions | StartCommandOptions): voi
   if ("stdin" in options) {
     validateOptionalBoolean(options.stdin, "stdin");
   }
+  if ("binaryOutput" in options) {
+    validateOptionalBoolean(options.binaryOutput, "binaryOutput");
+  }
 }
 
 export function validateSandboxRunOptions(options: SandboxRunOptions): void {
