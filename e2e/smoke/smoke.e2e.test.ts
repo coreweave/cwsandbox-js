@@ -934,6 +934,18 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     );
 
     it(
+      "stop({ missingOk: true }) succeeds after delete",
+      async () => {
+        const sandbox = await client.create();
+        console.log(`Started stop-missingOk sandbox: ${sandbox.sandboxId}`);
+
+        await client.delete(sandbox.sandboxId);
+        await expect(sandbox.stop({ missingOk: true })).resolves.toBeUndefined();
+      },
+      testTimeoutMs,
+    );
+
+    it(
       "cleans up automatically with withSandbox",
       async () => {
         const result = await withStartedSandbox(client, {}, (sandbox) => {
