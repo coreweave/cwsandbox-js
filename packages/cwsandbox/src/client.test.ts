@@ -511,7 +511,7 @@ describe("SandboxClient", () => {
       });
     });
 
-    it("treats missing sandboxes as already deleted", async () => {
+    it("treats missing sandboxes as already deleted when missingOk is true", async () => {
       const transport: SandboxTransport = {
         ...createFakeTransport(),
         async delete(request) {
@@ -519,7 +519,22 @@ describe("SandboxClient", () => {
         },
       };
 
-      await expect(createClient(transport).delete("missing-sandbox")).resolves.toBeUndefined();
+      await expect(
+        createClient(transport).delete("missing-sandbox", { missingOk: true }),
+      ).resolves.toBeUndefined();
+    });
+
+    it("raises not-found on delete when missingOk is false", async () => {
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async delete(request) {
+          throw new CWSandboxNotFoundError(`Sandbox '${request.sandboxId}' not found.`);
+        },
+      };
+
+      await expect(createClient(transport).delete("missing-sandbox")).rejects.toBeInstanceOf(
+        CWSandboxNotFoundError,
+      );
     });
 
     it("propagates non-not-found delete errors", async () => {

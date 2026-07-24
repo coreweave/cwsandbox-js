@@ -22,6 +22,14 @@ export {
   CWSandboxUnavailableError,
   CWSandboxValidationError,
 } from "./errors.js";
+export {
+  CWSANDBOX_BACKEND_UNAVAILABLE,
+  CWSANDBOX_COMMAND_TIMEOUT,
+  CWSANDBOX_ERROR_DOMAIN,
+  CWSANDBOX_FILE_TOO_LARGE,
+  CWSANDBOX_RUNNER_UNAVAILABLE,
+  CWSANDBOX_SANDBOX_NOT_FOUND,
+} from "./internal/error-info.js";
 export { Sandbox } from "./sandbox.js";
 export { SandboxList } from "./runtime/sandbox-list.js";
 export type { SandboxTransport } from "./transport.js";
@@ -74,6 +82,7 @@ export type {
   ResourceSpec,
 } from "./public/resources.js";
 export type {
+  DeleteOptions,
   EnvironmentVariables,
   FromIdOptions,
   GetSandboxResult,

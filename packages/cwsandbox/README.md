@@ -707,7 +707,14 @@ await client.delete("sandbox-id");
 await sandbox.delete();
 ```
 
-Delete is idempotent: deleting a missing or already deleted sandbox resolves successfully.
+By default, deleting a missing sandbox raises `CWSandboxNotFoundError`. Pass
+`missingOk: true` for cleanup scripts that should treat “already gone” as
+success (same for `stop({ missingOk: true })`):
+
+```ts
+await client.delete("sandbox-id", { missingOk: true });
+await sandbox.stop({ missingOk: true });
+```
 
 Clean up interrupted work by listing with the same tags you used at start:
 
@@ -716,16 +723,25 @@ const sandboxes = await client.listAll({
   tags: ["project-demo"],
 });
 
-await Promise.all(sandboxes.map((sandbox) => sandbox.delete()));
+await Promise.all(sandboxes.map((sandbox) => sandbox.delete({ missingOk: true })));
 ```
 
 ## Error Handling
 
-All SDK errors extend `CWSandboxError` and expose a stable `code` string:
+All SDK errors extend `CWSandboxError` and expose a stable `code` string.
+Transport failures may also carry AIP-193 fields when the backend includes
+`google.rpc.ErrorInfo` / `RetryInfo` in gRPC status details:
+
+- `reason` — branch key (e.g. `CWSANDBOX_SANDBOX_NOT_FOUND`)
+- `domain` — namespace; reason→class mapping only applies for `cwsandbox.com`
+- `metadata` — ErrorInfo metadata map (always an object; empty when absent)
+- `retryDelayMs` — optional RetryInfo hint
 
 ```ts
+import { CWSANDBOX_FILE_TOO_LARGE } from "@coreweave/cwsandbox";
 import { CWSandboxNotFoundError } from "@coreweave/cwsandbox";
 import { CWSandboxTimeoutError } from "@coreweave/cwsandbox";
+import { CWSandboxTransportError } from "@coreweave/cwsandbox";
 import { CWSandboxUnavailableError } from "@coreweave/cwsandbox";
 import { CWSandboxValidationError } from "@coreweave/cwsandbox";
 import { isCWSandboxError } from "@coreweave/cwsandbox";
@@ -739,6 +755,11 @@ try {
     console.error("Sandbox service is temporarily unavailable.");
   } else if (error instanceof CWSandboxNotFoundError) {
     console.error("Sandbox no longer exists.");
+  } else if (
+    error instanceof CWSandboxTransportError &&
+    error.reason === CWSANDBOX_FILE_TOO_LARGE
+  ) {
+    console.error("File too large for unary path; use streaming.");
   } else if (error instanceof CWSandboxValidationError) {
     console.error(error.message);
   } else if (isCWSandboxError(error)) {
@@ -749,7 +770,9 @@ try {
 }
 ```
 
-Transport errors may also include `operation`, `sandboxId`, `transport`, `transportCode`, and `metadata` for logging.
+Transport errors may also include `operation`, `sandboxId`, `transport`, and
+`transportCode` for logging. Raw gRPC trailing metadata stays on `error.cause`
+when the failure came from the Node gRPC transport.
 
 ## Testing Without Credentials
 

@@ -6,6 +6,14 @@ SPDX-PackageName: cwsandbox
 
 # Changelog
 
+## Unreleased
+
+- Parse AIP-193 `ErrorInfo` / `RetryInfo` from gRPC status details and expose
+  `reason`, `domain`, `metadata`, and `retryDelayMs` on transport errors
+- Domain-gated remaps for `CWSANDBOX_SANDBOX_NOT_FOUND` and unavailable reasons
+- Add `missingOk` (default `false`) to `stop` and `delete`; deleting a missing
+  sandbox no longer always succeeds — pass `{ missingOk: true }` for cleanup
+
 ## 0.1.0-beta.0
 
 Initial public beta packaging for `@coreweave/cwsandbox`.

@@ -13,7 +13,14 @@ import {
   CWSandboxTransportError,
   CWSandboxUnavailableError,
 } from "../../errors.js";
+import {
+  CWSANDBOX_BACKEND_UNAVAILABLE,
+  CWSANDBOX_ERROR_DOMAIN,
+  CWSANDBOX_FILE_TOO_LARGE,
+  CWSANDBOX_SANDBOX_NOT_FOUND,
+} from "../../internal/error-info.js";
 import { mapGrpcError } from "./errors.js";
+import { statusDetailsMeta } from "./test/status-details.js";
 
 describe("mapGrpcError", () => {
   it.each(["UNAUTHENTICATED", "PERMISSION_DENIED"])("maps %s to authentication errors", (code) => {
@@ -28,11 +35,8 @@ describe("mapGrpcError", () => {
     expect(error.transport).toBe("grpc");
     expect(error.transportCode).toBe(code);
     expect(error.operation).toBe("Start sandbox");
-    expect(error.metadata).toEqual({ requestId: "req-123" });
-    expect(error.cause).toBeInstanceOf(Error);
-    expect(error.cause).not.toBe(cause);
-    expect((error.cause as Error).name).toBe("RpcError");
-    expect((error.cause as Error).message).toBe("auth failed");
+    expect(error.metadata).toEqual({});
+    expect(error.cause).toBe(cause);
   });
 
   it("maps NOT_FOUND to not found errors with sandbox context", () => {
@@ -47,6 +51,7 @@ describe("mapGrpcError", () => {
     expect(error.code).toBe("not_found");
     expect(error.sandboxId).toBe("sandbox-123");
     expect(error.transportCode).toBe("NOT_FOUND");
+    expect(error.metadata).toEqual({});
   });
 
   it("maps DEADLINE_EXCEEDED to timeout errors", () => {
@@ -104,5 +109,87 @@ describe("mapGrpcError", () => {
     expect(error.operation).toBe("Start sandbox");
     expect(error.transport).toBe("grpc");
     expect(error.cause).toBe(cause);
+    expect(error.metadata).toEqual({});
+  });
+
+  it("maps trusted CWSANDBOX_SANDBOX_NOT_FOUND to not-found even for INTERNAL", () => {
+    const cause = new RpcError(
+      "gone",
+      "INTERNAL",
+      statusDetailsMeta({
+        errorInfos: [{ reason: CWSANDBOX_SANDBOX_NOT_FOUND }],
+      }),
+    );
+
+    const error = mapGrpcError(cause, {
+      operation: "Stop sandbox",
+      sandboxId: "sandbox-123",
+    });
+
+    expect(error).toBeInstanceOf(CWSandboxNotFoundError);
+    expect(error.reason).toBe(CWSANDBOX_SANDBOX_NOT_FOUND);
+    expect(error.domain).toBe(CWSANDBOX_ERROR_DOMAIN);
+    expect(error.cause).toBe(cause);
+  });
+
+  it("maps trusted unavailable reasons to unavailable with retryDelayMs", () => {
+    const cause = new RpcError(
+      "down",
+      "INTERNAL",
+      statusDetailsMeta({
+        errorInfos: [{ reason: CWSANDBOX_BACKEND_UNAVAILABLE }],
+        retryInfos: [{ retrySeconds: 2 }],
+      }),
+    );
+
+    const error = mapGrpcError(cause, { operation: "Get sandbox" });
+
+    expect(error).toBeInstanceOf(CWSandboxUnavailableError);
+    expect(error.reason).toBe(CWSANDBOX_BACKEND_UNAVAILABLE);
+    expect(error.retryDelayMs).toBe(2000);
+  });
+
+  it("attaches file reasons without remapping the exception class", () => {
+    const cause = new RpcError(
+      "too large",
+      "INTERNAL",
+      statusDetailsMeta({
+        errorInfos: [
+          {
+            reason: CWSANDBOX_FILE_TOO_LARGE,
+            metadata: { filepath: "/tmp/x" },
+          },
+        ],
+      }),
+    );
+
+    const error = mapGrpcError(cause, { operation: "Read file" });
+
+    expect(error).toBeInstanceOf(CWSandboxTransportError);
+    expect(error).not.toBeInstanceOf(CWSandboxNotFoundError);
+    expect(error.reason).toBe(CWSANDBOX_FILE_TOO_LARGE);
+    expect(error.metadata).toEqual({ filepath: "/tmp/x" });
+  });
+
+  it("does not remap reasons under an untrusted domain", () => {
+    const cause = new RpcError(
+      "spoof",
+      "INTERNAL",
+      statusDetailsMeta({
+        errorInfos: [
+          {
+            domain: "evil.example.com",
+            reason: CWSANDBOX_SANDBOX_NOT_FOUND,
+          },
+        ],
+      }),
+    );
+
+    const error = mapGrpcError(cause, { operation: "Stop sandbox" });
+
+    expect(error).toBeInstanceOf(CWSandboxTransportError);
+    expect(error).not.toBeInstanceOf(CWSandboxNotFoundError);
+    expect(error.reason).toBe(CWSANDBOX_SANDBOX_NOT_FOUND);
+    expect(error.domain).toBe("evil.example.com");
   });
 });

@@ -48,7 +48,7 @@ export interface StreamLogsRequest extends LogStreamOptions {
   readonly sandboxId: SandboxId;
 }
 
-export interface StopSandboxRequest extends StopOptions {
+export interface StopSandboxRequest extends Omit<StopOptions, "missingOk"> {
   readonly sandboxId: SandboxId;
 }
 

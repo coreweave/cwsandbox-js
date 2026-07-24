@@ -44,6 +44,21 @@ describe("SDK error boundaries", () => {
     expect(error.sandboxId).toBe("sandbox-123");
     expect(error.transport).toBe("grpc");
     expect(error.transportCode).toBe("DEADLINE_EXCEEDED");
+    expect(error.metadata).toEqual({});
+  });
+
+  it("exposes AIP-193 fields on transport errors", () => {
+    const error = new CWSandboxTimeoutError("Timed out.", {
+      domain: "cwsandbox.com",
+      metadata: { filepath: "/tmp/x" },
+      reason: "CWSANDBOX_COMMAND_TIMEOUT",
+      retryDelayMs: 1500,
+    });
+
+    expect(error.reason).toBe("CWSANDBOX_COMMAND_TIMEOUT");
+    expect(error.domain).toBe("cwsandbox.com");
+    expect(error.metadata).toEqual({ filepath: "/tmp/x" });
+    expect(error.retryDelayMs).toBe(1500);
   });
 
   it("exposes terminal-state unavailable as a typed transport error", () => {

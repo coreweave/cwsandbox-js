@@ -4,7 +4,12 @@
 
 import { CWSandboxTimeoutError } from "./errors.js";
 import { ignoreMissingSandbox } from "./internal/delete.js";
-import { validateRequestOptions, validateStopOptions } from "./internal/validation/index.js";
+import { isSandboxNotFound } from "./internal/error-info.js";
+import {
+  validateDeleteOptions,
+  validateRequestOptions,
+  validateStopOptions,
+} from "./internal/validation/index.js";
 import type {
   CommandInput,
   ExecOptions,
@@ -17,6 +22,7 @@ import type { RequestOptions } from "./public/common.js";
 import type { SandboxFiles } from "./public/files.js";
 import type { SandboxLogs } from "./public/logs.js";
 import type {
+  DeleteOptions,
   GetSandboxResult,
   SandboxId,
   SandboxMetadata,
@@ -153,18 +159,27 @@ export class Sandbox {
     validateStopOptions(options);
 
     if (this.stopPromise === undefined) {
+      // First caller's lifecycle RPC options win; missingOk is applied per waiter below.
       this.stopPromise = this.runSharedStop(options);
     }
 
-    return awaitWithRequestOptions(this.stopPromise, options, {
-      operation: STOP_OPERATION,
-      sandboxId: this.sandboxId,
-      timeoutMessage: `Timed out waiting for sandbox '${this.sandboxId}' to reach a terminal status.`,
-    });
+    try {
+      await awaitWithRequestOptions(this.stopPromise, options, {
+        operation: STOP_OPERATION,
+        sandboxId: this.sandboxId,
+        timeoutMessage: `Timed out waiting for sandbox '${this.sandboxId}' to reach a terminal status.`,
+      });
+    } catch (error) {
+      if (options.missingOk === true && isSandboxNotFound(error)) {
+        return;
+      }
+      throw error;
+    }
   }
 
   private async runSharedStop(options: StopOptions): Promise<void> {
     const status = await this.getStatus();
+
     if (TERMINAL_STATUSES.has(status)) {
       return;
     }
@@ -196,14 +211,16 @@ export class Sandbox {
     await this.stop();
   }
 
-  public async delete(options: RequestOptions = {}): Promise<void> {
-    validateRequestOptions(options);
+  public async delete(options: DeleteOptions = {}): Promise<void> {
+    validateDeleteOptions(options);
+    const { missingOk, ...requestOptions } = options;
 
     await ignoreMissingSandbox(
       this.runtime.transport.delete({
-        ...options,
+        ...requestOptions,
         sandboxId: this.sandboxId,
       }),
+      missingOk === true,
     );
   }
 

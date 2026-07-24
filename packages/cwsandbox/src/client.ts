@@ -6,13 +6,14 @@ import { DEFAULT_KEEP_ALIVE_COMMAND } from "./defaults.js";
 import { normalizeCommand } from "./internal/commands.js";
 import { ignoreMissingSandbox } from "./internal/delete.js";
 import {
+  validateDeleteOptions,
   validateListSandboxesOptions,
   validateRequestOptions,
   validateSandboxRunOptions,
 } from "./internal/validation/index.js";
 import type { CommandInput } from "./public/commands.js";
-import type { RequestOptions } from "./public/common.js";
 import type {
+  DeleteOptions,
   FromIdOptions,
   GetSandboxResult,
   ListSandboxesOptions,
@@ -134,9 +135,13 @@ export class SandboxClient {
     });
   }
 
-  public async delete(sandboxId: SandboxId, options: RequestOptions = {}): Promise<void> {
-    validateRequestOptions(options);
-    await ignoreMissingSandbox(this.transport.delete({ ...options, sandboxId }));
+  public async delete(sandboxId: SandboxId, options: DeleteOptions = {}): Promise<void> {
+    validateDeleteOptions(options);
+    const { missingOk, ...requestOptions } = options;
+    await ignoreMissingSandbox(
+      this.transport.delete({ ...requestOptions, sandboxId }),
+      missingOk === true,
+    );
   }
 
   /**

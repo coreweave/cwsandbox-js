@@ -158,7 +158,7 @@ export async function withDedicatedTaggedSandbox<TResult>(
 
     return await callback(sandbox);
   } finally {
-    await sandbox.delete().catch(() => undefined);
+    await sandbox.delete({ missingOk: true });
   }
 }
 

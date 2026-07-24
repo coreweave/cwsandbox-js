@@ -7,6 +7,7 @@ import type { ExecOptions, ShellOptions, StartCommandOptions } from "../../publi
 import type { RequestOptions } from "../../public/common.js";
 import type { LogReadOptions, LogStreamOptions } from "../../public/logs.js";
 import type {
+  DeleteOptions,
   ListSandboxesOptions,
   SandboxRunOptions,
   StopOptions,
@@ -71,6 +72,13 @@ export function validateWaitOptions(options: WaitOptions): void {
 export function validateStopOptions(options: StopOptions): void {
   validateRequestOptions(options);
   validateNonNegativeInteger(options.gracefulShutdownSeconds, "gracefulShutdownSeconds");
+  validateOptionalBoolean(options.missingOk, "missingOk");
+  validateOptionalBoolean(options.snapshotOnStop, "snapshotOnStop");
+}
+
+export function validateDeleteOptions(options: DeleteOptions): void {
+  validateRequestOptions(options);
+  validateOptionalBoolean(options.missingOk, "missingOk");
 }
 
 export function validateListSandboxesOptions(options: ListSandboxesOptions): void {
