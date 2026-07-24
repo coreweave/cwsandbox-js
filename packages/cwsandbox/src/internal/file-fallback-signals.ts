@@ -10,7 +10,7 @@ import {
 import { CWSANDBOX_FILE_TOO_LARGE } from "./error-info.js";
 import { MAX_AUTO_FALLBACK_BYTES } from "./file-limits.js";
 
-export function isFileTooLargeReason(error: unknown): boolean {
+export function isFileTooLargeReason(error: unknown): error is CWSandboxTransportError {
   return error instanceof CWSandboxTransportError && error.reason === CWSANDBOX_FILE_TOO_LARGE;
 }
 

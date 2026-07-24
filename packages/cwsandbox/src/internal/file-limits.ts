@@ -51,7 +51,7 @@ export function recordObservedFileOpCap(
   runtime: { observedFileOpCapBytes: number | undefined },
   error: { readonly metadata?: Readonly<Record<string, string>> },
 ): void {
-  const raw = error.metadata?.max_size_bytes;
+  const raw = error.metadata?.["max_size_bytes"];
   if (raw === undefined || raw === "") {
     return;
   }

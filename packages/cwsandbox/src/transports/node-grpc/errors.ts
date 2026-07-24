@@ -40,7 +40,7 @@ export function mapGrpcError(error: unknown, context: GrpcErrorContext): CWSandb
     if (trusted) {
       const reason = details.reason;
       if (FILE_ERROR_REASONS.has(reason)) {
-        const filepath = context.filepath ?? details.metadata.filepath;
+        const filepath = context.filepath ?? details.metadata?.["filepath"];
         return new CWSandboxFileError(`File operation failed (${reason}): ${error.message}`, {
           ...details,
           ...(typeof filepath === "string" ? { filepath } : {}),

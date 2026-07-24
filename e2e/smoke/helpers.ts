@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
+import { Buffer } from "node:buffer";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -57,7 +58,8 @@ export function createPatternedPayload(sizeBytes: number): Uint8Array {
 
 export function expectBytesEqual(actual: Uint8Array, expected: Uint8Array): void {
   expect(actual.byteLength).toBe(expected.byteLength);
-  expect(actual).toEqual(expected);
+  // gRPC bytes often arrive as Node Buffer; vitest toEqual treats Buffer ≠ Uint8Array.
+  expect(Buffer.compare(Buffer.from(actual), Buffer.from(expected))).toBe(0);
 }
 
 export async function expectRunning(sandbox: Sandbox): Promise<void> {

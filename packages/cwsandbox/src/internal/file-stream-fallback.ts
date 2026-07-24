@@ -132,12 +132,15 @@ export async function readFileViaStreamExec(
   if (result.exitCode !== 0) {
     const detail = result.stderr.trim() || `fallback command exited with status ${result.exitCode}`;
     if (result.exitCode === 2) {
-      throw new CWSandboxFileError(`File operation failed (${CWSANDBOX_FILE_NOT_FOUND}): ${detail}`, {
-        filepath: path,
-        operation: "Read file",
-        reason: CWSANDBOX_FILE_NOT_FOUND,
-        sandboxId: runtime.sandboxId,
-      });
+      throw new CWSandboxFileError(
+        `File operation failed (${CWSANDBOX_FILE_NOT_FOUND}): ${detail}`,
+        {
+          filepath: path,
+          operation: "Read file",
+          reason: CWSANDBOX_FILE_NOT_FOUND,
+          sandboxId: runtime.sandboxId,
+        },
+      );
     }
     if (result.exitCode === 3) {
       throw new CWSandboxFileError(

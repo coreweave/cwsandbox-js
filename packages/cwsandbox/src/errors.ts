@@ -178,7 +178,7 @@ export class CWSandboxFileError extends CWSandboxTransportError {
   public constructor(message: string, options: CWSandboxTransportErrorOptions = {}) {
     super(message, options, "transport_error");
     this.name = "CWSandboxFileError";
-    const fromMetadata = options.metadata?.filepath;
+    const fromMetadata = options.metadata?.["filepath"];
     this.filepath =
       options.filepath ?? (typeof fromMetadata === "string" ? fromMetadata : undefined);
   }
