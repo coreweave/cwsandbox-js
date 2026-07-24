@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { CWSandboxNotFoundError, CWSandboxTransportError, type SandboxTransport } from "./index.js";
 import { CWSANDBOX_ERROR_DOMAIN, CWSANDBOX_SANDBOX_NOT_FOUND } from "./internal/error-info.js";
@@ -61,6 +61,36 @@ async function createReadySandbox(overrides: Partial<SandboxTransport> = {}) {
   return createClient(transport).run(["echo", "hello"]);
 }
 
+async function createGatedNotFoundStopSandbox() {
+  let releaseStop: (() => void) | undefined;
+  const gate = new Promise<void>((resolve) => {
+    releaseStop = resolve;
+  });
+  let stopEntered = 0;
+  const notFound = new CWSandboxNotFoundError("Not found", {
+    operation: "Stop sandbox",
+    sandboxId: "sandbox-for-echo",
+    transport: "grpc",
+    transportCode: "NOT_FOUND",
+  });
+
+  const sandbox = await createReadySandbox({
+    async stop() {
+      stopEntered += 1;
+      await gate;
+      throw notFound;
+    },
+  });
+
+  return {
+    releaseStop: () => {
+      releaseStop?.();
+    },
+    sandbox,
+    stopEntered: () => stopEntered,
+  };
+}
+
 describe("Sandbox missingOk matrix", () => {
   describe("stop", () => {
     it.each(NOT_FOUND_PAIRS)(
@@ -112,6 +142,36 @@ describe("Sandbox missingOk matrix", () => {
         },
       });
       await expect(sandboxMissingOk.stop({ missingOk: true })).rejects.toBe(error);
+    });
+
+    it("applies missingOk per waiter when strict stop owns the shared promise", async () => {
+      const { releaseStop, sandbox, stopEntered } = await createGatedNotFoundStopSandbox();
+
+      const strict = sandbox.stop();
+      await vi.waitFor(() => {
+        expect(stopEntered()).toBe(1);
+      });
+      const tolerant = sandbox.stop({ missingOk: true });
+
+      releaseStop();
+
+      await expect(strict).rejects.toBeInstanceOf(CWSandboxNotFoundError);
+      await expect(tolerant).resolves.toBeUndefined();
+    });
+
+    it("applies missingOk per waiter when tolerant stop owns the shared promise", async () => {
+      const { releaseStop, sandbox, stopEntered } = await createGatedNotFoundStopSandbox();
+
+      const tolerant = sandbox.stop({ missingOk: true });
+      await vi.waitFor(() => {
+        expect(stopEntered()).toBe(1);
+      });
+      const strict = sandbox.stop();
+
+      releaseStop();
+
+      await expect(tolerant).resolves.toBeUndefined();
+      await expect(strict).rejects.toBeInstanceOf(CWSandboxNotFoundError);
     });
   });
 

@@ -159,49 +159,39 @@ export class Sandbox {
     validateStopOptions(options);
 
     if (this.stopPromise === undefined) {
+      // First caller's lifecycle RPC options win; missingOk is applied per waiter below.
       this.stopPromise = this.runSharedStop(options);
     }
 
-    return awaitWithRequestOptions(this.stopPromise, options, {
-      operation: STOP_OPERATION,
-      sandboxId: this.sandboxId,
-      timeoutMessage: `Timed out waiting for sandbox '${this.sandboxId}' to reach a terminal status.`,
-    });
-  }
-
-  private async runSharedStop(options: StopOptions): Promise<void> {
-    const missingOk = options.missingOk === true;
-    let status: SandboxStatus;
     try {
-      status = await this.getStatus();
+      await awaitWithRequestOptions(this.stopPromise, options, {
+        operation: STOP_OPERATION,
+        sandboxId: this.sandboxId,
+        timeoutMessage: `Timed out waiting for sandbox '${this.sandboxId}' to reach a terminal status.`,
+      });
     } catch (error) {
-      if (missingOk && isSandboxNotFound(error)) {
+      if (options.missingOk === true && isSandboxNotFound(error)) {
         return;
       }
       throw error;
     }
+  }
+
+  private async runSharedStop(options: StopOptions): Promise<void> {
+    const status = await this.getStatus();
 
     if (TERMINAL_STATUSES.has(status)) {
       return;
     }
 
     if (status !== "terminating") {
-      try {
-        await this.runtime.transport.stop({
-          sandboxId: this.sandboxId,
-          ...(options.gracefulShutdownSeconds === undefined
-            ? {}
-            : { gracefulShutdownSeconds: options.gracefulShutdownSeconds }),
-          ...(options.snapshotOnStop === undefined
-            ? {}
-            : { snapshotOnStop: options.snapshotOnStop }),
-        });
-      } catch (error) {
-        if (missingOk && isSandboxNotFound(error)) {
-          return;
-        }
-        throw error;
-      }
+      await this.runtime.transport.stop({
+        sandboxId: this.sandboxId,
+        ...(options.gracefulShutdownSeconds === undefined
+          ? {}
+          : { gracefulShutdownSeconds: options.gracefulShutdownSeconds }),
+        ...(options.snapshotOnStop === undefined ? {} : { snapshotOnStop: options.snapshotOnStop }),
+      });
     }
 
     await waitForSandbox(
