@@ -12,6 +12,7 @@ import type {
   Sandbox,
   SandboxClient,
   SandboxRunOptions,
+  SandboxStatus,
   SandboxTag,
 } from "@coreweave/cwsandbox";
 import { expect } from "vitest";
@@ -39,11 +40,18 @@ export const noInternetProbeScript = readSmokeScript("no-internet-probe.py");
 export const portProtocols = ["TCP", "UDP", "SCTP"] as const;
 export const resourceProbeScript = readSmokeScript("resource-probe.py");
 export const smokeConfig = createSmokeConfig();
+export const terminalStatuses = new Set<SandboxStatus>(["completed", "failed", "terminated"]);
 export const testTimeoutMs = 120_000;
 
 export async function expectRunning(sandbox: Sandbox): Promise<void> {
   await sandbox.wait();
   await expect(sandbox.getStatus()).resolves.toBe("running");
+}
+
+export async function expectTerminalStatus(sandbox: Sandbox): Promise<void> {
+  const status = await sandbox.getStatus();
+  expect(terminalStatuses.has(status)).toBe(true);
+  expect(sandbox.status).toBe(status);
 }
 
 export async function listIncludesSandbox(
@@ -129,6 +137,29 @@ export function withStartedSandbox<TResult>(
   callback: (sandbox: Sandbox) => Promise<TResult> | TResult,
 ): Promise<TResult> {
   return client.withSandbox(callback, options);
+}
+
+export async function withDedicatedTaggedSandbox<TResult>(
+  client: SandboxClient,
+  options: {
+    readonly create?: (tag: SandboxTag) => Promise<Sandbox>;
+    readonly waitUntilRunning?: boolean;
+  },
+  callback: (sandbox: Sandbox) => Promise<TResult> | TResult,
+): Promise<TResult> {
+  const create = options.create ?? ((tag) => client.create({ tags: [tag] }));
+  const sandbox = await create(uniqueSmokeTag());
+
+  try {
+    if (options.waitUntilRunning) {
+      await sandbox.wait();
+      expect(await sandbox.getStatus()).toBe("running");
+    }
+
+    return await callback(sandbox);
+  } finally {
+    await sandbox.delete().catch(() => undefined);
+  }
 }
 
 function createSmokeConfig(): SmokeConfig {

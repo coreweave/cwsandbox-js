@@ -539,8 +539,10 @@ expectTypeOf(sandbox.delete()).toEqualTypeOf<Promise<void>>();
 const waitTarget: WaitTargetStatus = "completed";
 const waitOptions: WaitOptions = { targetStatus: waitTarget };
 expectTypeOf(waitOptions.targetStatus).toEqualTypeOf<WaitTargetStatus | undefined>();
+const terminalWaitOptions: WaitOptions = { targetStatus: "terminal" };
+expectTypeOf(terminalWaitOptions.targetStatus).toEqualTypeOf<WaitTargetStatus | undefined>();
 
-// @ts-expect-error Unsupported terminal failure states are not valid wait targets.
+// @ts-expect-error Individual failure states are not valid wait targets; use "terminal".
 const invalidWaitOptions: WaitOptions = { targetStatus: "failed" };
 
 // @ts-expect-error Batch writes receive options as the second argument, not content.

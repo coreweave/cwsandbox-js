@@ -11,6 +11,7 @@ export type CWSandboxErrorCode =
   | "not_found"
   | "not_implemented"
   | "resource_exhausted"
+  | "terminal_state_unavailable"
   | "timeout_error"
   | "transport_error"
   | "unavailable"
@@ -101,6 +102,17 @@ export class CWSandboxNotFoundError extends CWSandboxTransportError {
   public constructor(message: string, options?: CWSandboxTransportErrorOptions) {
     super(message, options, "not_found");
     this.name = "CWSandboxNotFoundError";
+  }
+}
+
+/**
+ * Stop (or observe-after-stop) succeeded from the client's point of view, but
+ * the backend never reported a terminal sandbox status within the retry budget.
+ */
+export class CWSandboxTerminalStateUnavailableError extends CWSandboxTransportError {
+  public constructor(message: string, options?: CWSandboxTransportErrorOptions) {
+    super(message, options, "terminal_state_unavailable");
+    this.name = "CWSandboxTerminalStateUnavailableError";
   }
 }
 

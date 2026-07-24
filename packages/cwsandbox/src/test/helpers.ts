@@ -154,6 +154,7 @@ export function createFakeTransport(
   statuses: readonly SandboxStatus[] = ["running"],
 ): SandboxTransport {
   const statusQueue = [...statuses];
+  let stopped = false;
 
   return {
     async start(request) {
@@ -163,6 +164,13 @@ export function createFakeTransport(
       };
     },
     async get(request) {
+      if (stopped) {
+        return {
+          sandboxId: request.sandboxId,
+          status: "terminated",
+        };
+      }
+
       return {
         sandboxId: request.sandboxId,
         status: statusQueue.shift() ?? statuses.at(-1) ?? "running",
@@ -173,7 +181,7 @@ export function createFakeTransport(
         sandboxes: [
           {
             sandboxId: "sandbox-for-echo",
-            status: statusQueue.at(0) ?? statuses.at(-1) ?? "running",
+            status: stopped ? "terminated" : (statusQueue.at(0) ?? statuses.at(-1) ?? "running"),
           },
         ],
       };
@@ -196,6 +204,7 @@ export function createFakeTransport(
       return createLogStream(request.mode);
     },
     async stop() {
+      stopped = true;
       return undefined;
     },
     async writeFile() {
@@ -228,13 +237,15 @@ export function createTrackingTransport(): {
   readonly transport: SandboxTransport;
 } {
   const stoppedSandboxIds: string[] = [];
+  const base = createFakeTransport();
 
   return {
     stoppedSandboxIds,
     transport: {
-      ...createFakeTransport(),
+      ...base,
       async stop(request) {
         stoppedSandboxIds.push(request.sandboxId);
+        await base.stop(request);
       },
     },
   };

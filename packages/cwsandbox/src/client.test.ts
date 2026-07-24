@@ -789,6 +789,7 @@ describe("SandboxClient", () => {
       const events: string[] = [];
       const statuses = ["creating", "running"] as const;
       let getCalls = 0;
+      let stopped = false;
       const transport: SandboxTransport = {
         ...createFakeTransport(),
         async start(request) {
@@ -799,6 +800,14 @@ describe("SandboxClient", () => {
           };
         },
         async get(request) {
+          if (stopped) {
+            events.push("get:terminated");
+            return {
+              sandboxId: request.sandboxId,
+              status: "terminated",
+            };
+          }
+
           const status = statuses[getCalls] ?? "running";
           getCalls += 1;
           events.push(`get:${status}`);
@@ -808,6 +817,7 @@ describe("SandboxClient", () => {
           };
         },
         async stop(request) {
+          stopped = true;
           events.push(`stop:${request.sandboxId}`);
         },
       };
@@ -825,7 +835,9 @@ describe("SandboxClient", () => {
         "get:creating",
         "get:running",
         "callback",
+        "get:running",
         "stop:sandbox-for-keepalive",
+        "get:terminated",
       ]);
     });
 
@@ -863,7 +875,8 @@ describe("SandboxClient", () => {
       );
 
       expect(result).toBe("callback-result");
-      expect(getCalls).toBe(0);
+      // Creation skipped readiness gets; stop() still preflights and waits for terminal.
+      expect(getCalls).toBe(2);
       expect(stoppedSandboxIds).toEqual(["sandbox-for-/bin/sh"]);
     });
 

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
+import { CWSandboxTimeoutError } from "./errors.js";
 import { ignoreMissingSandbox } from "./internal/delete.js";
 import { validateRequestOptions, validateStopOptions } from "./internal/validation/index.js";
 import type {
@@ -33,6 +34,9 @@ import { startShell } from "./runtime/shell.js";
 import { waitForSandbox } from "./runtime/wait.js";
 import type { SandboxTransport } from "./transport.js";
 
+const TERMINAL_STATUSES = new Set<SandboxStatus>(["completed", "failed", "terminated"]);
+const STOP_OPERATION = "Stop sandbox";
+
 interface SandboxOptions {
   readonly metadata?: SandboxMetadata;
   readonly sandboxId: SandboxId;
@@ -48,6 +52,7 @@ export class Sandbox {
 
   private metadata: SandboxMetadata;
   private readonly runtime: SandboxRuntime;
+  private stopPromise: Promise<void> | undefined;
 
   public constructor(options: SandboxOptions) {
     this.sandboxId = options.sandboxId;
@@ -147,10 +152,44 @@ export class Sandbox {
   public async stop(options: StopOptions = {}): Promise<void> {
     validateStopOptions(options);
 
-    await this.runtime.transport.stop({
-      ...options,
+    if (this.stopPromise === undefined) {
+      this.stopPromise = this.runSharedStop(options);
+    }
+
+    return awaitWithRequestOptions(this.stopPromise, options, {
+      operation: STOP_OPERATION,
       sandboxId: this.sandboxId,
+      timeoutMessage: `Timed out waiting for sandbox '${this.sandboxId}' to reach a terminal status.`,
     });
+  }
+
+  private async runSharedStop(options: StopOptions): Promise<void> {
+    const status = await this.getStatus();
+    if (TERMINAL_STATUSES.has(status)) {
+      return;
+    }
+
+    if (status !== "terminating") {
+      await this.runtime.transport.stop({
+        sandboxId: this.sandboxId,
+        ...(options.gracefulShutdownSeconds === undefined
+          ? {}
+          : { gracefulShutdownSeconds: options.gracefulShutdownSeconds }),
+        ...(options.snapshotOnStop === undefined ? {} : { snapshotOnStop: options.snapshotOnStop }),
+      });
+    }
+
+    await waitForSandbox(
+      this.runtime,
+      {
+        retryNotFoundAfterStop: true,
+        targetStatus: "terminal",
+        unbounded: true,
+      },
+      (metadata) => {
+        this.updateMetadata(metadata);
+      },
+    );
   }
 
   public async [Symbol.asyncDispose](): Promise<void> {
@@ -175,6 +214,76 @@ export class Sandbox {
       sandboxId: this.sandboxId,
     };
   }
+}
+
+function awaitWithRequestOptions(
+  promise: Promise<void>,
+  options: RequestOptions,
+  details: {
+    readonly operation: string;
+    readonly sandboxId: string;
+    readonly timeoutMessage: string;
+  },
+): Promise<void> {
+  if (options.timeoutMs === undefined && options.signal === undefined) {
+    return promise;
+  }
+
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+
+    const cleanup = (): void => {
+      if (timeout !== undefined) {
+        clearTimeout(timeout);
+      }
+      options.signal?.removeEventListener("abort", onAbort);
+    };
+    const settle = (callback: () => void): void => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
+      callback();
+    };
+    const onAbort = (): void => {
+      try {
+        options.signal?.throwIfAborted();
+      } catch (error) {
+        settle(() => reject(error));
+      }
+    };
+
+    if (options.timeoutMs !== undefined) {
+      timeout = setTimeout(() => {
+        settle(() =>
+          reject(
+            new CWSandboxTimeoutError(details.timeoutMessage, {
+              operation: details.operation,
+              sandboxId: details.sandboxId,
+            }),
+          ),
+        );
+      }, options.timeoutMs);
+    }
+
+    options.signal?.addEventListener("abort", onAbort, { once: true });
+    if (options.signal?.aborted === true) {
+      onAbort();
+      return;
+    }
+
+    void promise.then(
+      () => {
+        settle(() => resolve());
+      },
+      (error: unknown) => {
+        settle(() => reject(error));
+      },
+    );
+  });
 }
 
 function cloneResourceSpec(spec: SandboxResourceSpec | undefined): SandboxResourceSpec | undefined {

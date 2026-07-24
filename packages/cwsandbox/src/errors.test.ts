@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   CWSandboxConfigurationError,
   CWSandboxError,
+  CWSandboxTerminalStateUnavailableError,
   CWSandboxTimeoutError,
   CWSandboxValidationError,
   isCWSandboxError,
@@ -43,5 +44,16 @@ describe("SDK error boundaries", () => {
     expect(error.sandboxId).toBe("sandbox-123");
     expect(error.transport).toBe("grpc");
     expect(error.transportCode).toBe("DEADLINE_EXCEEDED");
+  });
+
+  it("exposes terminal-state unavailable as a typed transport error", () => {
+    const error = new CWSandboxTerminalStateUnavailableError("ambiguous", {
+      operation: "Wait for sandbox",
+      sandboxId: "sandbox-123",
+    });
+
+    expect(error).toBeInstanceOf(CWSandboxError);
+    expect(error.code).toBe("terminal_state_unavailable");
+    expect(error.sandboxId).toBe("sandbox-123");
   });
 });
