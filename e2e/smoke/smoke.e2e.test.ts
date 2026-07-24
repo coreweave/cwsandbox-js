@@ -673,7 +673,9 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
             expect(fromListAll.has(sandbox.sandboxId)).toBe(true);
           }
         } finally {
-          await Promise.allSettled(created.map((sandbox) => sandbox.delete()));
+          await Promise.allSettled(
+            created.map((sandbox) => sandbox.delete({ missingOk: true })),
+          );
         }
       },
       testTimeoutMs,
@@ -920,11 +922,11 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
           console.log(`Started delete sandbox: ${sandboxId}`);
 
           await client.delete(sandboxId);
-          await client.delete(sandboxId);
+          await client.delete(sandboxId, { missingOk: true });
           deleted = true;
         } finally {
           if (dedicatedSandbox !== undefined && !deleted) {
-            await dedicatedSandbox.stop();
+            await dedicatedSandbox.stop({ missingOk: true });
           }
         }
 

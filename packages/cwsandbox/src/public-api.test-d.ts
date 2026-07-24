@@ -525,6 +525,7 @@ expectTypeOf(client.list()).toEqualTypeOf<Promise<ListSandboxesResult>>();
 expectTypeOf(client.listSandboxes()).toEqualTypeOf<SandboxList>();
 expectTypeOf(client.listAll()).toEqualTypeOf<Promise<readonly Sandbox[]>>();
 expectTypeOf(client.delete("sandbox-123")).toEqualTypeOf<Promise<void>>();
+expectTypeOf(client.delete("sandbox-123", { missingOk: true })).toEqualTypeOf<Promise<void>>();
 
 // @ts-expect-error listSandboxes owns pagination and does not accept pageToken.
 client.listSandboxes({ pageToken: "page-1" });
@@ -534,7 +535,9 @@ client.listAll({ pageToken: "page-1" });
 expectTypeOf(sandbox.stop({ gracefulShutdownSeconds: 5, snapshotOnStop: true })).toEqualTypeOf<
   Promise<void>
 >();
+expectTypeOf(sandbox.stop({ missingOk: true })).toEqualTypeOf<Promise<void>>();
 expectTypeOf(sandbox.delete()).toEqualTypeOf<Promise<void>>();
+expectTypeOf(sandbox.delete({ missingOk: true })).toEqualTypeOf<Promise<void>>();
 
 const waitTarget: WaitTargetStatus = "completed";
 const waitOptions: WaitOptions = { targetStatus: waitTarget };

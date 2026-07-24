@@ -62,7 +62,20 @@ export interface SandboxRunOptions extends RequestOptions {
 
 export interface StopOptions extends RequestOptions {
   readonly gracefulShutdownSeconds?: Seconds;
+  /**
+   * When true, treat a missing sandbox (gRPC `NOT_FOUND` or trusted
+   * `CWSANDBOX_SANDBOX_NOT_FOUND`) as success. Defaults to `false`.
+   */
+  readonly missingOk?: boolean;
   readonly snapshotOnStop?: boolean;
+}
+
+export interface DeleteOptions extends RequestOptions {
+  /**
+   * When true, treat a missing sandbox (gRPC `NOT_FOUND` or trusted
+   * `CWSANDBOX_SANDBOX_NOT_FOUND`) as success. Defaults to `false`.
+   */
+  readonly missingOk?: boolean;
 }
 
 export interface ListSandboxesOptions extends RequestOptions {

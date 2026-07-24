@@ -406,8 +406,8 @@ async function cleanupSandbox(sandbox: Sandbox): Promise<void> {
     return;
   }
 
-  await sandbox.delete().catch(async () => {
-    await sandbox.stop().catch(() => undefined);
+  await sandbox.delete({ missingOk: true }).catch(async () => {
+    await sandbox.stop({ missingOk: true }).catch(() => undefined);
   });
   await waitUntilStopped(sandbox).catch(() => undefined);
   cleanedSandboxIds.add(sandbox.sandboxId);
@@ -474,9 +474,9 @@ async function listActiveStressSandboxes(client: SandboxClient): Promise<readonl
 }
 
 async function cleanupSandboxInfo(client: SandboxClient, sandbox: SandboxInfo): Promise<void> {
-  await client.delete(sandbox.sandboxId).catch(async () => {
+  await client.delete(sandbox.sandboxId, { missingOk: true }).catch(async () => {
     const attached = await client.fromId(sandbox.sandboxId).catch(() => undefined);
-    await attached?.stop().catch(() => undefined);
+    await attached?.stop({ missingOk: true }).catch(() => undefined);
   });
 }
 
