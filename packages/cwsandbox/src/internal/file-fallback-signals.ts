@@ -14,6 +14,26 @@ export function isFileTooLargeReason(error: unknown): boolean {
   return error instanceof CWSandboxTransportError && error.reason === CWSANDBOX_FILE_TOO_LARGE;
 }
 
+/** Prefer `code` so duplicate module copies still match (instanceof can fail). */
+function isResourceExhausted(error: unknown): boolean {
+  return (
+    error instanceof CWSandboxResourceExhaustedError ||
+    (isCWSandboxError(error) && error.code === "resource_exhausted")
+  );
+}
+
+/** Client/server gRPC frame or decompress size refusals (not only "larger than max"). */
+function looksLikeGrpcMessageTooLarge(error: unknown): boolean {
+  if (!isCWSandboxError(error)) {
+    return false;
+  }
+  const text = error.message.toLowerCase();
+  return (
+    (text.includes("message") && text.includes("larger than max")) ||
+    (text.includes("decompress") && text.includes("larger than"))
+  );
+}
+
 export function parseSizeBytesFromError(error: unknown): number | undefined {
   if (!(error instanceof CWSandboxTransportError) || error.metadata === undefined) {
     return undefined;
@@ -42,11 +62,8 @@ export function shouldFallbackWrite(error: unknown, size: number): boolean {
     return true;
   }
 
-  if (error instanceof CWSandboxResourceExhaustedError) {
-    const text = error.message.toLowerCase();
-    if (text.includes("message") && text.includes("larger than max")) {
-      return true;
-    }
+  if (isResourceExhausted(error) && looksLikeGrpcMessageTooLarge(error)) {
+    return true;
   }
 
   // Backup signal when ErrorInfo is absent but the gateway message is present.
@@ -73,7 +90,9 @@ export function shouldFallbackRead(error: unknown): {
     return { fallback: true, expectedSize: size };
   }
 
-  if (error instanceof CWSandboxResourceExhaustedError) {
+  // Broad RE fallback (Python parity) when remote size is unknown — includes the
+  // default 4 MiB client decompress cliff before channel limits are raised.
+  if (isResourceExhausted(error) || looksLikeGrpcMessageTooLarge(error)) {
     return { fallback: true };
   }
 

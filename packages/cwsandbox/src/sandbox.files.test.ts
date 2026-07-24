@@ -430,6 +430,36 @@ describe("Sandbox files", () => {
     expect(startCommand).toHaveBeenCalledOnce();
   });
 
+  it("falls back to StreamExec when unary read hits the gRPC decompress size cliff", async () => {
+    const content = new Uint8Array([4, 5, 6]);
+    const startCommand = vi.fn<SandboxTransport["startCommand"]>(async (request) => {
+      const process = createCommandProcess(request.command);
+      return {
+        ...process,
+        async wait() {
+          return createProcessResult(request.command, {
+            exitCode: 0,
+            stdoutBytes: content,
+          });
+        },
+      };
+    });
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async readFile() {
+        throw new CWSandboxResourceExhaustedError(
+          "Read file failed: Received message that decompresses to a size larger than 4194304",
+          { operation: "Read file", sandboxId: "sandbox-for-echo" },
+        );
+      },
+      startCommand,
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"]);
+
+    await expect(sandbox.files.read("/tmp/large.bin")).resolves.toEqual(content);
+    expect(startCommand).toHaveBeenCalledOnce();
+  });
+
   it("rejects StreamExec reads when the client buffer truncates stdout", async () => {
     const startCommand = vi.fn<SandboxTransport["startCommand"]>(async (request) => {
       const process = createCommandProcess(request.command);
