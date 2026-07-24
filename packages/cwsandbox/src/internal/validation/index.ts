@@ -17,6 +17,7 @@ import { validateMountedFiles } from "../mounted-files.js";
 import { validateNetworkOptions } from "../network.js";
 import { validateResources } from "../resources.js";
 import { validateSecrets } from "../secrets.js";
+import type { InternalStartCommandOptions } from "../start-command-options.js";
 import { validateAnnotations } from "./annotations.js";
 import { validateUniqueStringList } from "./string-list.js";
 import { validateTags } from "./tags.js";
@@ -29,8 +30,9 @@ export function validateExecOptions(options: ExecOptions): void {
   validateCommandOptions(options);
 }
 
-export function validateStartCommandOptions(options: StartCommandOptions): void {
+export function validateStartCommandOptions(options: InternalStartCommandOptions): void {
   validateCommandOptions(options);
+  validateOptionalBoolean(options.binaryOutput, "binaryOutput");
 }
 
 export function validateShellOptions(options: ShellOptions): void {
@@ -46,9 +48,6 @@ function validateCommandOptions(options: ExecOptions | StartCommandOptions): voi
   validateOptionalNonBlankString(options.cwd, "cwd");
   if ("stdin" in options) {
     validateOptionalBoolean(options.stdin, "stdin");
-  }
-  if ("binaryOutput" in options) {
-    validateOptionalBoolean(options.binaryOutput, "binaryOutput");
   }
 }
 

@@ -17,12 +17,6 @@ export interface ExecOptions extends RequestOptions {
 }
 
 export interface StartCommandOptions extends RequestOptions {
-  /**
-   * Accumulate stdout as bytes only (skip UTF-8 decode / stdout string).
-   * Used by large-file StreamExec fallback; not part of the general public
-   * command API surface.
-   */
-  readonly binaryOutput?: boolean;
   readonly bufferedMaxKiB?: number;
   readonly check?: boolean;
   readonly cwd?: string;
