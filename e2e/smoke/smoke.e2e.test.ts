@@ -954,6 +954,8 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     it(
       "stop() waits until the sandbox reaches a terminal status",
       async () => {
+        expect.hasAssertions();
+
         await withDedicatedTaggedSandbox(client, { waitUntilRunning: true }, async (dedicatedSandbox) => {
           await dedicatedSandbox.stop();
           await expectTerminalStatus(dedicatedSandbox);
@@ -979,6 +981,8 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     it(
       "concurrent stop() calls share one in-flight operation",
       async () => {
+        expect.hasAssertions();
+
         await withDedicatedTaggedSandbox(client, { waitUntilRunning: true }, async (dedicatedSandbox) => {
           await Promise.all([dedicatedSandbox.stop(), dedicatedSandbox.stop()]);
           await expectTerminalStatus(dedicatedSandbox);
