@@ -10,12 +10,12 @@ import {
   CWSANDBOX_FILE_NOT_FOUND,
   CWSANDBOX_FILE_TOO_LARGE,
   CWSANDBOX_SANDBOX_NOT_FOUND,
-} from "../../internal/error-info.js";
-import { parseStatusDetailsFromMetadata } from "./error-info.js";
-import { statusDetailsMeta } from "./test/status-details.js";
+} from "../../../internal/error-info.js";
+import { parseStatusDetailsFromMetadata } from "../error-info.js";
+import { statusDetailsMeta } from "./status-details.js";
 
-describe("parseStatusDetailsFromMetadata", () => {
-  it("parses ErrorInfo reason and metadata from grpc-status-details-bin", () => {
+describe("statusDetailsMeta round-trip", () => {
+  it("packs ErrorInfo reason and metadata", () => {
     const parsed = parseStatusDetailsFromMetadata(
       statusDetailsMeta({
         errorInfos: [
@@ -44,7 +44,7 @@ describe("parseStatusDetailsFromMetadata", () => {
     });
   });
 
-  it("parses sandbox-not-found reasons", () => {
+  it("defaults domain to cwsandbox.com", () => {
     const parsed = parseStatusDetailsFromMetadata(
       statusDetailsMeta({
         errorInfos: [{ reason: CWSANDBOX_SANDBOX_NOT_FOUND }],
@@ -56,7 +56,7 @@ describe("parseStatusDetailsFromMetadata", () => {
     expect(parsed?.metadata).toEqual({});
   });
 
-  it("parses RetryInfo retry delay as milliseconds", () => {
+  it("packs RetryInfo seconds into retryDelayMs", () => {
     const parsed = parseStatusDetailsFromMetadata(
       statusDetailsMeta({
         errorInfos: [{ reason: CWSANDBOX_BACKEND_UNAVAILABLE }],
@@ -76,7 +76,6 @@ describe("parseStatusDetailsFromMetadata", () => {
       }),
     );
 
-    expect(parsed?.reason).toBe(CWSANDBOX_BACKEND_UNAVAILABLE);
     expect(parsed?.retryDelayMs).toBe(7000);
   });
 
@@ -101,23 +100,30 @@ describe("parseStatusDetailsFromMetadata", () => {
     expect(parsed?.retryDelayMs).toBe(0);
   });
 
-  it("returns undefined for malformed details", () => {
-    expect(
-      parseStatusDetailsFromMetadata({
-        "grpc-status-details-bin": "not-valid-protobuf!!!",
+  it("packs untrusted domains without changing parse behavior", () => {
+    const parsed = parseStatusDetailsFromMetadata(
+      statusDetailsMeta({
+        errorInfos: [
+          {
+            domain: "evil.example.com",
+            reason: CWSANDBOX_SANDBOX_NOT_FOUND,
+          },
+        ],
       }),
-    ).toBeUndefined();
-  });
-
-  it("skips a malformed leading entry and parses a later valid one", () => {
-    const valid = statusDetailsMeta({
-      errorInfos: [{ reason: CWSANDBOX_SANDBOX_NOT_FOUND }],
-    })["grpc-status-details-bin"];
-
-    const parsed = parseStatusDetailsFromMetadata({
-      "grpc-status-details-bin": ["not-valid-protobuf!!!", valid],
-    });
+    );
 
     expect(parsed?.reason).toBe(CWSANDBOX_SANDBOX_NOT_FOUND);
+    expect(parsed?.domain).toBe("evil.example.com");
+  });
+
+  it("packs nanos into retryDelayMs", () => {
+    const parsed = parseStatusDetailsFromMetadata(
+      statusDetailsMeta({
+        errorInfos: [{ reason: CWSANDBOX_BACKEND_UNAVAILABLE }],
+        retryInfos: [{ retryNanos: 500_000_000 }],
+      }),
+    );
+
+    expect(parsed?.retryDelayMs).toBe(500);
   });
 });

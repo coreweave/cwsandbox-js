@@ -75,8 +75,7 @@ function grpcErrorOptions(
 ): CWSandboxTransportErrorOptions {
   const parsed = parseStatusDetailsFromMetadata(error.meta);
 
-  const domain =
-    parsed?.domain === undefined || parsed.domain === "" ? undefined : parsed.domain;
+  const domain = parsed?.domain === undefined || parsed.domain === "" ? undefined : parsed.domain;
 
   return {
     ...context,

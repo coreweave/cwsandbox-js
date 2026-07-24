@@ -15,10 +15,7 @@ describe("ignoreMissingSandbox", () => {
 
   it("swallows not-found when missingOk is true", async () => {
     await expect(
-      ignoreMissingSandbox(
-        Promise.reject(new CWSandboxNotFoundError("missing")),
-        true,
-      ),
+      ignoreMissingSandbox(Promise.reject(new CWSandboxNotFoundError("missing")), true),
     ).resolves.toBeUndefined();
   });
 

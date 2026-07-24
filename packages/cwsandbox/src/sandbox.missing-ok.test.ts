@@ -4,15 +4,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  CWSandboxNotFoundError,
-  CWSandboxTransportError,
-  type SandboxTransport,
-} from "./index.js";
-import {
-  CWSANDBOX_ERROR_DOMAIN,
-  CWSANDBOX_SANDBOX_NOT_FOUND,
-} from "./internal/error-info.js";
+import { CWSandboxNotFoundError, CWSandboxTransportError, type SandboxTransport } from "./index.js";
+import { CWSANDBOX_ERROR_DOMAIN, CWSANDBOX_SANDBOX_NOT_FOUND } from "./internal/error-info.js";
 import { createClient, createFakeTransport } from "./test/helpers.js";
 
 /**

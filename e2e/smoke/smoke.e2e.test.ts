@@ -673,9 +673,7 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
             expect(fromListAll.has(sandbox.sandboxId)).toBe(true);
           }
         } finally {
-          await Promise.allSettled(
-            created.map((sandbox) => sandbox.delete({ missingOk: true })),
-          );
+          await Promise.allSettled(created.map((sandbox) => sandbox.delete({ missingOk: true })));
         }
       },
       testTimeoutMs,

@@ -20,18 +20,7 @@ import {
   CWSANDBOX_SANDBOX_NOT_FOUND,
 } from "../../internal/error-info.js";
 import { mapGrpcError } from "./errors.js";
-
-const SANDBOX_NOT_FOUND_B64 =
-  "CAISBHRlc3QaWAoodHlwZS5nb29nbGVhcGlzLmNvbS9nb29nbGUucnBjLkVycm9ySW5mbxIsChtDV1NBTkRCT1hfU0FOREJPWF9OT1RfRk9VTkQSDWN3c2FuZGJveC5jb20=";
-
-const BACKEND_UNAVAILABLE_WITH_RETRY_B64 =
-  "CAISBHRlc3QaWgoodHlwZS5nb29nbGVhcGlzLmNvbS9nb29nbGUucnBjLkVycm9ySW5mbxIuCh1DV1NBTkRCT1hfQkFDS0VORF9VTkFWQUlMQUJMRRINY3dzYW5kYm94LmNvbRowCih0eXBlLmdvb2dsZWFwaXMuY29tL2dvb2dsZS5ycGMuUmV0cnlJbmZvEgQKAggC";
-
-const EVIL_DOMAIN_NOT_FOUND_B64 =
-  "CAISBHRlc3QaWwoodHlwZS5nb29nbGVhcGlzLmNvbS9nb29nbGUucnBjLkVycm9ySW5mbxIvChtDV1NBTkRCT1hfU0FOREJPWF9OT1RfRk9VTkQSEGV2aWwuZXhhbXBsZS5jb20=";
-
-const FILE_TOO_LARGE_B64 =
-  "CAISBHRlc3QaaQoodHlwZS5nb29nbGVhcGlzLmNvbS9nb29nbGUucnBjLkVycm9ySW5mbxI9ChhDV1NBTkRCT1hfRklMRV9UT09fTEFSR0USDWN3c2FuZGJveC5jb20aEgoIZmlsZXBhdGgSBi90bXAveA==";
+import { statusDetailsMeta } from "./test/status-details.js";
 
 describe("mapGrpcError", () => {
   it.each(["UNAUTHENTICATED", "PERMISSION_DENIED"])("maps %s to authentication errors", (code) => {
@@ -124,9 +113,13 @@ describe("mapGrpcError", () => {
   });
 
   it("maps trusted CWSANDBOX_SANDBOX_NOT_FOUND to not-found even for INTERNAL", () => {
-    const cause = new RpcError("gone", "INTERNAL", {
-      "grpc-status-details-bin": SANDBOX_NOT_FOUND_B64,
-    });
+    const cause = new RpcError(
+      "gone",
+      "INTERNAL",
+      statusDetailsMeta({
+        errorInfos: [{ reason: CWSANDBOX_SANDBOX_NOT_FOUND }],
+      }),
+    );
 
     const error = mapGrpcError(cause, {
       operation: "Stop sandbox",
@@ -140,9 +133,14 @@ describe("mapGrpcError", () => {
   });
 
   it("maps trusted unavailable reasons to unavailable with retryDelayMs", () => {
-    const cause = new RpcError("down", "INTERNAL", {
-      "grpc-status-details-bin": BACKEND_UNAVAILABLE_WITH_RETRY_B64,
-    });
+    const cause = new RpcError(
+      "down",
+      "INTERNAL",
+      statusDetailsMeta({
+        errorInfos: [{ reason: CWSANDBOX_BACKEND_UNAVAILABLE }],
+        retryInfos: [{ retrySeconds: 2 }],
+      }),
+    );
 
     const error = mapGrpcError(cause, { operation: "Get sandbox" });
 
@@ -152,9 +150,18 @@ describe("mapGrpcError", () => {
   });
 
   it("attaches file reasons without remapping the exception class", () => {
-    const cause = new RpcError("too large", "INTERNAL", {
-      "grpc-status-details-bin": FILE_TOO_LARGE_B64,
-    });
+    const cause = new RpcError(
+      "too large",
+      "INTERNAL",
+      statusDetailsMeta({
+        errorInfos: [
+          {
+            reason: CWSANDBOX_FILE_TOO_LARGE,
+            metadata: { filepath: "/tmp/x" },
+          },
+        ],
+      }),
+    );
 
     const error = mapGrpcError(cause, { operation: "Read file" });
 
@@ -165,9 +172,18 @@ describe("mapGrpcError", () => {
   });
 
   it("does not remap reasons under an untrusted domain", () => {
-    const cause = new RpcError("spoof", "INTERNAL", {
-      "grpc-status-details-bin": EVIL_DOMAIN_NOT_FOUND_B64,
-    });
+    const cause = new RpcError(
+      "spoof",
+      "INTERNAL",
+      statusDetailsMeta({
+        errorInfos: [
+          {
+            domain: "evil.example.com",
+            reason: CWSANDBOX_SANDBOX_NOT_FOUND,
+          },
+        ],
+      }),
+    );
 
     const error = mapGrpcError(cause, { operation: "Stop sandbox" });
 
