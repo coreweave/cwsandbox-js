@@ -956,10 +956,14 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
       async () => {
         expect.hasAssertions();
 
-        await withDedicatedTaggedSandbox(client, { waitUntilRunning: true }, async (dedicatedSandbox) => {
-          await dedicatedSandbox.stop();
-          await expectTerminalStatus(dedicatedSandbox);
-        });
+        await withDedicatedTaggedSandbox(
+          client,
+          { waitUntilRunning: true },
+          async (dedicatedSandbox) => {
+            await dedicatedSandbox.stop();
+            await expectTerminalStatus(dedicatedSandbox);
+          },
+        );
       },
       testTimeoutMs,
     );
@@ -967,13 +971,17 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     it(
       "second stop() is a no-op after terminal",
       async () => {
-        await withDedicatedTaggedSandbox(client, { waitUntilRunning: true }, async (dedicatedSandbox) => {
-          await dedicatedSandbox.stop();
-          await expectTerminalStatus(dedicatedSandbox);
+        await withDedicatedTaggedSandbox(
+          client,
+          { waitUntilRunning: true },
+          async (dedicatedSandbox) => {
+            await dedicatedSandbox.stop();
+            await expectTerminalStatus(dedicatedSandbox);
 
-          await expect(dedicatedSandbox.stop()).resolves.toBeUndefined();
-          await expectTerminalStatus(dedicatedSandbox);
-        });
+            await expect(dedicatedSandbox.stop()).resolves.toBeUndefined();
+            await expectTerminalStatus(dedicatedSandbox);
+          },
+        );
       },
       testTimeoutMs,
     );
@@ -983,10 +991,14 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
       async () => {
         expect.hasAssertions();
 
-        await withDedicatedTaggedSandbox(client, { waitUntilRunning: true }, async (dedicatedSandbox) => {
-          await Promise.all([dedicatedSandbox.stop(), dedicatedSandbox.stop()]);
-          await expectTerminalStatus(dedicatedSandbox);
-        });
+        await withDedicatedTaggedSandbox(
+          client,
+          { waitUntilRunning: true },
+          async (dedicatedSandbox) => {
+            await Promise.all([dedicatedSandbox.stop(), dedicatedSandbox.stop()]);
+            await expectTerminalStatus(dedicatedSandbox);
+          },
+        );
       },
       testTimeoutMs,
     );
@@ -1004,9 +1016,9 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
               }),
           },
           async (dedicatedSandbox) => {
-            await expect(
-              dedicatedSandbox.wait({ targetStatus: "terminal" }),
-            ).resolves.toBe(dedicatedSandbox);
+            await expect(dedicatedSandbox.wait({ targetStatus: "terminal" })).resolves.toBe(
+              dedicatedSandbox,
+            );
             await expectTerminalStatus(dedicatedSandbox);
           },
         );
