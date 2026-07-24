@@ -67,6 +67,7 @@ export class Sandbox {
       sandboxId: this.sandboxId,
     };
     this.runtime = {
+      observedFileOpCapBytes: undefined,
       sandboxId: this.sandboxId,
       streamingFallbackNotified: false,
       transport: options.transport,

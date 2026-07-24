@@ -2,10 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
-import { CWSandboxTransportError } from "../errors.js";
+import { CWSandboxFileError } from "../errors.js";
 import { CWSANDBOX_FILE_TOO_LARGE } from "../internal/error-info.js";
-import { shouldFallbackRead, shouldFallbackWrite } from "../internal/file-fallback-signals.js";
-import { MAX_AUTO_FALLBACK_BYTES, fileOperationCapBytes } from "../internal/file-limits.js";
+import {
+  isFileTooLargeReason,
+  shouldFallbackRead,
+  shouldFallbackWrite,
+} from "../internal/file-fallback-signals.js";
+import {
+  MAX_AUTO_FALLBACK_BYTES,
+  fileOperationCapBytes,
+  recordObservedFileOpCap,
+} from "../internal/file-limits.js";
 import {
   notifyStreamingFallbackOnce,
   readFileViaStreamExec,
@@ -112,6 +120,10 @@ async function readSingleFile(
     });
     return result.content;
   } catch (error) {
+    if (isFileTooLargeReason(error)) {
+      recordObservedFileOpCap(runtime, error);
+    }
+
     const decision = shouldFallbackRead(error);
     if (!decision.fallback) {
       throw error;
@@ -166,10 +178,11 @@ async function writeSingleFile(
   const size = bytes.byteLength;
 
   if (size > MAX_AUTO_FALLBACK_BYTES) {
-    throw new CWSandboxTransportError(
+    throw new CWSandboxFileError(
       `Refusing to write '${path}': ${size} bytes exceeds the ` +
         `auto-fallback ceiling of ${MAX_AUTO_FALLBACK_BYTES} bytes.`,
       {
+        filepath: path,
         metadata: {
           filepath: path,
           max_size_bytes: String(MAX_AUTO_FALLBACK_BYTES),
@@ -183,7 +196,7 @@ async function writeSingleFile(
     );
   }
 
-  const cap = fileOperationCapBytes();
+  const cap = fileOperationCapBytes(runtime.observedFileOpCapBytes);
   if (size > cap) {
     notifyStreamingFallbackOnce(runtime, "Write file", path, size);
     await writeFileViaStreamExec(runtime, path, bytes, options);
@@ -198,6 +211,10 @@ async function writeSingleFile(
       sandboxId: runtime.sandboxId,
     });
   } catch (error) {
+    if (isFileTooLargeReason(error)) {
+      recordObservedFileOpCap(runtime, error);
+    }
+
     if (!shouldFallbackWrite(error, size)) {
       throw error;
     }

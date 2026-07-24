@@ -25,6 +25,11 @@ export interface CWSandboxTransportErrorOptions extends ErrorOptions {
    */
   readonly domain?: string;
   /**
+   * Path involved in a file operation. Caller-supplied values win over
+   * `metadata.filepath` when constructing `CWSandboxFileError`.
+   */
+  readonly filepath?: string;
+  /**
    * AIP-193 `ErrorInfo.metadata` map. Always treated as a string map; omit or
    * pass `{}` when no ErrorInfo metadata was present.
    */
@@ -160,6 +165,22 @@ export class CWSandboxResourceExhaustedError extends CWSandboxTransportError {
   public constructor(message: string, options?: CWSandboxTransportErrorOptions) {
     super(message, options, "resource_exhausted");
     this.name = "CWSandboxResourceExhaustedError";
+  }
+}
+
+/**
+ * File operation failure in the sandbox (Python `SandboxFileError` parity).
+ * Prefer switching on `reason` for AIP-193 file reasons.
+ */
+export class CWSandboxFileError extends CWSandboxTransportError {
+  public readonly filepath: string | undefined;
+
+  public constructor(message: string, options: CWSandboxTransportErrorOptions = {}) {
+    super(message, options, "transport_error");
+    this.name = "CWSandboxFileError";
+    const fromMetadata = options.metadata?.filepath;
+    this.filepath =
+      options.filepath ?? (typeof fromMetadata === "string" ? fromMetadata : undefined);
   }
 }
 

@@ -2,10 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
-import { CWSandboxNotFoundError, CWSandboxTransportError } from "../errors.js";
+import { CWSandboxFileError } from "../errors.js";
 import type { RequestOptions } from "../public/common.js";
 import { startCommand } from "../runtime/commands.js";
 import type { SandboxRuntime } from "../runtime/context.js";
+import {
+  CWSANDBOX_FILE_IO_FAILED,
+  CWSANDBOX_FILE_IS_DIRECTORY,
+  CWSANDBOX_FILE_NOT_FOUND,
+  CWSANDBOX_FILE_TRUNCATED,
+} from "./error-info.js";
 import { MAX_AUTO_FALLBACK_BYTES, STREAMING_WRITE_CHUNK_SIZE } from "./file-limits.js";
 
 /**
@@ -72,25 +78,27 @@ export async function writeFileViaStreamExec(
     if (result.exitCode !== 0) {
       const detail =
         result.stderr.trim() || `fallback command exited with status ${result.exitCode}`;
-      throw new CWSandboxTransportError(
+      throw new CWSandboxFileError(
         `Failed to write file '${path}' via exec-stream fallback: ${detail}. ` +
           "The target may be partial or truncated.",
         {
+          filepath: path,
           operation: "Write file",
           sandboxId: runtime.sandboxId,
         },
       );
     }
   } catch (error) {
-    if (error instanceof CWSandboxTransportError) {
+    if (error instanceof CWSandboxFileError) {
       throw error;
     }
 
-    throw new CWSandboxTransportError(
+    throw new CWSandboxFileError(
       `Failed to write file '${path}' via exec-stream fallback. ` +
         `The target may be partial or truncated. Upstream error: ${String(error)}`,
       {
         cause: error,
+        filepath: path,
         operation: "Write file",
         sandboxId: runtime.sandboxId,
       },
@@ -124,17 +132,30 @@ export async function readFileViaStreamExec(
   if (result.exitCode !== 0) {
     const detail = result.stderr.trim() || `fallback command exited with status ${result.exitCode}`;
     if (result.exitCode === 2) {
-      throw new CWSandboxNotFoundError(`File operation failed: ${detail}`, {
+      throw new CWSandboxFileError(`File operation failed (${CWSANDBOX_FILE_NOT_FOUND}): ${detail}`, {
+        filepath: path,
         operation: "Read file",
+        reason: CWSANDBOX_FILE_NOT_FOUND,
         sandboxId: runtime.sandboxId,
       });
     }
-    throw new CWSandboxTransportError(
-      result.exitCode === 3
-        ? `File operation failed: ${detail}`
-        : `Failed to read file '${path}' via exec-stream fallback: ${detail}`,
+    if (result.exitCode === 3) {
+      throw new CWSandboxFileError(
+        `File operation failed (${CWSANDBOX_FILE_IS_DIRECTORY}): ${detail}`,
+        {
+          filepath: path,
+          operation: "Read file",
+          reason: CWSANDBOX_FILE_IS_DIRECTORY,
+          sandboxId: runtime.sandboxId,
+        },
+      );
+    }
+    throw new CWSandboxFileError(
+      `Failed to read file '${path}' via exec-stream fallback: ${detail}`,
       {
+        filepath: path,
         operation: "Read file",
+        reason: CWSANDBOX_FILE_IO_FAILED,
         sandboxId: runtime.sandboxId,
       },
     );
@@ -142,20 +163,36 @@ export async function readFileViaStreamExec(
 
   const delivered = result.stdoutBytes.byteLength;
   if (result.stdoutTruncated) {
-    throw new CWSandboxTransportError(
-      `StreamExec read of '${path}' was truncated after ${delivered} bytes ` +
-        `(client buffer limit). Retry with a higher memory budget or read in parts.`,
+    throw new CWSandboxFileError(
+      `read_file of '${path}' was truncated: got ${delivered} bytes ` +
+        `(client buffer limit). Read the file in smaller parts.`,
       {
+        filepath: path,
+        metadata: {
+          bytes_delivered: String(delivered),
+          filepath: path,
+          operation: "read_file",
+        },
         operation: "Read file",
+        reason: CWSANDBOX_FILE_TRUNCATED,
         sandboxId: runtime.sandboxId,
       },
     );
   }
   if (expectedSize !== undefined && expectedSize > 0 && delivered < expectedSize) {
-    throw new CWSandboxTransportError(
-      `StreamExec read of '${path}' was short: got ${delivered} of ${expectedSize} bytes.`,
+    throw new CWSandboxFileError(
+      `read_file of '${path}' was truncated: got ${delivered} of ${expectedSize} bytes. ` +
+        "Read the file in smaller parts.",
       {
+        filepath: path,
+        metadata: {
+          bytes_delivered: String(delivered),
+          filepath: path,
+          operation: "read_file",
+          size_bytes: String(expectedSize),
+        },
         operation: "Read file",
+        reason: CWSANDBOX_FILE_TRUNCATED,
         sandboxId: runtime.sandboxId,
       },
     );

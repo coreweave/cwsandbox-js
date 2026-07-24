@@ -31,7 +31,33 @@ export const STREAMING_WRITE_CHUNK_SIZE = 64 * 1024;
 /** Cap stderr buffering on binary StreamExec file reads (Python parity). */
 export const STREAMING_READ_STDERR_CAP_BYTES = 16 * 1024;
 
-/** Effective unary payload cap applied before AddFile. */
-export function fileOperationCapBytes(): number {
+/**
+ * Effective unary payload cap applied before AddFile.
+ * Uses a server-observed cap when present; otherwise the default. Always
+ * clamped to `MAX_FILE_UNARY_BYTES` (Python `_file_op_cap` parity).
+ */
+export function fileOperationCapBytes(observedFileOpCapBytes?: number): number {
+  if (observedFileOpCapBytes !== undefined && observedFileOpCapBytes > 0) {
+    return Math.min(observedFileOpCapBytes, MAX_FILE_UNARY_BYTES);
+  }
   return Math.min(DEFAULT_FILE_OPERATION_CAP_BYTES, MAX_FILE_UNARY_BYTES);
+}
+
+/**
+ * Cache `max_size_bytes` from a `FILE_TOO_LARGE` error (Python
+ * `_record_observed_cap`). Stores the raw server value; clamp at use.
+ */
+export function recordObservedFileOpCap(
+  runtime: { observedFileOpCapBytes: number | undefined },
+  error: { readonly metadata?: Readonly<Record<string, string>> },
+): void {
+  const raw = error.metadata?.max_size_bytes;
+  if (raw === undefined || raw === "") {
+    return;
+  }
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isFinite(value) || value <= 0) {
+    return;
+  }
+  runtime.observedFileOpCapBytes = value;
 }

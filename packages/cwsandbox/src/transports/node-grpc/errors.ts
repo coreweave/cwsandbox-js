@@ -6,6 +6,7 @@ import { RpcError } from "@protobuf-ts/runtime-rpc";
 
 import {
   CWSandboxAuthenticationError,
+  CWSandboxFileError,
   CWSandboxNotFoundError,
   CWSandboxResourceExhaustedError,
   CWSandboxTimeoutError,
@@ -16,11 +17,13 @@ import {
 import {
   CWSANDBOX_ERROR_DOMAIN,
   CWSANDBOX_SANDBOX_NOT_FOUND,
+  FILE_ERROR_REASONS,
   UNAVAILABLE_REASONS,
 } from "../../internal/error-info.js";
 import { parseStatusDetailsFromMetadata } from "./error-info.js";
 
 export interface GrpcErrorContext {
+  readonly filepath?: string;
   readonly operation: string;
   readonly sandboxId?: string;
 }
@@ -36,6 +39,13 @@ export function mapGrpcError(error: unknown, context: GrpcErrorContext): CWSandb
 
     if (trusted) {
       const reason = details.reason;
+      if (FILE_ERROR_REASONS.has(reason)) {
+        const filepath = context.filepath ?? details.metadata.filepath;
+        return new CWSandboxFileError(`File operation failed (${reason}): ${error.message}`, {
+          ...details,
+          ...(typeof filepath === "string" ? { filepath } : {}),
+        });
+      }
       if (reason === CWSANDBOX_SANDBOX_NOT_FOUND) {
         return new CWSandboxNotFoundError(message, details);
       }

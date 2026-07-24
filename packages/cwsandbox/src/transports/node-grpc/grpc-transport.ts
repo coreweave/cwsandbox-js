@@ -174,7 +174,7 @@ export class GrpcSandboxTransport implements SandboxTransport {
           },
           toRpcOptions(request),
         ).response,
-      request.sandboxId,
+      { filepath: request.path, sandboxId: request.sandboxId },
     );
 
     assertGrpcSuccess(response, {
@@ -196,7 +196,7 @@ export class GrpcSandboxTransport implements SandboxTransport {
           },
           toRpcOptions(request),
         ).response,
-      request.sandboxId,
+      { filepath: request.path, sandboxId: request.sandboxId },
     );
 
     assertGrpcSuccess(response, {

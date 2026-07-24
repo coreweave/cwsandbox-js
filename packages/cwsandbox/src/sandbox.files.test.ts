@@ -5,6 +5,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  CWSandboxFileError,
   CWSandboxResourceExhaustedError,
   CWSandboxTransportError,
   CWSandboxValidationError,
@@ -12,7 +13,13 @@ import {
   type CommandProcessWithStdin,
   type SandboxTransport,
 } from "./index.js";
-import { CWSANDBOX_FILE_TOO_LARGE } from "./internal/error-info.js";
+import {
+  CWSANDBOX_FILE_IS_DIRECTORY,
+  CWSANDBOX_FILE_IO_FAILED,
+  CWSANDBOX_FILE_NOT_FOUND,
+  CWSANDBOX_FILE_TOO_LARGE,
+  CWSANDBOX_FILE_TRUNCATED,
+} from "./internal/error-info.js";
 import {
   DEFAULT_FILE_OPERATION_CAP_BYTES,
   MAX_AUTO_FALLBACK_BYTES,
@@ -453,7 +460,15 @@ describe("Sandbox files", () => {
     };
     const sandbox = await createClient(transport).run(["echo", "hello"]);
 
-    await expect(sandbox.files.read("/tmp/large.bin")).rejects.toThrow(/truncated/);
+    const truncated = await sandbox.files.read("/tmp/large.bin").then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(truncated).toBeInstanceOf(CWSandboxFileError);
+    expect(truncated).toMatchObject({
+      filepath: "/tmp/large.bin",
+      reason: CWSANDBOX_FILE_TRUNCATED,
+    });
   });
 
   it("rejects StreamExec reads that deliver fewer bytes than reported size", async () => {
@@ -485,7 +500,59 @@ describe("Sandbox files", () => {
     };
     const sandbox = await createClient(transport).run(["echo", "hello"]);
 
-    await expect(sandbox.files.read("/tmp/large.bin")).rejects.toThrow(/short: got 2 of 10/);
+    await expect(sandbox.files.read("/tmp/large.bin")).rejects.toMatchObject({
+      filepath: "/tmp/large.bin",
+      message: expect.stringMatching(/truncated: got 2 of 10/),
+      metadata: expect.objectContaining({
+        bytes_delivered: "2",
+        size_bytes: "10",
+      }),
+      reason: CWSANDBOX_FILE_TRUNCATED,
+    });
+  });
+
+  it("maps StreamExec read exit codes to AIP-193 file reasons", async () => {
+    for (const [exitCode, reason] of [
+      [2, CWSANDBOX_FILE_NOT_FOUND],
+      [3, CWSANDBOX_FILE_IS_DIRECTORY],
+      [1, CWSANDBOX_FILE_IO_FAILED],
+    ] as const) {
+      const startCommand = vi.fn<SandboxTransport["startCommand"]>(async (request) => {
+        const process = createCommandProcess(request.command);
+        return {
+          ...process,
+          async wait() {
+            return createProcessResult(request.command, {
+              exitCode,
+              stderr: `exit ${exitCode}`,
+            });
+          },
+        };
+      });
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async readFile() {
+          throw new CWSandboxTransportError("file too large", {
+            metadata: { size_bytes: "3" },
+            operation: "Read file",
+            reason: CWSANDBOX_FILE_TOO_LARGE,
+            sandboxId: "sandbox-for-echo",
+          });
+        },
+        startCommand,
+      };
+      const sandbox = await createClient(transport).run(["echo", "hello"]);
+
+      const error = await sandbox.files.read("/tmp/large.bin").then(
+        () => undefined,
+        (value: unknown) => value,
+      );
+      expect(error).toBeInstanceOf(CWSandboxFileError);
+      expect(error).toMatchObject({
+        filepath: "/tmp/large.bin",
+        reason,
+      });
+    }
   });
 
   it("refuses writes above the auto-fallback ceiling without StreamExec", async () => {
@@ -501,12 +568,58 @@ describe("Sandbox files", () => {
     };
     const sandbox = await createClient(transport).run(["echo", "hello"]);
 
-    await expect(sandbox.files.write("/tmp/huge.bin", content)).rejects.toMatchObject({
+    const error = await sandbox.files.write("/tmp/huge.bin", content).then(
+      () => undefined,
+      (value: unknown) => value,
+    );
+    expect(error).toBeInstanceOf(CWSandboxFileError);
+    expect(error).toMatchObject({
+      filepath: "/tmp/huge.bin",
       message: expect.stringContaining("auto-fallback ceiling"),
       reason: CWSANDBOX_FILE_TOO_LARGE,
     });
     expect(writeFile).not.toHaveBeenCalled();
     expect(startCommand).not.toHaveBeenCalled();
+  });
+
+  it("records observed unary cap and routes later writes through StreamExec", async () => {
+    const writeFile = vi.fn<SandboxTransport["writeFile"]>(async () => {
+      throw new CWSandboxTransportError("file too large", {
+        metadata: {
+          max_size_bytes: "1024",
+          size_bytes: "2048",
+        },
+        operation: "Write file",
+        reason: CWSANDBOX_FILE_TOO_LARGE,
+        sandboxId: "sandbox-for-echo",
+      });
+    });
+    const startCommand = vi.fn<SandboxTransport["startCommand"]>(async (request) => {
+      const process = createCommandProcess(request.command, true) as CommandProcessWithStdin;
+      return {
+        ...process,
+        async wait() {
+          return createProcessResult(request.command, { exitCode: 0 });
+        },
+      };
+    });
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      writeFile,
+      startCommand,
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"]);
+
+    await sandbox.files.write("/tmp/learn.bin", new Uint8Array(512));
+    expect(writeFile).toHaveBeenCalledOnce();
+    expect(startCommand).toHaveBeenCalledOnce();
+
+    writeFile.mockClear();
+    startCommand.mockClear();
+
+    await sandbox.files.write("/tmp/after-learn.bin", new Uint8Array(2048));
+    expect(writeFile).not.toHaveBeenCalled();
+    expect(startCommand).toHaveBeenCalledOnce();
   });
 
   it("does not auto-fallback reads when FILE_TOO_LARGE size exceeds the ceiling", async () => {
