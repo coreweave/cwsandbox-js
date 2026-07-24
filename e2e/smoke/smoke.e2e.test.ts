@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   expectRunning,
+  expectTerminalStatus,
   listIncludesSandbox,
   logProcessResult,
   mountedBinaryContent,
@@ -20,6 +21,7 @@ import {
   startOptionsForNoInternetNetwork,
   testTimeoutMs,
   uniqueSmokeTag,
+  withDedicatedTaggedSandbox,
   withStartedSandbox,
 } from "./helpers.js";
 
@@ -945,6 +947,81 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
         expect(result.exitCode).toBe(0);
         expect(result.stdout).toContain("hello from withSandbox");
         expect(result.stderr).toBe("");
+      },
+      testTimeoutMs,
+    );
+
+    it(
+      "stop() waits until the sandbox reaches a terminal status",
+      async () => {
+        expect.hasAssertions();
+
+        await withDedicatedTaggedSandbox(
+          client,
+          { waitUntilRunning: true },
+          async (dedicatedSandbox) => {
+            await dedicatedSandbox.stop();
+            await expectTerminalStatus(dedicatedSandbox);
+          },
+        );
+      },
+      testTimeoutMs,
+    );
+
+    it(
+      "second stop() is a no-op after terminal",
+      async () => {
+        await withDedicatedTaggedSandbox(
+          client,
+          { waitUntilRunning: true },
+          async (dedicatedSandbox) => {
+            await dedicatedSandbox.stop();
+            await expectTerminalStatus(dedicatedSandbox);
+
+            await expect(dedicatedSandbox.stop()).resolves.toBeUndefined();
+            await expectTerminalStatus(dedicatedSandbox);
+          },
+        );
+      },
+      testTimeoutMs,
+    );
+
+    it(
+      "concurrent stop() calls share one in-flight operation",
+      async () => {
+        expect.hasAssertions();
+
+        await withDedicatedTaggedSandbox(
+          client,
+          { waitUntilRunning: true },
+          async (dedicatedSandbox) => {
+            await Promise.all([dedicatedSandbox.stop(), dedicatedSandbox.stop()]);
+            await expectTerminalStatus(dedicatedSandbox);
+          },
+        );
+      },
+      testTimeoutMs,
+    );
+
+    it(
+      'wait({ targetStatus: "terminal" }) observes one-shot completion',
+      async () => {
+        await withDedicatedTaggedSandbox(
+          client,
+          {
+            create: (tag) =>
+              client.run(["python", "-c", "print('terminal-wait-smoke')"], {
+                tags: [tag],
+                waitUntilRunning: false,
+              }),
+          },
+          async (dedicatedSandbox) => {
+            await expect(dedicatedSandbox.wait({ targetStatus: "terminal" })).resolves.toBe(
+              dedicatedSandbox,
+            );
+            await expectTerminalStatus(dedicatedSandbox);
+          },
+        );
       },
       testTimeoutMs,
     );

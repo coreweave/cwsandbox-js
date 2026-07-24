@@ -147,6 +147,8 @@ pnpm example:weave:typecheck
 - `sandbox.files.*` reads and writes sandbox files.
 - `sandbox.logs.*` reads or streams the sandbox main process logs.
 - `sandbox.wait(...)`, `sandbox.stop(...)`, and `sandbox.delete(...)` manage lifecycle.
+  `stop()` requests shutdown and waits until the sandbox is terminal; use
+  `wait({ targetStatus: "terminal" })` to observe completion without sending Stop.
 
 ## Quickstart
 
@@ -176,9 +178,29 @@ try {
   const result = await sandbox.commands.run(["python", "-c", "print('hello')"]);
   console.log(result.stdout);
 } finally {
+  // Resolves after Stop RPC and the sandbox reaches completed/failed/terminated.
   await sandbox.stop();
 }
 ```
+
+`await sandbox.stop()` is Stop-then-wait: it sends the Stop RPC (unless the sandbox is
+already `terminating` or terminal), then polls until a terminal status. Concurrent or
+repeated `stop()` calls on the same handle share one in-flight operation. Per-call
+`signal` / `timeoutMs` only bound that waiter’s await; they do not cancel shared shutdown
+work for other waiters, and aborting does not undo a Stop that already succeeded.
+
+After a successful Stop, a brief `NotFound` race is retried (~2s). If terminal status is
+still unobservable, `stop()` throws `CWSandboxTerminalStateUnavailableError`.
+
+To watch an already-stopping sandbox without sending Stop:
+
+```ts
+await sandbox.wait({ targetStatus: "terminal", timeoutMs: 60_000 });
+console.log(sandbox.status); // completed | failed | terminated
+```
+
+`wait()` still defaults to a 60s timeout (including `targetStatus: "terminal"`).
+`stop()`’s shared wait is unbounded unless a waiter passes `timeoutMs`.
 
 Modern runtimes can also use explicit resource management:
 

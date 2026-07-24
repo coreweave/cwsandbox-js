@@ -14,6 +14,7 @@ export {
   CWSandboxNotFoundError,
   CWSandboxNotImplementedError,
   CWSandboxResourceExhaustedError,
+  CWSandboxTerminalStateUnavailableError,
   CWSandboxTimeoutError,
   CWSandboxTransportError,
   type CWSandboxTransportErrorOptions,

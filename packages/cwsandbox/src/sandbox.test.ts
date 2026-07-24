@@ -20,10 +20,12 @@ import {
 describe("Sandbox", () => {
   it("stops sandboxes through the configured transport", async () => {
     let stoppedSandboxId: string | undefined;
+    const base = createFakeTransport();
     const transport: SandboxTransport = {
-      ...createFakeTransport(),
+      ...base,
       async stop(request) {
         stoppedSandboxId = request.sandboxId;
+        await base.stop(request);
       },
     };
     const client = createClient(transport);
@@ -34,32 +36,14 @@ describe("Sandbox", () => {
     expect(stoppedSandboxId).toBe("sandbox-for-echo");
   });
 
-  it("forwards stop options to the transport", async () => {
-    const signal = new AbortController().signal;
-    let stopRequest: Parameters<SandboxTransport["stop"]>[0] | undefined;
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async stop(request) {
-        stopRequest = request;
-      },
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
-
-    await sandbox.stop({ signal, timeoutMs: 1234 });
-
-    expect(stopRequest).toEqual({
-      sandboxId: "sandbox-for-echo",
-      signal,
-      timeoutMs: 1234,
-    });
-  });
-
   it("forwards lifecycle stop options to the transport", async () => {
     let stopRequest: Parameters<SandboxTransport["stop"]>[0] | undefined;
+    const base = createFakeTransport();
     const transport: SandboxTransport = {
-      ...createFakeTransport(),
+      ...base,
       async stop(request) {
         stopRequest = request;
+        await base.stop(request);
       },
     };
     const sandbox = await createClient(transport).run(["echo", "hello"]);
@@ -73,6 +57,26 @@ describe("Sandbox", () => {
       gracefulShutdownSeconds: 5,
       sandboxId: "sandbox-for-echo",
       snapshotOnStop: true,
+    });
+  });
+
+  it("does not forward per-waiter signal or timeoutMs to the Stop RPC", async () => {
+    const signal = new AbortController().signal;
+    let stopRequest: Parameters<SandboxTransport["stop"]>[0] | undefined;
+    const base = createFakeTransport();
+    const transport: SandboxTransport = {
+      ...base,
+      async stop(request) {
+        stopRequest = request;
+        await base.stop(request);
+      },
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"]);
+
+    await sandbox.stop({ signal, timeoutMs: 1234 });
+
+    expect(stopRequest).toEqual({
+      sandboxId: "sandbox-for-echo",
     });
   });
 

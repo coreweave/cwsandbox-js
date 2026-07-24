@@ -90,7 +90,7 @@ describe("SandboxTransport contract", () => {
     await sandbox.files.write("/tmp/hello.txt", "hello", { timeoutMs: 300 });
     await sandbox.files.read("/tmp/hello.txt", { timeoutMs: 400 });
     await sandbox.logs.stream({ follow: true, timeoutMs: 500 });
-    await sandbox.stop({ gracefulShutdownSeconds: 1, timeoutMs: 600 });
+    await sandbox.stop({ gracefulShutdownSeconds: 1 });
     await sandbox.delete({ timeoutMs: 700 });
 
     const expectedSandboxId = "sandbox-for-python";
@@ -133,7 +133,6 @@ describe("SandboxTransport contract", () => {
     expect(expectSingle(calls.stop)).toMatchObject({
       gracefulShutdownSeconds: 1,
       sandboxId: expectedSandboxId,
-      timeoutMs: 600,
     });
     expect(calls.delete.at(-1)).toMatchObject({
       sandboxId: expectedSandboxId,
@@ -160,6 +159,8 @@ function createContractTransport(): {
     writeFile: [],
   };
 
+  let stopped = false;
+
   return {
     calls,
     transport: {
@@ -174,7 +175,7 @@ function createContractTransport(): {
         calls.get.push(request);
         return {
           sandboxId: request.sandboxId,
-          status: "running",
+          status: stopped ? "terminated" : "running",
         };
       },
       async list(options) {
@@ -208,6 +209,7 @@ function createContractTransport(): {
       },
       async stop(request) {
         calls.stop.push(request);
+        stopped = true;
       },
       async streamLogs(request): Promise<LogEntryStream | LogRawStream | LogStream> {
         calls.streamLogs.push(request);
