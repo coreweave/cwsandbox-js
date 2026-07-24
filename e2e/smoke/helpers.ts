@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
+import { Buffer } from "node:buffer";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,6 +43,24 @@ export const resourceProbeScript = readSmokeScript("resource-probe.py");
 export const smokeConfig = createSmokeConfig();
 export const terminalStatuses = new Set<SandboxStatus>(["completed", "failed", "terminated"]);
 export const testTimeoutMs = 120_000;
+
+/** Known-good StreamExec fallback size (matches Python integration). */
+export const LARGE_FILE_20_MIB = 20 * 1024 * 1024;
+export const largeFileTimeout20Ms = 180_000;
+
+export function createPatternedPayload(sizeBytes: number): Uint8Array {
+  const payload = new Uint8Array(sizeBytes);
+  for (let i = 0; i < sizeBytes; i += 1) {
+    payload[i] = i % 256;
+  }
+  return payload;
+}
+
+export function expectBytesEqual(actual: Uint8Array, expected: Uint8Array): void {
+  expect(actual.byteLength).toBe(expected.byteLength);
+  // gRPC bytes often arrive as Node Buffer; vitest toEqual treats Buffer ≠ Uint8Array.
+  expect(Buffer.compare(Buffer.from(actual), Buffer.from(expected))).toBe(0);
+}
 
 export async function expectRunning(sandbox: Sandbox): Promise<void> {
   await sandbox.wait();
@@ -101,6 +120,10 @@ export function logProcessResult(name: string, result: ProcessResult): void {
   console.log(`${name} exit code: ${result.exitCode}`);
   console.log(`${name} stdout: ${JSON.stringify(result.stdout)}`);
   console.log(`${name} stderr: ${JSON.stringify(result.stderr)}`);
+}
+
+export function logCaughtError(name: string, error: unknown): void {
+  console.error(`${name} error:`, error);
 }
 
 export function runPython(

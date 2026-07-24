@@ -7,8 +7,10 @@ import { describe, expect, it } from "vitest";
 import {
   CWSandboxConfigurationError,
   CWSandboxError,
+  CWSandboxFileError,
   CWSandboxTerminalStateUnavailableError,
   CWSandboxTimeoutError,
+  CWSandboxTransportError,
   CWSandboxValidationError,
   isCWSandboxError,
 } from "./errors.js";
@@ -70,5 +72,21 @@ describe("SDK error boundaries", () => {
     expect(error).toBeInstanceOf(CWSandboxError);
     expect(error.code).toBe("terminal_state_unavailable");
     expect(error.sandboxId).toBe("sandbox-123");
+  });
+
+  it("exposes filepath on CWSandboxFileError from options or metadata", () => {
+    const fromOption = new CWSandboxFileError("missing", {
+      filepath: "/from/option",
+      metadata: { filepath: "/from/meta" },
+      reason: "CWSANDBOX_FILE_NOT_FOUND",
+    });
+    const fromMeta = new CWSandboxFileError("missing", {
+      metadata: { filepath: "/from/meta" },
+      reason: "CWSANDBOX_FILE_NOT_FOUND",
+    });
+
+    expect(fromOption).toBeInstanceOf(CWSandboxTransportError);
+    expect(fromOption.filepath).toBe("/from/option");
+    expect(fromMeta.filepath).toBe("/from/meta");
   });
 });

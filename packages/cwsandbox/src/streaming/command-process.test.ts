@@ -65,6 +65,21 @@ describe("CommandProcess", () => {
     });
   });
 
+  it("binaryOutput skips decoding stdout text while keeping stdoutBytes", async () => {
+    const controller = createCommandProcess(["python"], { binaryOutput: true });
+    const payload = new Uint8Array([0, 159, 146, 150, 1, 2, 3]);
+
+    await controller.dispatch({ data: payload, type: "stdout" });
+    await controller.dispatch({ data: new TextEncoder().encode("oops"), type: "stderr" });
+    await controller.dispatch({ exitCode: 0, type: "exit" });
+
+    const result = await controller.process.wait();
+    expect(result.stdout).toBe("");
+    expect(result.stdoutBytes).toEqual(payload);
+    expect(result.stderr).toBe("oops");
+    expect(result.stderrBytes).toEqual(new TextEncoder().encode("oops"));
+  });
+
   it("rejects wait for checked non-zero exits while preserving status and exit code", async () => {
     const controller = createCommandProcess(["python"], { check: true });
 

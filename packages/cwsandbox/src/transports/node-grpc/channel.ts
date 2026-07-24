@@ -2,12 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
-import { ChannelCredentials } from "@grpc/grpc-js";
+import { ChannelCredentials, type ClientOptions } from "@grpc/grpc-js";
 import { GrpcTransport } from "@protobuf-ts/grpc-transport";
 
 import { CWSandboxConfigurationError } from "../../errors.js";
+import { DEFAULT_GRPC_MAX_MESSAGE_LENGTH_BYTES } from "../../internal/file-limits.js";
 import { GatewayServiceClient } from "./generated/coreweave/sandbox/v1beta2/gateway.client.js";
 import { GatewayStreamingServiceClient } from "./generated/coreweave/sandbox/v1beta2/streaming.client.js";
+
+/** Match Python `_default_channel_options` (default grpc-js limit is only 4 MiB). */
+const GRPC_CLIENT_OPTIONS: ClientOptions = {
+  "grpc.max_receive_message_length": DEFAULT_GRPC_MAX_MESSAGE_LENGTH_BYTES,
+  "grpc.max_send_message_length": DEFAULT_GRPC_MAX_MESSAGE_LENGTH_BYTES,
+};
 
 export type GrpcMetadata = Readonly<Record<string, string>>;
 
@@ -28,6 +35,7 @@ export function createGrpcClients(options: GrpcClientOptions): GrpcClients {
     channelCredentials: target.secure
       ? ChannelCredentials.createSsl()
       : ChannelCredentials.createInsecure(),
+    clientOptions: GRPC_CLIENT_OPTIONS,
     host: target.host,
     meta: toGrpcMetadata(options),
   });

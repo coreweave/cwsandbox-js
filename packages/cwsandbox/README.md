@@ -434,6 +434,15 @@ const text = await sandbox.files.readText("/tmp/hello.txt");
 const bytes = await sandbox.files.read("/tmp/hello.txt");
 ```
 
+Payloads up to roughly 32 MiB use unary file RPCs. Larger payloads (up to
+256 MiB) automatically fall back to a single StreamExec (`sh` + `cat`) path,
+matching the Python SDK. Writes above 256 MiB (and oversized reads that are not
+auto-fallback candidates) are refused with `CWSandboxFileError` and reason
+`CWSANDBOX_FILE_TOO_LARGE`. Incremental streaming file APIs are not in this
+package yet (tracked separately). The StreamExec auto-fallback can still OOM
+(exit 137) on larger mid-size payloads today — the same environmental limit as
+Python.
+
 The same methods also accept batch inputs:
 
 ```ts

@@ -4,17 +4,25 @@
 
 import type { RpcOptions } from "@protobuf-ts/runtime-rpc";
 
-import { mapGrpcError } from "./errors.js";
+import { type GrpcErrorContext, mapGrpcError } from "./errors.js";
 
 export async function withGrpcErrorMapping<TResult>(
   operation: string,
   run: () => Promise<TResult>,
-  sandboxId?: string,
+  sandboxIdOrContext?: string | Omit<GrpcErrorContext, "operation">,
 ): Promise<TResult> {
+  const context: GrpcErrorContext =
+    typeof sandboxIdOrContext === "object" && sandboxIdOrContext !== null
+      ? { operation, ...sandboxIdOrContext }
+      : {
+          operation,
+          ...(sandboxIdOrContext === undefined ? {} : { sandboxId: sandboxIdOrContext }),
+        };
+
   try {
     return await run();
   } catch (error) {
-    throw mapGrpcError(error, sandboxId === undefined ? { operation } : { operation, sandboxId });
+    throw mapGrpcError(error, context);
   }
 }
 

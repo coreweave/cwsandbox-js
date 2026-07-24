@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   CWSandboxAuthenticationError,
+  CWSandboxFileError,
   CWSandboxNotFoundError,
   CWSandboxResourceExhaustedError,
   CWSandboxTimeoutError,
@@ -16,6 +17,7 @@ import {
 import {
   CWSANDBOX_BACKEND_UNAVAILABLE,
   CWSANDBOX_ERROR_DOMAIN,
+  CWSANDBOX_FILE_NOT_FOUND,
   CWSANDBOX_FILE_TOO_LARGE,
   CWSANDBOX_SANDBOX_NOT_FOUND,
 } from "../../internal/error-info.js";
@@ -149,7 +151,7 @@ describe("mapGrpcError", () => {
     expect(error.retryDelayMs).toBe(2000);
   });
 
-  it("attaches file reasons without remapping the exception class", () => {
+  it("maps trusted file reasons to CWSandboxFileError", () => {
     const cause = new RpcError(
       "too large",
       "INTERNAL",
@@ -165,10 +167,35 @@ describe("mapGrpcError", () => {
 
     const error = mapGrpcError(cause, { operation: "Read file" });
 
-    expect(error).toBeInstanceOf(CWSandboxTransportError);
+    expect(error).toBeInstanceOf(CWSandboxFileError);
     expect(error).not.toBeInstanceOf(CWSandboxNotFoundError);
     expect(error.reason).toBe(CWSANDBOX_FILE_TOO_LARGE);
     expect(error.metadata).toEqual({ filepath: "/tmp/x" });
+    expect((error as CWSandboxFileError).filepath).toBe("/tmp/x");
+  });
+
+  it("prefers caller filepath over ErrorInfo metadata for FileError", () => {
+    const cause = new RpcError(
+      "missing",
+      "NOT_FOUND",
+      statusDetailsMeta({
+        errorInfos: [
+          {
+            reason: CWSANDBOX_FILE_NOT_FOUND,
+            metadata: { filepath: "/server/path" },
+          },
+        ],
+      }),
+    );
+
+    const error = mapGrpcError(cause, {
+      filepath: "/caller/path",
+      operation: "Read file",
+    });
+
+    expect(error).toBeInstanceOf(CWSandboxFileError);
+    expect(error.reason).toBe(CWSANDBOX_FILE_NOT_FOUND);
+    expect((error as CWSandboxFileError).filepath).toBe("/caller/path");
   });
 
   it("does not remap reasons under an untrusted domain", () => {

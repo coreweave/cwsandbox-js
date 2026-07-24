@@ -2,6 +2,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
+import { CWSandboxFileError } from "../errors.js";
+import { CWSANDBOX_FILE_TOO_LARGE } from "../internal/error-info.js";
+import {
+  isFileTooLargeReason,
+  shouldFallbackRead,
+  shouldFallbackWrite,
+} from "../internal/file-fallback-signals.js";
+import {
+  MAX_AUTO_FALLBACK_BYTES,
+  fileOperationCapBytes,
+  recordObservedFileOpCap,
+} from "../internal/file-limits.js";
+import {
+  notifyStreamingFallbackOnce,
+  readFileViaStreamExec,
+  writeFileViaStreamExec,
+} from "../internal/file-stream-fallback.js";
 import {
   normalizeFileContent,
   normalizeFileWrites,
@@ -95,13 +112,26 @@ async function readSingleFile(
   path: string,
   options: RequestOptions = {},
 ): Promise<Uint8Array> {
-  const result = await runtime.transport.readFile({
-    ...options,
-    path,
-    sandboxId: runtime.sandboxId,
-  });
+  try {
+    const result = await runtime.transport.readFile({
+      ...options,
+      path,
+      sandboxId: runtime.sandboxId,
+    });
+    return result.content;
+  } catch (error) {
+    if (isFileTooLargeReason(error)) {
+      recordObservedFileOpCap(runtime, error);
+    }
 
-  return result.content;
+    const decision = shouldFallbackRead(error);
+    if (!decision.fallback) {
+      throw error;
+    }
+
+    notifyStreamingFallbackOnce(runtime, "Read file", path, decision.expectedSize ?? 0);
+    return readFileViaStreamExec(runtime, path, options, decision.expectedSize);
+  }
 }
 
 async function writeFile(
@@ -144,12 +174,54 @@ async function writeSingleFile(
 ): Promise<void> {
   validateRequestOptions(options);
 
-  await runtime.transport.writeFile({
-    ...options,
-    content: normalizeFileContent(content),
-    path,
-    sandboxId: runtime.sandboxId,
-  });
+  const bytes = normalizeFileContent(content);
+  const size = bytes.byteLength;
+
+  if (size > MAX_AUTO_FALLBACK_BYTES) {
+    throw new CWSandboxFileError(
+      `Refusing to write '${path}': ${size} bytes exceeds the ` +
+        `auto-fallback ceiling of ${MAX_AUTO_FALLBACK_BYTES} bytes.`,
+      {
+        filepath: path,
+        metadata: {
+          filepath: path,
+          max_size_bytes: String(MAX_AUTO_FALLBACK_BYTES),
+          operation: "write_file",
+          size_bytes: String(size),
+        },
+        operation: "Write file",
+        reason: CWSANDBOX_FILE_TOO_LARGE,
+        sandboxId: runtime.sandboxId,
+      },
+    );
+  }
+
+  const cap = fileOperationCapBytes(runtime.observedFileOpCapBytes);
+  if (size > cap) {
+    notifyStreamingFallbackOnce(runtime, "Write file", path, size);
+    await writeFileViaStreamExec(runtime, path, bytes, options);
+    return;
+  }
+
+  try {
+    await runtime.transport.writeFile({
+      ...options,
+      content: bytes,
+      path,
+      sandboxId: runtime.sandboxId,
+    });
+  } catch (error) {
+    if (isFileTooLargeReason(error)) {
+      recordObservedFileOpCap(runtime, error);
+    }
+
+    if (!shouldFallbackWrite(error, size)) {
+      throw error;
+    }
+
+    notifyStreamingFallbackOnce(runtime, "Write file", path, size);
+    await writeFileViaStreamExec(runtime, path, bytes, options);
+  }
 }
 
 function readEntries(entries: readonly (readonly [string, Uint8Array])[]): FileReadResult {

@@ -20,6 +20,11 @@ import {
   type ExecStreamResponse as ProtoExecStreamResponse,
 } from "./generated/coreweave/sandbox/v1beta2/streaming.js";
 import { linkedAbortController, toRpcOptions, withGrpcErrorMapping } from "./rpc.js";
+import {
+  createStdinReadyGate,
+  stdinReadyTimeoutMs,
+  type StdinReadyGate,
+} from "./stdin-ready-gate.js";
 import { sendStreamingClose, sendStreamingInit, sendStreamingStdin } from "./streaming-requests.js";
 
 export async function startGrpcCommand(
@@ -42,10 +47,18 @@ export async function startGrpcCommand(
     requestsCompleted = true;
     await call.requests.complete();
   };
-  const input = createGrpcCommandInputController(call, completeRequests, abortController, request);
+  const stdinReady = request.stdin === true ? createStdinReadyGate() : undefined;
+  const input = createGrpcCommandInputController(
+    call,
+    completeRequests,
+    abortController,
+    request,
+    stdinReady,
+  );
   const commandProcessOptions =
     request.stdin === true
       ? {
+          ...(request.binaryOutput === undefined ? {} : { binaryOutput: request.binaryOutput }),
           ...(request.bufferedMaxKiB === undefined
             ? {}
             : { bufferedMaxKiB: request.bufferedMaxKiB }),
@@ -54,6 +67,7 @@ export async function startGrpcCommand(
           stdin: true as const,
         }
       : {
+          ...(request.binaryOutput === undefined ? {} : { binaryOutput: request.binaryOutput }),
           ...(request.bufferedMaxKiB === undefined
             ? {}
             : { bufferedMaxKiB: request.bufferedMaxKiB }),
@@ -73,7 +87,7 @@ export async function startGrpcCommand(
     request.sandboxId,
   );
 
-  void collectStreamingCommand(call, controller, request, completeRequests);
+  void collectStreamingCommand(call, controller, request, completeRequests, stdinReady);
   return controller.process;
 }
 
@@ -82,6 +96,7 @@ async function collectStreamingCommand(
   controller: StreamingCommandProcessController,
   request: StartCommandRequest,
   onTerminal: () => Promise<void> = async () => undefined,
+  stdinReady?: StdinReadyGate,
 ): Promise<void> {
   let terminal = false;
 
@@ -89,6 +104,7 @@ async function collectStreamingCommand(
     for await (const response of call.responses) {
       switch (response.response.oneofKind) {
         case "ready":
+          stdinReady?.signalReady();
           await controller.dispatch({
             sessionId: response.response.ready.sessionId,
             type: "ready",
@@ -105,28 +121,38 @@ async function collectStreamingCommand(
           break;
         case "exit":
           terminal = true;
+          stdinReady?.signalFailed(
+            new CWSandboxTransportError("Streaming command exited before stdin was ready.", {
+              operation: "Streaming command",
+              sandboxId: request.sandboxId,
+              transport: "grpc",
+            }),
+          );
           await controller.dispatch({
             exitCode: response.response.exit.exitCode,
             type: "exit",
           });
           await onTerminal().catch(() => undefined);
           break;
-        case "error":
+        case "error": {
           terminal = true;
+          const error = new CWSandboxTransportError(
+            response.response.error.message || "Streaming command failed.",
+            {
+              operation: "Streaming command",
+              sandboxId: request.sandboxId,
+              transport: "grpc",
+              transportCode: response.response.error.code,
+            },
+          );
+          stdinReady?.signalFailed(error);
           await controller.dispatch({
-            error: new CWSandboxTransportError(
-              response.response.error.message || "Streaming command failed.",
-              {
-                operation: "Streaming command",
-                sandboxId: request.sandboxId,
-                transport: "grpc",
-                transportCode: response.response.error.code,
-              },
-            ),
+            error,
             type: "error",
           });
           await onTerminal().catch(() => undefined);
           break;
+        }
         case undefined:
           break;
       }
@@ -134,21 +160,25 @@ async function collectStreamingCommand(
 
     await call.status;
     if (!terminal) {
+      const error = new CWSandboxTransportError("Streaming command ended without an exit status.", {
+        operation: "Streaming command",
+        sandboxId: request.sandboxId,
+        transport: "grpc",
+      });
+      stdinReady?.signalFailed(error);
       await controller.dispatch({
-        error: new CWSandboxTransportError("Streaming command ended without an exit status.", {
-          operation: "Streaming command",
-          sandboxId: request.sandboxId,
-          transport: "grpc",
-        }),
+        error,
         type: "error",
       });
     }
   } catch (error) {
+    const mapped = mapGrpcError(error, {
+      operation: "Streaming command",
+      sandboxId: request.sandboxId,
+    });
+    stdinReady?.signalFailed(mapped);
     await controller.dispatch({
-      error: mapGrpcError(error, {
-        operation: "Streaming command",
-        sandboxId: request.sandboxId,
-      }),
+      error: mapped,
       type: "error",
     });
   } finally {
@@ -161,15 +191,22 @@ function createGrpcCommandInputController(
   completeRequests: () => Promise<void>,
   abortController: AbortController,
   request: StartCommandRequest,
+  stdinReady: StdinReadyGate | undefined,
 ): CommandInputController {
+  const readyTimeoutMs = stdinReadyTimeoutMs(request.timeoutMs);
+
   return {
     async cancel(reason) {
+      stdinReady?.signalFailed(reason);
       abortController.abort(reason);
     },
     async close() {
       await withGrpcErrorMapping(
         "Close streaming stdin",
         async () => {
+          if (stdinReady !== undefined) {
+            await stdinReady.wait(readyTimeoutMs);
+          }
           await sendStreamingClose(call.requests);
           await completeRequests();
         },
@@ -179,7 +216,12 @@ function createGrpcCommandInputController(
     async write(data) {
       await withGrpcErrorMapping(
         "Write streaming stdin",
-        () => sendStreamingStdin(call.requests, data),
+        async () => {
+          if (stdinReady !== undefined) {
+            await stdinReady.wait(readyTimeoutMs);
+          }
+          await sendStreamingStdin(call.requests, data);
+        },
         request.sandboxId,
       );
     },
