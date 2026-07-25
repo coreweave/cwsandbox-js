@@ -12,14 +12,16 @@ import {
   STREAMING_OUTPUT_QUEUE_SIZE,
   STREAMING_READ_STDERR_CAP_BYTES,
 } from "../internal/file-limits.js";
+import type {
+  InternalCommandProcess,
+  InternalCommandProcessWithStdin,
+} from "../internal/start-command-options.js";
 import { validateRequestOptions } from "../internal/validation/index.js";
 import type {
   Command,
   CommandInputData,
   CommandInputWriter,
-  CommandProcess,
   CommandProcessStatus,
-  CommandProcessWithStdin,
   ProcessResult,
 } from "../public/commands.js";
 import type { RequestOptions } from "../public/common.js";
@@ -37,7 +39,7 @@ export type InternalCommandEvent =
   | { readonly error: unknown; readonly type: "error" };
 
 export interface StreamingCommandProcessController<
-  TProcess extends CommandProcess = CommandProcess,
+  TProcess extends InternalCommandProcess = InternalCommandProcess,
 > {
   readonly process: TProcess;
   dispatch(event: InternalCommandEvent): Promise<void>;
@@ -70,7 +72,7 @@ export interface CommandProcessOptions {
 export function createCommandProcess(
   command: Command,
   options: CommandProcessOptions & { readonly input: CommandInputController; readonly stdin: true },
-): StreamingCommandProcessController<CommandProcessWithStdin>;
+): StreamingCommandProcessController<InternalCommandProcessWithStdin>;
 export function createCommandProcess(
   command: Command,
   options?: CommandProcessOptions,
@@ -134,7 +136,7 @@ class OutputAccumulator {
   }
 }
 
-class StreamingCommandProcess implements CommandProcess {
+class StreamingCommandProcess implements InternalCommandProcess {
   public readonly stderr: AsyncIterable<string>;
   public readonly stdin: CommandInputWriter | undefined;
   public readonly stdout: AsyncIterable<string>;

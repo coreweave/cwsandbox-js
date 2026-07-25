@@ -17,20 +17,10 @@ export interface ExecOptions extends RequestOptions {
 }
 
 export interface StartCommandOptions extends RequestOptions {
-  /**
-   * When true, accumulate stdout as bytes (skip UTF-8 decode into the text
-   * `stdout` stream) and expose frames on `stdoutBinary`.
-   */
-  readonly binaryOutput?: boolean;
   readonly bufferedMaxKiB?: number;
   readonly check?: boolean;
   readonly cwd?: string;
   readonly stdin?: boolean;
-  /**
-   * When true with `binaryOutput`, skip buffering stdout for `wait().stdoutBytes`
-   * so large transfers can be consumed only via `stdoutBinary`.
-   */
-  readonly streamStdoutOnly?: boolean;
 }
 
 export interface StartCommandOptionsWithStdin extends StartCommandOptions {
@@ -73,8 +63,6 @@ export interface CommandProcess {
   readonly stderr: CommandOutputStream;
   readonly status: CommandProcessStatus;
   readonly stdout: CommandOutputStream;
-  /** Binary stdout frames when `binaryOutput` is set; otherwise ends empty. */
-  readonly stdoutBinary: AsyncIterable<Uint8Array>;
   cancel(options?: RequestOptions): Promise<void>;
   poll(): number | undefined;
   wait(options?: RequestOptions): Promise<ProcessResult>;

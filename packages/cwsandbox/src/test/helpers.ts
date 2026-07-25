@@ -4,11 +4,13 @@
 
 import { SandboxClient } from "../client.js";
 import type {
+  InternalCommandProcess,
+  InternalCommandProcessWithStdin,
+} from "../internal/start-command-options.js";
+import type {
   Command,
   CommandInputData,
   CommandInputWriter,
-  CommandProcess,
-  CommandProcessWithStdin,
   LogEntryStream,
   LogRawStream,
   LogStream,
@@ -63,12 +65,12 @@ export function createCommandInputWriter(): CommandInputWriter {
   };
 }
 
-export function createCommandProcess(command: Command): CommandProcess;
-export function createCommandProcess(command: Command, stdin: true): CommandProcessWithStdin;
+export function createCommandProcess(command: Command): InternalCommandProcess;
+export function createCommandProcess(command: Command, stdin: true): InternalCommandProcessWithStdin;
 export function createCommandProcess(
   command: Command,
   stdin = false,
-): CommandProcess | CommandProcessWithStdin {
+): InternalCommandProcess | InternalCommandProcessWithStdin {
   const process = {
     cancel: async () => undefined,
     command,

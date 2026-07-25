@@ -10,7 +10,7 @@ import {
   CWSandboxTransportError,
 } from "../../errors.js";
 import { STREAM_BACKPRESSURE, STREAM_TRUNCATED } from "../../internal/error-info.js";
-import type { CommandProcess } from "../../public/commands.js";
+import type { InternalCommandProcess } from "../../internal/start-command-options.js";
 import {
   createCommandProcess,
   type CommandInputController,
@@ -35,7 +35,7 @@ import { sendStreamingClose, sendStreamingInit, sendStreamingStdin } from "./str
 export async function startGrpcCommand(
   streamingClient: GatewayStreamingServiceClient,
   request: StartCommandRequest,
-): Promise<CommandProcess> {
+): Promise<InternalCommandProcess> {
   const abortController = linkedAbortController(request.signal);
   const call = streamingClient.streamExec(
     toRpcOptions({

@@ -34,8 +34,18 @@ export interface ExecRequest extends Omit<ExecOptions, "check"> {
 }
 
 export interface StartCommandRequest extends StartCommandOptions {
+  /**
+   * Accumulate stdout as bytes only (skip UTF-8 decode / stdout string).
+   * Internal: used by file StreamExec / readStream.
+   */
+  readonly binaryOutput?: boolean;
   readonly command: Command;
   readonly sandboxId: SandboxId;
+  /**
+   * Skip buffering stdout for `wait().stdoutBytes`; consume via `stdoutBinary`.
+   * Internal: used by file readStream.
+   */
+  readonly streamStdoutOnly?: boolean;
 }
 
 export interface StartShellRequest extends Omit<ShellOptions, "command"> {

@@ -3,7 +3,8 @@
 // SPDX-PackageName: cwsandbox
 
 import { CWSandboxTransportError } from "../../errors.js";
-import type { CommandProcess, ProcessResult, TerminalSession } from "../../public/commands.js";
+import type { InternalCommandProcess } from "../../internal/start-command-options.js";
+import type { ProcessResult, TerminalSession } from "../../public/commands.js";
 import type { LogEntryStream, LogRawStream, LogStream } from "../../public/logs.js";
 import type {
   GetSandboxResult,
@@ -123,7 +124,7 @@ export class GrpcSandboxTransport implements SandboxTransport {
     return toSdkProcessResult(request.command, response.result ?? emptyExecResponse());
   }
 
-  public async startCommand(request: StartCommandRequest): Promise<CommandProcess> {
+  public async startCommand(request: StartCommandRequest): Promise<InternalCommandProcess> {
     return startGrpcCommand(this.streamingClient, request);
   }
 
