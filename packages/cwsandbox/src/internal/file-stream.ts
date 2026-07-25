@@ -82,6 +82,7 @@ export async function writeFileStream(
         {
           filepath: path,
           operation: "Write file",
+          reason: CWSANDBOX_FILE_IO_FAILED,
           sandboxId: runtime.sandboxId,
         },
       );
@@ -107,6 +108,7 @@ export async function writeFileStream(
         cause: error,
         filepath: path,
         operation: "Write file",
+        reason: CWSANDBOX_FILE_IO_FAILED,
         sandboxId: runtime.sandboxId,
       },
     );

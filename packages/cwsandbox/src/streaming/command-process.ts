@@ -52,8 +52,8 @@ export interface CommandInputController {
 export interface CommandProcessOptions {
   /**
    * When true, accumulate stdout as bytes only: skip UTF-8 decode into the
-   * text queue, leave ProcessResult.stdout as "", and push frames to
-   * `stdoutBinary`.
+   * text queue and leave ProcessResult.stdout as "". With `streamStdoutOnly`,
+   * frames are also pushed to the bounded `stdoutBinary` queue.
    */
   readonly binaryOutput?: boolean;
   readonly bufferedMaxKiB?: number;
@@ -61,8 +61,8 @@ export interface CommandProcessOptions {
   readonly input?: CommandInputController;
   readonly stdin?: boolean;
   /**
-   * When true, do not buffer stdout for `wait().stdoutBytes` (consume via
-   * `stdoutBinary` instead).
+   * When true, do not buffer stdout for `wait().stdoutBytes`; push frames to
+   * the bounded `stdoutBinary` queue for the consumer to drain (backpressure).
    */
   readonly streamStdoutOnly?: boolean;
 }
@@ -199,11 +199,13 @@ class StreamingCommandProcess implements CommandProcess {
         if (!this.streamStdoutOnly) {
           this.stdoutAccumulator.append(event.data);
         }
-        if (this.binaryOutput) {
+        if (this.binaryOutput && this.streamStdoutOnly) {
+          // Streaming consumer path: bounded queue with backpressure.
+          // Buffered binaryOutput uses the accumulator / wait() only — do not
+          // enqueue here or an undrained queue can hang before exit.
           // Copy so gRPC ownership of the frame cannot alias the caller's buffer.
-          // Await capacity (Python-parity backpressure) — never silently drop.
           await this.stdoutBinaryQueue.push(event.data.slice());
-        } else {
+        } else if (!this.binaryOutput) {
           this.stdoutQueue.tryPush(textDecoder.decode(event.data));
         }
         return;

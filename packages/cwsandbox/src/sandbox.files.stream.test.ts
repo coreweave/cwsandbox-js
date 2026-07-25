@@ -12,7 +12,11 @@ import {
   type CommandProcessWithStdin,
   type SandboxTransport,
 } from "./index.js";
-import { CWSANDBOX_FILE_NOT_FOUND, CWSANDBOX_FILE_TRUNCATED } from "./internal/error-info.js";
+import {
+  CWSANDBOX_FILE_IO_FAILED,
+  CWSANDBOX_FILE_NOT_FOUND,
+  CWSANDBOX_FILE_TRUNCATED,
+} from "./internal/error-info.js";
 import { TRUNCATION_CHECK_MIN_BYTES } from "./internal/file-limits.js";
 import { AsyncQueue } from "./streaming/async-queue.js";
 import {
@@ -183,6 +187,33 @@ describe("Sandbox files streaming", () => {
     await expect(
       sandbox.files.writeStream("/tmp/bp.bin", [new Uint8Array([1])]),
     ).rejects.toBeInstanceOf(CWSandboxStreamBackpressureError);
+  });
+
+  it("writeStream maps non-zero exits to CWSANDBOX_FILE_IO_FAILED", async () => {
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async startCommand(request) {
+        const process = createCommandProcess(request.command, true) as CommandProcessWithStdin;
+        return {
+          ...process,
+          status: "running",
+          async wait() {
+            return createProcessResult(request.command, {
+              exitCode: 1,
+              stderr: "permission denied",
+            });
+          },
+        };
+      },
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"]);
+
+    await expect(
+      sandbox.files.writeStream("/tmp/fail.bin", [new Uint8Array([1])]),
+    ).rejects.toMatchObject({
+      filepath: "/tmp/fail.bin",
+      reason: CWSANDBOX_FILE_IO_FAILED,
+    });
   });
 
   it("readStream yields binary chunks without requiring a full wait buffer", async () => {

@@ -69,6 +69,7 @@ describe("CommandProcess", () => {
   it("binaryOutput skips decoding stdout text while keeping stdoutBytes", async () => {
     const controller = createCommandProcess(["python"], { binaryOutput: true });
     const payload = new Uint8Array([0, 159, 146, 150, 1, 2, 3]);
+    // Buffered binaryOutput does not enqueue stdoutBinary (avoids hang without a drain).
     const binary = collect(controller.process.stdoutBinary);
 
     await controller.dispatch({ data: payload, type: "stdout" });
@@ -80,7 +81,7 @@ describe("CommandProcess", () => {
     expect(result.stdoutBytes).toEqual(payload);
     expect(result.stderr).toBe("oops");
     expect(result.stderrBytes).toEqual(new TextEncoder().encode("oops"));
-    await expect(binary).resolves.toEqual([payload]);
+    await expect(binary).resolves.toEqual([]);
   });
 
   it("streamStdoutOnly exposes stdoutBinary without accumulating wait().stdoutBytes", async () => {

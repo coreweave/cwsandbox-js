@@ -324,9 +324,73 @@ describe("Sandbox files", () => {
     expect(startRequest?.command[0]).toBe("/bin/sh");
     expect(startRequest?.command).toContain("/tmp/large.bin");
     expect(startRequest?.binaryOutput).toBe(true);
+    const script = String(startRequest?.command[2] ?? "");
+    expect(script).toContain('tmp="$path.tmp.$$"');
+    expect(script).toContain('mv -f "$tmp" "$path"');
     expect(stdinChunks.reduce((total, chunk) => total + chunk.byteLength, 0)).toBe(
       content.byteLength,
     );
+  });
+
+  it("maps StreamExec write non-zero exits to CWSANDBOX_FILE_IO_FAILED", async () => {
+    const content = new Uint8Array(DEFAULT_FILE_OPERATION_CAP_BYTES + 1);
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async startCommand(request) {
+        const process = createCommandProcess(request.command, true) as CommandProcessWithStdin;
+        return {
+          ...process,
+          status: "running",
+          async wait() {
+            return createProcessResult(request.command, {
+              exitCode: 1,
+              stderr: "disk full",
+            });
+          },
+        };
+      },
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"]);
+
+    await expect(sandbox.files.write("/tmp/large.bin", content)).rejects.toMatchObject({
+      filepath: "/tmp/large.bin",
+      reason: CWSANDBOX_FILE_IO_FAILED,
+    });
+  });
+
+  it("cancels StreamExec write fallback when stdin write fails", async () => {
+    const content = new Uint8Array(DEFAULT_FILE_OPERATION_CAP_BYTES + 1);
+    let cancelled = false;
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async startCommand(request) {
+        const process = createCommandProcess(request.command, true) as CommandProcessWithStdin;
+        const stdin = createCommandInputWriter();
+        return {
+          ...process,
+          status: "running",
+          stdin: {
+            ...stdin,
+            async write() {
+              throw new Error("write timed out");
+            },
+          },
+          async cancel() {
+            cancelled = true;
+          },
+          async wait() {
+            return createProcessResult(request.command, { exitCode: 0 });
+          },
+        };
+      },
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"]);
+
+    await expect(sandbox.files.write("/tmp/large.bin", content)).rejects.toMatchObject({
+      filepath: "/tmp/large.bin",
+      reason: CWSANDBOX_FILE_IO_FAILED,
+    });
+    expect(cancelled).toBe(true);
   });
 
   it("falls back to StreamExec when unary write reports FILE_TOO_LARGE", async () => {

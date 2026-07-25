@@ -44,9 +44,16 @@ export const smokeConfig = createSmokeConfig();
 export const terminalStatuses = new Set<SandboxStatus>(["completed", "failed", "terminated"]);
 export const testTimeoutMs = 120_000;
 
-/** Known-good StreamExec fallback size (matches Python integration). */
+/** Known-good large unary size (matches Python integration; below 32 MiB cap). */
 export const LARGE_FILE_20_MIB = 20 * 1024 * 1024;
 export const largeFileTimeout20Ms = 180_000;
+
+/** Above default unary 32 MiB cap — forces StreamExec buffered fallback. */
+export const LARGE_FILE_40_MIB = 40 * 1024 * 1024;
+export const largeFileTimeout40Ms = 300_000;
+
+/** Multi-chunk streaming smoke payload (not toy-sized). */
+export const STREAM_SMOKE_1_MIB = 1024 * 1024;
 
 export function createPatternedPayload(sizeBytes: number): Uint8Array {
   const payload = new Uint8Array(sizeBytes);

@@ -19,22 +19,31 @@ import {
 import { MAX_AUTO_FALLBACK_BYTES, STREAMING_WRITE_CHUNK_SIZE } from "./file-limits.js";
 
 /**
- * Python-shaped write: one StreamExec with `cat >` + in-script `wc -c` verify.
- * Requires a shell and `cat`/`wc` in the sandbox image (no preflight probe).
+ * Buffered write fallback: stage to a sibling temp file, verify size, then
+ * `mv` onto the target so a mid-failure does not truncate an existing destination.
+ * Requires a shell and `cat`/`wc`/`mv` in the sandbox image (no preflight probe).
  */
 const WRITE_SCRIPT = [
   "path=$1",
   "expected=$2",
-  'if ! cat > "$path"; then',
-  '  printf "%s\\n" "Failed to write input stream to $path" >&2',
+  'tmp="$path.tmp.$$"',
+  'if ! cat > "$tmp"; then',
+  '  printf "%s\\n" "Failed to write input stream to temp for $path" >&2',
+  '  rm -f "$tmp"',
   "  exit 1",
   "fi",
-  'actual=$(wc -c < "$path") || exit 1',
+  'actual=$(wc -c < "$tmp") || { rm -f "$tmp"; exit 1; }',
   "set -- $actual",
   "actual=$1",
   'if [ "$actual" != "$expected" ]; then',
   '  printf "%s\\n" "Expected $expected bytes but wrote $actual bytes; ' +
-    'target may be partial or truncated" >&2',
+    'temp write incomplete" >&2',
+  '  rm -f "$tmp"',
+  "  exit 1",
+  "fi",
+  'if ! mv -f "$tmp" "$path"; then',
+  '  printf "%s\\n" "Failed to rename temp file onto $path" >&2',
+  '  rm -f "$tmp"',
   "  exit 1",
   "fi",
 ].join("\n");
@@ -58,19 +67,19 @@ export async function writeFileViaStreamExec(
   content: Uint8Array,
   options: RequestOptions = {},
 ): Promise<void> {
-  try {
-    const process = await startCommand(
-      runtime,
-      ["/bin/sh", "-c", WRITE_SCRIPT, "cwsandbox-write-file", path, String(content.byteLength)],
-      {
-        ...options,
-        binaryOutput: true,
-        bufferedMaxKiB: 64,
-        check: false,
-        stdin: true,
-      },
-    );
+  const process = await startCommand(
+    runtime,
+    ["/bin/sh", "-c", WRITE_SCRIPT, "cwsandbox-write-file", path, String(content.byteLength)],
+    {
+      ...options,
+      binaryOutput: true,
+      bufferedMaxKiB: 64,
+      check: false,
+      stdin: true,
+    },
+  );
 
+  try {
     for (let offset = 0; offset < content.byteLength; offset += STREAMING_WRITE_CHUNK_SIZE) {
       const end = Math.min(offset + STREAMING_WRITE_CHUNK_SIZE, content.byteLength);
       // Copy so gRPC ownership of the frame cannot alias the caller's buffer.
@@ -84,15 +93,19 @@ export async function writeFileViaStreamExec(
         result.stderr.trim() || `fallback command exited with status ${result.exitCode}`;
       throw new CWSandboxFileError(
         `Failed to write file '${path}' via exec-stream fallback: ${detail}. ` +
-          "The target may be partial or truncated.",
+          "The destination was not replaced (temp write / rename failed).",
         {
           filepath: path,
           operation: "Write file",
+          reason: CWSANDBOX_FILE_IO_FAILED,
           sandboxId: runtime.sandboxId,
         },
       );
     }
   } catch (error) {
+    if (process.status === "running" || process.status === "starting") {
+      await process.cancel().catch(() => undefined);
+    }
     if (
       error instanceof CWSandboxFileError ||
       error instanceof CWSandboxStreamBackpressureError ||
@@ -103,11 +116,12 @@ export async function writeFileViaStreamExec(
 
     throw new CWSandboxFileError(
       `Failed to write file '${path}' via exec-stream fallback. ` +
-        `The target may be partial or truncated. Upstream error: ${String(error)}`,
+        `The destination was not replaced. Upstream error: ${String(error)}`,
       {
         cause: error,
         filepath: path,
         operation: "Write file",
+        reason: CWSANDBOX_FILE_IO_FAILED,
         sandboxId: runtime.sandboxId,
       },
     );
