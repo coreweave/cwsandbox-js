@@ -22,6 +22,12 @@ export const CWSANDBOX_FILE_TRUNCATED = "CWSANDBOX_FILE_TRUNCATED";
  */
 export const STREAM_BACKPRESSURE = "STREAM_BACKPRESSURE";
 
+/**
+ * Terminal `ExecStreamError.code` when the command finished but some output
+ * was lost in transit. Streaming-channel code, not an AIP-193 `reason`.
+ */
+export const STREAM_TRUNCATED = "STREAM_TRUNCATED";
+
 export const FILE_ERROR_REASONS: ReadonlySet<string> = new Set([
   CWSANDBOX_FILE_NOT_FOUND,
   CWSANDBOX_FILE_IS_DIRECTORY,

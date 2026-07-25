@@ -4,8 +4,12 @@
 
 import type { DuplexStreamingCall } from "@protobuf-ts/runtime-rpc";
 
-import { CWSandboxStreamBackpressureError, CWSandboxTransportError } from "../../errors.js";
-import { STREAM_BACKPRESSURE } from "../../internal/error-info.js";
+import {
+  CWSandboxStreamBackpressureError,
+  CWSandboxStreamTruncatedError,
+  CWSandboxTransportError,
+} from "../../errors.js";
+import { STREAM_BACKPRESSURE, STREAM_TRUNCATED } from "../../internal/error-info.js";
 import type { CommandProcess } from "../../public/commands.js";
 import {
   createCommandProcess,
@@ -192,7 +196,14 @@ const BACKPRESSURE_MESSAGE =
   "cannot keep up no matter how tight the loop, split the work into smaller " +
   "transfers. Retrying the same pattern will hit this again.";
 
-/** Exported for unit tests that assert STREAM_BACKPRESSURE is not remasked. */
+const TRUNCATED_MESSAGE =
+  "The command completed but some of its output was lost in transit, " +
+  "so the output you received is incomplete. For large output, write " +
+  "it to a file and retrieve the file (files.readStream) instead " +
+  "of streaming over stdout. Re-running may truncate again and may " +
+  "have side effects, so re-run only if the command is idempotent.";
+
+/** Exported for unit tests that assert stream codes are not remasked. */
 export function mapExecStreamError(
   code: string,
   message: string,
@@ -201,6 +212,12 @@ export function mapExecStreamError(
   if (code === STREAM_BACKPRESSURE) {
     return new CWSandboxStreamBackpressureError(BACKPRESSURE_MESSAGE, {
       streamCode: STREAM_BACKPRESSURE,
+    });
+  }
+
+  if (code === STREAM_TRUNCATED) {
+    return new CWSandboxStreamTruncatedError(TRUNCATED_MESSAGE, {
+      streamCode: STREAM_TRUNCATED,
     });
   }
 

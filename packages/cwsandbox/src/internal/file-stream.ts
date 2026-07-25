@@ -5,6 +5,7 @@
 import {
   CWSandboxFileError,
   CWSandboxStreamBackpressureError,
+  CWSandboxStreamTruncatedError,
   CWSandboxValidationError,
 } from "../errors.js";
 import type { RequestOptions } from "../public/common.js";
@@ -92,6 +93,7 @@ export async function writeFileStream(
     if (
       error instanceof CWSandboxFileError ||
       error instanceof CWSandboxStreamBackpressureError ||
+      error instanceof CWSandboxStreamTruncatedError ||
       error instanceof CWSandboxValidationError ||
       isAbortError(error)
     ) {
@@ -174,6 +176,7 @@ async function* readFileStreamIterator(
     if (
       error instanceof CWSandboxFileError ||
       error instanceof CWSandboxStreamBackpressureError ||
+      error instanceof CWSandboxStreamTruncatedError ||
       error instanceof CWSandboxValidationError
     ) {
       throw error;

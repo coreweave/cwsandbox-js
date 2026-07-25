@@ -8,6 +8,10 @@ import {
   CWSandboxTransportError,
   CWSandboxValidationError,
 } from "../errors.js";
+import {
+  STREAMING_OUTPUT_QUEUE_SIZE,
+  STREAMING_READ_STDERR_CAP_BYTES,
+} from "../internal/file-limits.js";
 import { validateRequestOptions } from "../internal/validation/index.js";
 import type {
   Command,
@@ -24,8 +28,6 @@ import { AsyncQueue } from "./async-queue.js";
 const textDecoder = new TextDecoder();
 const textEncoder = new TextEncoder();
 const OUTPUT_ACCUMULATION_LIMIT_BYTES = 1024 * 1024;
-/** Match Python STREAMING_READ_STDERR_CAP_BYTES for binary file reads. */
-const BINARY_STDERR_CAP_BYTES = 16 * 1024;
 
 export type InternalCommandEvent =
   | { readonly sessionId: string; readonly type: "ready" }
@@ -140,7 +142,7 @@ class StreamingCommandProcess implements CommandProcess {
 
   private readonly stderrQueue = new AsyncQueue<string>();
   private readonly stdoutQueue = new AsyncQueue<string>();
-  private readonly stdoutBinaryQueue = new AsyncQueue<Uint8Array>();
+  private readonly stdoutBinaryQueue = new AsyncQueue<Uint8Array>(STREAMING_OUTPUT_QUEUE_SIZE);
   private readonly stderrAccumulator: OutputAccumulator;
   private readonly stdoutAccumulator: OutputAccumulator;
   private readonly binaryOutput: boolean;
@@ -171,7 +173,7 @@ class StreamingCommandProcess implements CommandProcess {
     this.check = options.check === true;
     this.stdoutAccumulator = new OutputAccumulator(limitBytes);
     this.stderrAccumulator = new OutputAccumulator(
-      this.binaryOutput ? BINARY_STDERR_CAP_BYTES : limitBytes,
+      this.binaryOutput ? STREAMING_READ_STDERR_CAP_BYTES : limitBytes,
     );
     this.stdout = this.stdoutQueue;
     this.stderr = this.stderrQueue;
@@ -199,7 +201,8 @@ class StreamingCommandProcess implements CommandProcess {
         }
         if (this.binaryOutput) {
           // Copy so gRPC ownership of the frame cannot alias the caller's buffer.
-          this.stdoutBinaryQueue.tryPush(event.data.slice());
+          // Await capacity (Python-parity backpressure) — never silently drop.
+          await this.stdoutBinaryQueue.push(event.data.slice());
         } else {
           this.stdoutQueue.tryPush(textDecoder.decode(event.data));
         }

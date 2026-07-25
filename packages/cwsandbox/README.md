@@ -360,7 +360,7 @@ import { CWSandboxExecutionError } from "@coreweave/cwsandbox";
 try {
   await sandbox.commands.run(["pytest", "-q"], { check: true });
 } catch (error) {
-  if (error instanceof CWSandboxExecutionError) {
+  if (error instanceof CWSandboxExecutionError && error.result !== undefined) {
     console.error(error.result.exitCode);
     console.error(error.result.stderr);
   } else {

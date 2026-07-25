@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
-import { CWSandboxFileError, CWSandboxStreamBackpressureError } from "../errors.js";
+import {
+  CWSandboxFileError,
+  CWSandboxStreamBackpressureError,
+  CWSandboxStreamTruncatedError,
+} from "../errors.js";
 import type { RequestOptions } from "../public/common.js";
 import { startCommand } from "../runtime/commands.js";
 import type { SandboxRuntime } from "../runtime/context.js";
@@ -89,7 +93,11 @@ export async function writeFileViaStreamExec(
       );
     }
   } catch (error) {
-    if (error instanceof CWSandboxFileError || error instanceof CWSandboxStreamBackpressureError) {
+    if (
+      error instanceof CWSandboxFileError ||
+      error instanceof CWSandboxStreamBackpressureError ||
+      error instanceof CWSandboxStreamTruncatedError
+    ) {
       throw error;
     }
 

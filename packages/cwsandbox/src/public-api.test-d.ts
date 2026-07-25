@@ -457,7 +457,7 @@ expectTypeOf(sandbox.commands.start(command, { check: true })).toEqualTypeOf<
 >();
 expectTypeOf(sandbox.exec(command, { check: true })).toEqualTypeOf<Promise<ProcessResult>>();
 const executionError = new CWSandboxExecutionError(await sandbox.commands.run(command));
-expectTypeOf(executionError.result).toEqualTypeOf<ProcessResult>();
+expectTypeOf(executionError.result).toEqualTypeOf<ProcessResult | undefined>();
 const terminal = await sandbox.shell();
 expectTypeOf(terminal.command).toEqualTypeOf<Command>();
 expectTypeOf(terminal.exitCode).toEqualTypeOf<number | undefined>();
