@@ -481,6 +481,8 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     it(
       "round-trips multi-chunk writeStream and readStream (~1 MiB)",
       async () => {
+        expect.hasAssertions();
+
         const path = "/tmp/cwsandbox-js-stream.bin";
         const chunkSize = 256 * 1024;
         const payload = createPatternedPayload(STREAM_SMOKE_1_MIB);

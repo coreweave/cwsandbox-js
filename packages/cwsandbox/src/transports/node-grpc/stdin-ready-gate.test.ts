@@ -74,10 +74,18 @@ describe("awaitStdinReadyOrAbort", () => {
     try {
       const gate = createStdinReadyGate();
       const abortController = new AbortController();
-      const pending = awaitStdinReadyOrAbort(gate, 100, abortController);
-      const expectation = expect(pending).rejects.toBeInstanceOf(CWSandboxTimeoutError);
+      let rejected: unknown;
+      const pending = awaitStdinReadyOrAbort(gate, 100, abortController).then(
+        () => {
+          throw new Error("expected timeout rejection");
+        },
+        (error: unknown) => {
+          rejected = error;
+        },
+      );
       await vi.advanceTimersByTimeAsync(100);
-      await expectation;
+      await pending;
+      expect(rejected).toBeInstanceOf(CWSandboxTimeoutError);
       expect(abortController.signal.aborted).toBe(true);
     } finally {
       vi.useRealTimers();
