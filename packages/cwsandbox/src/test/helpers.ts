@@ -76,6 +76,7 @@ export function createCommandProcess(
     stderr: emptyStream(),
     status: "exited" as const,
     stdout: streamFrom([command.join(" ")]),
+    stdoutBinary: emptyBinaryStream(),
     poll() {
       return 0;
     },
@@ -219,6 +220,8 @@ export function createFakeTransport(
 }
 
 async function* emptyStream(): AsyncIterable<string> {}
+
+async function* emptyBinaryStream(): AsyncIterable<Uint8Array> {}
 
 async function* byteStreamFrom(values: readonly Uint8Array[]): AsyncIterable<Uint8Array> {
   for (const value of values) {

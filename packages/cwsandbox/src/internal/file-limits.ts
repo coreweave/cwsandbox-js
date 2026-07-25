@@ -18,9 +18,15 @@ export const MAX_FILE_UNARY_BYTES = DEFAULT_GRPC_MAX_MESSAGE_LENGTH_BYTES - 1024
 
 /**
  * Above this size, files.write / files.read refuse auto StreamExec fallback.
- * Explicit streaming APIs are a separate follow-up.
+ * Prefer `files.writeStream` / `files.readStream` for larger transfers.
  */
 export const MAX_AUTO_FALLBACK_BYTES = 256 * 1024 * 1024;
+
+/**
+ * Skip post-drain truncation checks below this size (Python
+ * `TRUNCATION_CHECK_MIN_BYTES` parity: half the auto-fallback ceiling).
+ */
+export const TRUNCATION_CHECK_MIN_BYTES = MAX_AUTO_FALLBACK_BYTES / 2;
 
 /**
  * Chunk size for StreamExec stdin frames during large-file fallback.

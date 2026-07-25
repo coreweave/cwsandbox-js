@@ -4,7 +4,8 @@
 
 import type { DuplexStreamingCall } from "@protobuf-ts/runtime-rpc";
 
-import { CWSandboxTransportError } from "../../errors.js";
+import { CWSandboxStreamBackpressureError, CWSandboxTransportError } from "../../errors.js";
+import { STREAM_BACKPRESSURE } from "../../internal/error-info.js";
 import type { CommandProcess } from "../../public/commands.js";
 import {
   createCommandProcess,
@@ -55,23 +56,23 @@ export async function startGrpcCommand(
     request,
     stdinReady,
   );
+  const sharedProcessOptions = {
+    ...(request.binaryOutput === undefined ? {} : { binaryOutput: request.binaryOutput }),
+    ...(request.bufferedMaxKiB === undefined ? {} : { bufferedMaxKiB: request.bufferedMaxKiB }),
+    ...(request.check === undefined ? {} : { check: request.check }),
+    ...(request.streamStdoutOnly === undefined
+      ? {}
+      : { streamStdoutOnly: request.streamStdoutOnly }),
+  };
   const commandProcessOptions =
     request.stdin === true
       ? {
-          ...(request.binaryOutput === undefined ? {} : { binaryOutput: request.binaryOutput }),
-          ...(request.bufferedMaxKiB === undefined
-            ? {}
-            : { bufferedMaxKiB: request.bufferedMaxKiB }),
-          ...(request.check === undefined ? {} : { check: request.check }),
+          ...sharedProcessOptions,
           input,
           stdin: true as const,
         }
       : {
-          ...(request.binaryOutput === undefined ? {} : { binaryOutput: request.binaryOutput }),
-          ...(request.bufferedMaxKiB === undefined
-            ? {}
-            : { bufferedMaxKiB: request.bufferedMaxKiB }),
-          ...(request.check === undefined ? {} : { check: request.check }),
+          ...sharedProcessOptions,
           input,
         };
   const controller = createCommandProcess(request.command, commandProcessOptions);
@@ -136,14 +137,10 @@ async function collectStreamingCommand(
           break;
         case "error": {
           terminal = true;
-          const error = new CWSandboxTransportError(
+          const error = mapExecStreamError(
+            response.response.error.code,
             response.response.error.message || "Streaming command failed.",
-            {
-              operation: "Streaming command",
-              sandboxId: request.sandboxId,
-              transport: "grpc",
-              transportCode: response.response.error.code,
-            },
+            request.sandboxId,
           );
           stdinReady?.signalFailed(error);
           await controller.dispatch({
@@ -184,6 +181,35 @@ async function collectStreamingCommand(
   } finally {
     await onTerminal().catch(() => undefined);
   }
+}
+
+const BACKPRESSURE_MESSAGE =
+  "Output stream ended early because it was not being read fast enough to " +
+  "keep up with the command's output; some output was lost. If you do slow " +
+  "work between reads, move it off the read loop (drain into a fast local " +
+  "sink such as a file, then process afterward) and use files.readStream / " +
+  "files.writeStream for large files. If the destination is itself slow and " +
+  "cannot keep up no matter how tight the loop, split the work into smaller " +
+  "transfers. Retrying the same pattern will hit this again.";
+
+/** Exported for unit tests that assert STREAM_BACKPRESSURE is not remasked. */
+export function mapExecStreamError(
+  code: string,
+  message: string,
+  sandboxId: string | undefined,
+): Error {
+  if (code === STREAM_BACKPRESSURE) {
+    return new CWSandboxStreamBackpressureError(BACKPRESSURE_MESSAGE, {
+      streamCode: STREAM_BACKPRESSURE,
+    });
+  }
+
+  return new CWSandboxTransportError(message, {
+    operation: "Streaming command",
+    ...(sandboxId === undefined ? {} : { sandboxId }),
+    transport: "grpc",
+    transportCode: code,
+  });
 }
 
 function createGrpcCommandInputController(

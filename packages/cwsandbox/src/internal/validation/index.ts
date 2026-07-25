@@ -33,6 +33,7 @@ export function validateExecOptions(options: ExecOptions): void {
 export function validateStartCommandOptions(options: InternalStartCommandOptions): void {
   validateCommandOptions(options);
   validateOptionalBoolean(options.binaryOutput, "binaryOutput");
+  validateOptionalBoolean(options.streamStdoutOnly, "streamStdoutOnly");
 }
 
 export function validateShellOptions(options: ShellOptions): void {

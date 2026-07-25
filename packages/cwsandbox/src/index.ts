@@ -15,6 +15,7 @@ export {
   CWSandboxNotFoundError,
   CWSandboxNotImplementedError,
   CWSandboxResourceExhaustedError,
+  CWSandboxStreamBackpressureError,
   CWSandboxTerminalStateUnavailableError,
   CWSandboxTimeoutError,
   CWSandboxTransportError,
@@ -35,6 +36,7 @@ export {
   CWSANDBOX_FILE_TRUNCATED,
   CWSANDBOX_RUNNER_UNAVAILABLE,
   CWSANDBOX_SANDBOX_NOT_FOUND,
+  STREAM_BACKPRESSURE,
 } from "./internal/error-info.js";
 export { Sandbox } from "./sandbox.js";
 export { SandboxList } from "./runtime/sandbox-list.js";
@@ -59,6 +61,7 @@ export type {
 } from "./public/commands.js";
 export type { Milliseconds, RequestOptions, Seconds } from "./public/common.js";
 export type {
+  FileChunkSource,
   FileContent,
   FileReadResult,
   FileTextReadResult,

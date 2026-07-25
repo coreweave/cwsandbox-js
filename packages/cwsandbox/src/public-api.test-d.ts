@@ -103,6 +103,7 @@ const transport = {
       stderr: (async function* () {})(),
       status: "exited" as const,
       stdout: (async function* () {})(),
+      stdoutBinary: (async function* () {})(),
       poll() {
         return 0;
       },

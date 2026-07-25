@@ -50,13 +50,19 @@ export interface CommandInputController {
 export interface CommandProcessOptions {
   /**
    * When true, accumulate stdout as bytes only: skip UTF-8 decode into the
-   * text queue and leave ProcessResult.stdout as "".
+   * text queue, leave ProcessResult.stdout as "", and push frames to
+   * `stdoutBinary`.
    */
   readonly binaryOutput?: boolean;
   readonly bufferedMaxKiB?: number;
   readonly check?: boolean;
   readonly input?: CommandInputController;
   readonly stdin?: boolean;
+  /**
+   * When true, do not buffer stdout for `wait().stdoutBytes` (consume via
+   * `stdoutBinary` instead).
+   */
+  readonly streamStdoutOnly?: boolean;
 }
 
 export function createCommandProcess(
@@ -130,13 +136,17 @@ class StreamingCommandProcess implements CommandProcess {
   public readonly stderr: AsyncIterable<string>;
   public readonly stdin: CommandInputWriter | undefined;
   public readonly stdout: AsyncIterable<string>;
+  public readonly stdoutBinary: AsyncIterable<Uint8Array>;
 
   private readonly stderrQueue = new AsyncQueue<string>();
   private readonly stdoutQueue = new AsyncQueue<string>();
+  private readonly stdoutBinaryQueue = new AsyncQueue<Uint8Array>();
   private readonly stderrAccumulator: OutputAccumulator;
   private readonly stdoutAccumulator: OutputAccumulator;
   private readonly binaryOutput: boolean;
+  private readonly streamStdoutOnly: boolean;
   private readonly check: boolean;
+  private stdoutBytesProduced = 0;
   private result: ProcessResult | undefined;
   private sessionId: string | undefined;
   private currentExitCode: number | undefined;
@@ -157,6 +167,7 @@ class StreamingCommandProcess implements CommandProcess {
         : options.bufferedMaxKiB * 1024;
     this.input = options.input;
     this.binaryOutput = options.binaryOutput === true;
+    this.streamStdoutOnly = options.streamStdoutOnly === true;
     this.check = options.check === true;
     this.stdoutAccumulator = new OutputAccumulator(limitBytes);
     this.stderrAccumulator = new OutputAccumulator(
@@ -164,6 +175,7 @@ class StreamingCommandProcess implements CommandProcess {
     );
     this.stdout = this.stdoutQueue;
     this.stderr = this.stderrQueue;
+    this.stdoutBinary = this.stdoutBinaryQueue;
     this.stdin =
       options.stdin === true && options.input !== undefined
         ? new StreamingCommandInputWriter(options.input, () => this.currentStatus)
@@ -181,8 +193,14 @@ class StreamingCommandProcess implements CommandProcess {
         this.currentStatus = "running";
         return;
       case "stdout":
-        this.stdoutAccumulator.append(event.data);
-        if (!this.binaryOutput) {
+        this.stdoutBytesProduced += event.data.byteLength;
+        if (!this.streamStdoutOnly) {
+          this.stdoutAccumulator.append(event.data);
+        }
+        if (this.binaryOutput) {
+          // Copy so gRPC ownership of the frame cannot alias the caller's buffer.
+          this.stdoutBinaryQueue.tryPush(event.data.slice());
+        } else {
           this.stdoutQueue.tryPush(textDecoder.decode(event.data));
         }
         return;
@@ -207,11 +225,16 @@ class StreamingCommandProcess implements CommandProcess {
           stderrBytesProduced: this.stderrAccumulator.produced(),
           stderrTruncated: this.stderrAccumulator.isTruncated(),
           stdout: this.binaryOutput ? "" : this.stdoutAccumulator.text(),
-          stdoutBytes: this.stdoutAccumulator.bytesValue(),
-          stdoutBytesProduced: this.stdoutAccumulator.produced(),
-          stdoutTruncated: this.stdoutAccumulator.isTruncated(),
+          stdoutBytes: this.streamStdoutOnly
+            ? new Uint8Array()
+            : this.stdoutAccumulator.bytesValue(),
+          stdoutBytesProduced: this.streamStdoutOnly
+            ? this.stdoutBytesProduced
+            : this.stdoutAccumulator.produced(),
+          stdoutTruncated: this.streamStdoutOnly ? false : this.stdoutAccumulator.isTruncated(),
         };
         this.stdoutQueue.close();
+        this.stdoutBinaryQueue.close();
         this.stderrQueue.close();
         if (this.check && this.result.exitCode !== 0) {
           this.reject(new CWSandboxExecutionError(this.result));
@@ -227,6 +250,7 @@ class StreamingCommandProcess implements CommandProcess {
 
         this.currentStatus = "failed";
         this.stdoutQueue.fail(event.error);
+        this.stdoutBinaryQueue.fail(event.error);
         this.stderrQueue.fail(event.error);
         this.reject(event.error);
         return;
@@ -250,6 +274,7 @@ class StreamingCommandProcess implements CommandProcess {
     });
     this.currentStatus = "cancelled";
     this.stdoutQueue.fail(error);
+    this.stdoutBinaryQueue.fail(error);
     this.stderrQueue.fail(error);
     this.reject(error);
     await this.cancelInput(error);

@@ -68,6 +68,7 @@ describe("CommandProcess", () => {
   it("binaryOutput skips decoding stdout text while keeping stdoutBytes", async () => {
     const controller = createCommandProcess(["python"], { binaryOutput: true });
     const payload = new Uint8Array([0, 159, 146, 150, 1, 2, 3]);
+    const binary = collect(controller.process.stdoutBinary);
 
     await controller.dispatch({ data: payload, type: "stdout" });
     await controller.dispatch({ data: new TextEncoder().encode("oops"), type: "stderr" });
@@ -78,6 +79,27 @@ describe("CommandProcess", () => {
     expect(result.stdoutBytes).toEqual(payload);
     expect(result.stderr).toBe("oops");
     expect(result.stderrBytes).toEqual(new TextEncoder().encode("oops"));
+    await expect(binary).resolves.toEqual([payload]);
+  });
+
+  it("streamStdoutOnly exposes stdoutBinary without accumulating wait().stdoutBytes", async () => {
+    const controller = createCommandProcess(["python"], {
+      binaryOutput: true,
+      streamStdoutOnly: true,
+    });
+    const chunkA = new Uint8Array([1, 2, 3]);
+    const chunkB = new Uint8Array([4, 5]);
+    const binary = collect(controller.process.stdoutBinary);
+
+    await controller.dispatch({ data: chunkA, type: "stdout" });
+    await controller.dispatch({ data: chunkB, type: "stdout" });
+    await controller.dispatch({ exitCode: 0, type: "exit" });
+
+    const result = await controller.process.wait();
+    expect(result.stdoutBytes).toEqual(new Uint8Array());
+    expect(result.stdoutBytesProduced).toBe(5);
+    expect(result.stdoutTruncated).toBe(false);
+    await expect(binary).resolves.toEqual([chunkA, chunkB]);
   });
 
   it("rejects wait for checked non-zero exits while preserving status and exit code", async () => {

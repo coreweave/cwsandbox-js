@@ -4,7 +4,5 @@
 
 import type { StartCommandOptions } from "../public/commands.js";
 
-/** Runtime start options; binaryOutput is not part of the public commands API. */
-export type InternalStartCommandOptions = StartCommandOptions & {
-  readonly binaryOutput?: boolean;
-};
+/** Alias kept for call sites that historically used internal start options. */
+export type InternalStartCommandOptions = StartCommandOptions;

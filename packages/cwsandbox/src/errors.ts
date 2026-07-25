@@ -90,6 +90,24 @@ export class CWSandboxExecutionError extends CWSandboxError {
   }
 }
 
+/**
+ * Stream ended early because the consumer did not keep up (Python
+ * `SandboxStreamBackpressureError` peer). `streamCode` is an ExecStreamError
+ * channel code (typically `STREAM_BACKPRESSURE`), not an AIP-193 `reason`.
+ */
+export class CWSandboxStreamBackpressureError extends CWSandboxError {
+  public readonly streamCode: string;
+
+  public constructor(
+    message: string,
+    options: ErrorOptions & { readonly streamCode?: string } = {},
+  ) {
+    super(message, "execution_error", options);
+    this.name = "CWSandboxStreamBackpressureError";
+    this.streamCode = options.streamCode ?? "STREAM_BACKPRESSURE";
+  }
+}
+
 export class CWSandboxTransportError extends CWSandboxError {
   public readonly domain: string | undefined;
   /**

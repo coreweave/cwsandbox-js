@@ -474,6 +474,29 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
       },
       testTimeoutMs,
     );
+
+    it(
+      "round-trips multi-chunk writeStream and readStream",
+      async () => {
+        const path = "/tmp/cwsandbox-js-stream.bin";
+        const chunks = [
+          new Uint8Array([0, 1, 2, 3]),
+          new Uint8Array([4, 5, 6]),
+          new Uint8Array([7, 8, 9, 10, 11]),
+        ];
+        const activeSandbox = currentSandbox();
+
+        await activeSandbox.files.writeStream(path, chunks);
+
+        const received: number[] = [];
+        for await (const chunk of activeSandbox.files.readStream(path)) {
+          received.push(...chunk);
+        }
+
+        expect(received).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+      },
+      testTimeoutMs,
+    );
   });
 
   describe("large files", () => {
