@@ -26,6 +26,7 @@ import {
 } from "./generated/coreweave/sandbox/v1beta2/streaming.js";
 import { linkedAbortController, toRpcOptions, withGrpcErrorMapping } from "./rpc.js";
 import {
+  awaitStdinReadyOrAbort,
   createStdinReadyGate,
   stdinReadyTimeoutMs,
   type StdinReadyGate,
@@ -247,9 +248,7 @@ function createGrpcCommandInputController(
       await withGrpcErrorMapping(
         "Close streaming stdin",
         async () => {
-          if (stdinReady !== undefined) {
-            await stdinReady.wait(readyTimeoutMs);
-          }
+          await awaitStdinReadyOrAbort(stdinReady, readyTimeoutMs, abortController);
           await sendStreamingClose(call.requests);
           await completeRequests();
         },
@@ -260,9 +259,7 @@ function createGrpcCommandInputController(
       await withGrpcErrorMapping(
         "Write streaming stdin",
         async () => {
-          if (stdinReady !== undefined) {
-            await stdinReady.wait(readyTimeoutMs);
-          }
+          await awaitStdinReadyOrAbort(stdinReady, readyTimeoutMs, abortController);
           await sendStreamingStdin(call.requests, data);
         },
         request.sandboxId,

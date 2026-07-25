@@ -479,24 +479,33 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     );
 
     it(
-      "round-trips multi-chunk writeStream and readStream",
+      "round-trips multi-chunk writeStream and readStream (~1 MiB)",
       async () => {
         const path = "/tmp/cwsandbox-js-stream.bin";
-        const chunks = [
-          new Uint8Array([0, 1, 2, 3]),
-          new Uint8Array([4, 5, 6]),
-          new Uint8Array([7, 8, 9, 10, 11]),
-        ];
+        const chunkSize = 256 * 1024;
+        const payload = createPatternedPayload(STREAM_SMOKE_1_MIB);
+        const chunks: Uint8Array[] = [];
+        for (let offset = 0; offset < payload.byteLength; offset += chunkSize) {
+          chunks.push(payload.subarray(offset, Math.min(offset + chunkSize, payload.byteLength)));
+        }
         const activeSandbox = currentSandbox();
 
         await activeSandbox.files.writeStream(path, chunks);
 
-        const received: number[] = [];
+        const parts: Uint8Array[] = [];
+        let total = 0;
         for await (const chunk of activeSandbox.files.readStream(path)) {
-          received.push(...chunk);
+          parts.push(chunk);
+          total += chunk.byteLength;
+        }
+        const received = new Uint8Array(total);
+        let cursor = 0;
+        for (const part of parts) {
+          received.set(part, cursor);
+          cursor += part.byteLength;
         }
 
-        expect(received).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+        expectBytesEqual(received, payload);
       },
       testTimeoutMs,
     );
@@ -532,6 +541,36 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
         );
       },
       largeFileTimeout20Ms,
+    );
+
+    it(
+      "round-trips a 40 MiB file via StreamExec fallback at 256Mi",
+      async () => {
+        expect.hasAssertions();
+
+        const payload = createPatternedPayload(LARGE_FILE_40_MIB);
+        const path = `/tmp/cwsandbox-js-large-write-${LARGE_FILE_40_MIB}.bin`;
+
+        // Above default unary 32 MiB cap — exercises buffered StreamExec write/read.
+        await withStartedSandbox(
+          client,
+          {
+            resources: { cpu: "500m", memory: "256Mi" },
+            tags: [uniqueSmokeTag()],
+          },
+          async (sandbox) => {
+            try {
+              await sandbox.files.write(path, payload, { timeoutMs: largeFileTimeout40Ms });
+              const readBack = await sandbox.files.read(path, { timeoutMs: largeFileTimeout40Ms });
+              expectBytesEqual(readBack, payload);
+            } catch (error) {
+              logCaughtError("large file write 40 MiB", error);
+              throw error;
+            }
+          },
+        );
+      },
+      largeFileTimeout40Ms,
     );
   });
 

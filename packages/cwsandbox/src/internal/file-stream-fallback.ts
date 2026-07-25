@@ -27,6 +27,7 @@ const WRITE_SCRIPT = [
   "path=$1",
   "expected=$2",
   'tmp="$path.tmp.$$"',
+  'trap \'rm -f "$tmp"\' EXIT',
   'if ! cat > "$tmp"; then',
   '  printf "%s\\n" "Failed to write input stream to temp for $path" >&2',
   '  rm -f "$tmp"',
@@ -46,6 +47,7 @@ const WRITE_SCRIPT = [
   '  rm -f "$tmp"',
   "  exit 1",
   "fi",
+  "trap - EXIT",
 ].join("\n");
 
 const READ_SCRIPT = [

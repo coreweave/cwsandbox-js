@@ -329,7 +329,9 @@ describe("Sandbox files", () => {
     expect(startRequest?.binaryOutput).toBe(true);
     const script = String(startRequest?.command[2] ?? "");
     expect(script).toContain('tmp="$path.tmp.$$"');
+    expect(script).toContain('trap \'rm -f "$tmp"\' EXIT');
     expect(script).toContain('mv -f "$tmp" "$path"');
+    expect(script).toContain("trap - EXIT");
     expect(stdinChunks.reduce((total, chunk) => total + chunk.byteLength, 0)).toBe(
       content.byteLength,
     );

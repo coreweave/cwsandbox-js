@@ -95,3 +95,24 @@ export function stdinReadyTimeoutMs(timeoutMs: number | undefined): number {
     ? STDIN_READY_TIMEOUT_MS
     : Math.min(STDIN_READY_TIMEOUT_MS, timeoutMs);
 }
+
+/**
+ * Wait for stdin ready; on timeout/failure abort the linked RPC so the duplex
+ * call does not stay open after the caller sees the error.
+ */
+export async function awaitStdinReadyOrAbort(
+  stdinReady: StdinReadyGate | undefined,
+  timeoutMs: number,
+  abortController: AbortController,
+): Promise<void> {
+  if (stdinReady === undefined) {
+    return;
+  }
+
+  try {
+    await stdinReady.wait(timeoutMs);
+  } catch (error) {
+    abortController.abort(error);
+    throw error;
+  }
+}
