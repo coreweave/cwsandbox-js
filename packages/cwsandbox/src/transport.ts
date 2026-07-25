@@ -31,6 +31,7 @@ export interface SandboxTransport {
   list(options: ListSandboxesOptions): Promise<ListSandboxesResult>;
   delete(request: DeleteSandboxRequest): Promise<void>;
   exec(request: ExecRequest): Promise<ProcessResult>;
+  /** Returns an internal process that may expose `stdoutBinary` for file I/O. */
   startCommand(request: StartCommandRequest): Promise<InternalCommandProcess>;
   startShell(request: StartShellRequest): Promise<TerminalSession>;
   streamLogs(request: StreamLogsRequest): Promise<LogEntryStream | LogRawStream | LogStream>;

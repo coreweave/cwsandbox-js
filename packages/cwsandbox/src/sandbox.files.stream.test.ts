@@ -16,8 +16,8 @@ import {
   CWSANDBOX_FILE_NOT_FOUND,
   CWSANDBOX_FILE_TRUNCATED,
 } from "./internal/error-info.js";
-import type { InternalCommandProcessWithStdin } from "./internal/start-command-options.js";
 import { TRUNCATION_CHECK_MIN_BYTES } from "./internal/file-limits.js";
+import type { InternalCommandProcessWithStdin } from "./internal/start-command-options.js";
 import { AsyncQueue } from "./streaming/async-queue.js";
 import {
   createClient,
@@ -33,7 +33,10 @@ describe("Sandbox files streaming", () => {
     const transport: SandboxTransport = {
       ...createFakeTransport(),
       async startCommand(request) {
-        const process = createCommandProcess(request.command, true) as InternalCommandProcessWithStdin;
+        const process = createCommandProcess(
+          request.command,
+          true,
+        ) as InternalCommandProcessWithStdin;
         const stdin = createCommandInputWriter();
         return {
           ...process,
@@ -72,7 +75,10 @@ describe("Sandbox files streaming", () => {
     const transport: SandboxTransport = {
       ...createFakeTransport(),
       async startCommand(request) {
-        const process = createCommandProcess(request.command, true) as InternalCommandProcessWithStdin;
+        const process = createCommandProcess(
+          request.command,
+          true,
+        ) as InternalCommandProcessWithStdin;
         const stdin = createCommandInputWriter();
         return {
           ...process,
@@ -108,7 +114,10 @@ describe("Sandbox files streaming", () => {
     const transport: SandboxTransport = {
       ...createFakeTransport(),
       async startCommand(request) {
-        const process = createCommandProcess(request.command, true) as InternalCommandProcessWithStdin;
+        const process = createCommandProcess(
+          request.command,
+          true,
+        ) as InternalCommandProcessWithStdin;
         const stdin = createCommandInputWriter();
         return {
           ...process,
@@ -149,7 +158,10 @@ describe("Sandbox files streaming", () => {
     const transport: SandboxTransport = {
       ...createFakeTransport(),
       async startCommand(request) {
-        const process = createCommandProcess(request.command, true) as InternalCommandProcessWithStdin;
+        const process = createCommandProcess(
+          request.command,
+          true,
+        ) as InternalCommandProcessWithStdin;
         return {
           ...process,
           status: "running",
@@ -170,7 +182,10 @@ describe("Sandbox files streaming", () => {
     const transport: SandboxTransport = {
       ...createFakeTransport(),
       async startCommand(request) {
-        const process = createCommandProcess(request.command, true) as InternalCommandProcessWithStdin;
+        const process = createCommandProcess(
+          request.command,
+          true,
+        ) as InternalCommandProcessWithStdin;
         return {
           ...process,
           status: "running",
@@ -193,7 +208,10 @@ describe("Sandbox files streaming", () => {
     const transport: SandboxTransport = {
       ...createFakeTransport(),
       async startCommand(request) {
-        const process = createCommandProcess(request.command, true) as InternalCommandProcessWithStdin;
+        const process = createCommandProcess(
+          request.command,
+          true,
+        ) as InternalCommandProcessWithStdin;
         return {
           ...process,
           status: "running",

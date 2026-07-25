@@ -23,8 +23,9 @@ import { STREAMING_WRITE_CHUNK_SIZE, TRUNCATION_CHECK_MIN_BYTES } from "./file-l
 export type { FileChunkSource };
 
 /**
- * Python-shaped streaming write: direct `cat >` (no temp-and-rename). A mid-stream
- * cancel or transport error may leave a partial file.
+ * Explicit `files.writeStream`: direct `cat >` (no temp-and-rename). A mid-stream
+ * cancel or transport error may leave a partial file. (Buffered `files.write`
+ * fallback uses temp + mv instead.)
  */
 const WRITE_STREAM_SCRIPT = [
   "path=$1",

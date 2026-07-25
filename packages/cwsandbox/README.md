@@ -274,23 +274,9 @@ console.log(result.exitCode);
 console.log(result.ok);
 ```
 
-For binary stdout, set `binaryOutput: true` and drain `process.stdoutBinary`.
-Use `streamStdoutOnly: true` when you only need the live binary stream and do not
-want `wait().stdoutBytes` to accumulate (large file reads use this).
-
-```ts
-const process = await sandbox.commands.start(["cat", "/tmp/blob.bin"], {
-  binaryOutput: true,
-  streamStdoutOnly: true,
-});
-
-for await (const chunk of process.stdoutBinary) {
-  // Drain promptly into a fast local sink (file, buffer) — avoid slow work here.
-  void chunk;
-}
-
-await process.wait();
-```
+`commands.start()` is text-oriented (`stdout` / `stderr` are string streams). For
+binary file transfers, use `files.readStream` / `files.writeStream` instead of
+command stdout.
 
 `process.poll()` returns `undefined` while the command is still running, then the exit code after completion. `process.exitCode` is also populated after the command exits.
 `process.wait({ timeoutMs, signal })` can bound how long you wait locally without changing the running command.

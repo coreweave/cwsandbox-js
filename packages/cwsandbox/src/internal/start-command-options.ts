@@ -9,15 +9,28 @@ import type {
 } from "../public/commands.js";
 
 /**
- * Runtime/transport start options. Not part of the public `commands.start` API;
- * used by file StreamExec / readStream / writeStream.
+ * Start options for runtime/transport file plumbing only.
+ *
+ * Not part of public `SandboxCommands.start` / `StartCommandOptions`. Prefer
+ * `files.readStream` / `files.writeStream` (or buffered `files.read` /
+ * `files.write`) for binary transfers.
+ *
+ * - `binaryOutput`: skip UTF-8 decode into the text `stdout` stream; leave
+ *   `wait().stdout` as `""`. Buffered file fallback accumulates bytes for
+ *   `wait().stdoutBytes` without enqueueing `stdoutBinary`.
+ * - `streamStdoutOnly`: with `binaryOutput`, skip wait-buffer accumulation and
+ *   push frames to the bounded `stdoutBinary` queue (readStream consumer).
  */
 export type InternalStartCommandOptions = StartCommandOptions & {
   readonly binaryOutput?: boolean;
   readonly streamStdoutOnly?: boolean;
 };
 
-/** Process returned by transport `startCommand` for file binary stdout. */
+/**
+ * Process shape returned by `SandboxTransport.startCommand`.
+ * `stdoutBinary` is for internal file StreamExec / readStream; it is not on
+ * the public `CommandProcess` type from `commands.start`.
+ */
 export type InternalCommandProcess = CommandProcess & {
   readonly stdoutBinary: AsyncIterable<Uint8Array>;
 };

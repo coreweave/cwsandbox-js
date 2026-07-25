@@ -4,10 +4,6 @@
 
 import { SandboxClient } from "../client.js";
 import type {
-  InternalCommandProcess,
-  InternalCommandProcessWithStdin,
-} from "../internal/start-command-options.js";
-import type {
   Command,
   CommandInputData,
   CommandInputWriter,
@@ -20,6 +16,10 @@ import type {
   SandboxTransport,
   TerminalSession,
 } from "../index.js";
+import type {
+  InternalCommandProcess,
+  InternalCommandProcessWithStdin,
+} from "../internal/start-command-options.js";
 
 const textEncoder = new TextEncoder();
 
@@ -66,7 +66,10 @@ export function createCommandInputWriter(): CommandInputWriter {
 }
 
 export function createCommandProcess(command: Command): InternalCommandProcess;
-export function createCommandProcess(command: Command, stdin: true): InternalCommandProcessWithStdin;
+export function createCommandProcess(
+  command: Command,
+  stdin: true,
+): InternalCommandProcessWithStdin;
 export function createCommandProcess(
   command: Command,
   stdin = false,

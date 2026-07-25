@@ -51,11 +51,15 @@ export interface CommandInputController {
   write(data: Uint8Array): Promise<void>;
 }
 
+/**
+ * Streaming process construction options (internal).
+ * Binary flags are not exposed on public `StartCommandOptions`.
+ */
 export interface CommandProcessOptions {
   /**
-   * When true, accumulate stdout as bytes only: skip UTF-8 decode into the
-   * text queue and leave ProcessResult.stdout as "". With `streamStdoutOnly`,
-   * frames are also pushed to the bounded `stdoutBinary` queue.
+   * Skip UTF-8 decode into the text `stdout` queue; leave `wait().stdout` as
+   * `""`. Alone (buffered path): accumulate into `wait().stdoutBytes` only.
+   * With `streamStdoutOnly`: also push frames to `stdoutBinary`.
    */
   readonly binaryOutput?: boolean;
   readonly bufferedMaxKiB?: number;
@@ -63,8 +67,8 @@ export interface CommandProcessOptions {
   readonly input?: CommandInputController;
   readonly stdin?: boolean;
   /**
-   * When true, do not buffer stdout for `wait().stdoutBytes`; push frames to
-   * the bounded `stdoutBinary` queue for the consumer to drain (backpressure).
+   * With `binaryOutput`, skip wait-buffer accumulation and enqueue frames on
+   * the bounded `stdoutBinary` queue (backpressure). Used by `files.readStream`.
    */
   readonly streamStdoutOnly?: boolean;
 }
@@ -202,9 +206,9 @@ class StreamingCommandProcess implements InternalCommandProcess {
           this.stdoutAccumulator.append(event.data);
         }
         if (this.binaryOutput && this.streamStdoutOnly) {
-          // Streaming consumer path: bounded queue with backpressure.
-          // Buffered binaryOutput uses the accumulator / wait() only — do not
-          // enqueue here or an undrained queue can hang before exit.
+          // readStream path: bounded queue with backpressure. Buffered
+          // binaryOutput (file fallback) uses the accumulator / wait() only —
+          // never enqueue without a drain or dispatch can hang before exit.
           // Copy so gRPC ownership of the frame cannot alias the caller's buffer.
           await this.stdoutBinaryQueue.push(event.data.slice());
         } else if (!this.binaryOutput) {

@@ -129,8 +129,9 @@ export async function writeFileViaStreamExec(
 }
 
 /**
- * Read via StreamExec (`/bin/sh` + `cat`). Uses binaryOutput so wait() does not
- * decode/build a full stdout string for large payloads.
+ * Read via StreamExec (`/bin/sh` + `cat`).
+ * Uses internal `binaryOutput` (buffered path): bytes land in `wait().stdoutBytes`
+ * without decoding a full stdout string or enqueueing `stdoutBinary`.
  */
 export async function readFileViaStreamExec(
   runtime: SandboxRuntime,

@@ -21,7 +21,7 @@ import type {
 import type { SandboxRuntime } from "./context.js";
 
 export function createSandboxCommands(runtime: SandboxRuntime): SandboxCommands {
-  // Public start omits internal binary flags / stdoutBinary; cast through unknown.
+  // Narrow to public SandboxCommands.start (no binary flags / stdoutBinary).
   const start = ((command: CommandInput, options?: StartCommandOptions) =>
     startCommand(runtime, command, options)) as unknown as SandboxCommands["start"];
   return {

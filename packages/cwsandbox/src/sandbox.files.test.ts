@@ -19,11 +19,11 @@ import {
   CWSANDBOX_FILE_TOO_LARGE,
   CWSANDBOX_FILE_TRUNCATED,
 } from "./internal/error-info.js";
-import type { InternalCommandProcessWithStdin } from "./internal/start-command-options.js";
 import {
   DEFAULT_FILE_OPERATION_CAP_BYTES,
   MAX_AUTO_FALLBACK_BYTES,
 } from "./internal/file-limits.js";
+import type { InternalCommandProcessWithStdin } from "./internal/start-command-options.js";
 import {
   createClient,
   createCommandInputWriter,
@@ -300,7 +300,10 @@ describe("Sandbox files", () => {
       writeFile,
       async startCommand(request) {
         startRequest = request;
-        const process = createCommandProcess(request.command, true) as InternalCommandProcessWithStdin;
+        const process = createCommandProcess(
+          request.command,
+          true,
+        ) as InternalCommandProcessWithStdin;
         const stdin = createCommandInputWriter();
         return {
           ...process,
@@ -337,7 +340,10 @@ describe("Sandbox files", () => {
     const transport: SandboxTransport = {
       ...createFakeTransport(),
       async startCommand(request) {
-        const process = createCommandProcess(request.command, true) as InternalCommandProcessWithStdin;
+        const process = createCommandProcess(
+          request.command,
+          true,
+        ) as InternalCommandProcessWithStdin;
         return {
           ...process,
           status: "running",
@@ -364,7 +370,10 @@ describe("Sandbox files", () => {
     const transport: SandboxTransport = {
       ...createFakeTransport(),
       async startCommand(request) {
-        const process = createCommandProcess(request.command, true) as InternalCommandProcessWithStdin;
+        const process = createCommandProcess(
+          request.command,
+          true,
+        ) as InternalCommandProcessWithStdin;
         const stdin = createCommandInputWriter();
         return {
           ...process,
@@ -397,7 +406,10 @@ describe("Sandbox files", () => {
     const content = new Uint8Array(1024);
     const startCommand = vi.fn<SandboxTransport["startCommand"]>(async (request) => {
       if (request.stdin === true) {
-        const process = createCommandProcess(request.command, true) as InternalCommandProcessWithStdin;
+        const process = createCommandProcess(
+          request.command,
+          true,
+        ) as InternalCommandProcessWithStdin;
         return {
           ...process,
           async wait() {
@@ -689,7 +701,10 @@ describe("Sandbox files", () => {
       });
     });
     const startCommand = vi.fn<SandboxTransport["startCommand"]>(async (request) => {
-      const process = createCommandProcess(request.command, true) as InternalCommandProcessWithStdin;
+      const process = createCommandProcess(
+        request.command,
+        true,
+      ) as InternalCommandProcessWithStdin;
       return {
         ...process,
         async wait() {
@@ -746,7 +761,10 @@ describe("Sandbox files", () => {
     const signal = AbortSignal.abort();
     const startCommand = vi.fn<SandboxTransport["startCommand"]>(async (request) => {
       expect(request.signal?.aborted).toBe(true);
-      const process = createCommandProcess(request.command, true) as InternalCommandProcessWithStdin;
+      const process = createCommandProcess(
+        request.command,
+        true,
+      ) as InternalCommandProcessWithStdin;
       return {
         ...process,
         async wait(options) {
