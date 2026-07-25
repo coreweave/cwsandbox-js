@@ -200,7 +200,12 @@ function createProcessResult(
   };
 }
 
-function createCommandProcess(command: Command): CommandProcessWithStdin {
+/** Matches transport `startCommand` when it requires internal `stdoutBinary`. */
+type FakeCommandProcess = CommandProcessWithStdin & {
+  readonly stdoutBinary: AsyncIterable<Uint8Array>;
+};
+
+function createCommandProcess(command: Command): FakeCommandProcess {
   return {
     cancel: async () => undefined,
     command,
