@@ -23,7 +23,12 @@ describe("startGrpcShell stdin ready gate", () => {
 
     expect(requestKinds(duplex.sent)).toEqual(["init"]);
 
+    // write is queued on stdin's writeQueue; yield so it enters the ready gate
+    // before resize/close register their waiters (stable send order below).
     const writePromise = session.stdin.write("echo hi\n");
+    await yieldEventLoop();
+    const resizePromise = session.resize(100, 40);
+    const closePromise = session.stdin.close();
     await yieldEventLoop();
     expect(requestKinds(duplex.sent)).toEqual(["init"]);
 
@@ -34,13 +39,7 @@ describe("startGrpcShell stdin ready gate", () => {
       },
     });
 
-    await writePromise;
-    expect(requestKinds(duplex.sent)).toEqual(["init", "stdin"]);
-
-    await session.resize(100, 40);
-    expect(requestKinds(duplex.sent)).toEqual(["init", "stdin", "resize"]);
-
-    await session.stdin.close();
+    await Promise.all([writePromise, resizePromise, closePromise]);
     expect(requestKinds(duplex.sent)).toEqual(["init", "stdin", "resize", "close"]);
 
     duplex.push({
