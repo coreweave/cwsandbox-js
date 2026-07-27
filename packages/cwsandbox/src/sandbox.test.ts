@@ -344,7 +344,7 @@ describe("Sandbox", () => {
     };
 
     const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
-    await sandbox.wait({ intervalMs: 1, timeoutMs: 10 });
+    await sandbox.wait({ timeoutMs: 10, ...({ initialIntervalMs: 1 } as object) });
 
     expect(sandbox.status).toBe("running");
     expect(sandbox.runnerId).toBe("runner-id");

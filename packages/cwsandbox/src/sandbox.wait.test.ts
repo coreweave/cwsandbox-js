@@ -6,13 +6,21 @@ import { describe, expect, it } from "vitest";
 
 import {
   CWSandboxNotFoundError,
+  CWSandboxResourceExhaustedError,
   CWSandboxTimeoutError,
   CWSandboxTransportError,
   CWSandboxUnavailableError,
   CWSandboxValidationError,
   type SandboxTransport,
+  type WaitOptions,
 } from "./index.js";
+import type { WaitForSandboxOptions } from "./runtime/wait.js";
 import { createClient, createFakeTransport } from "./test/helpers.js";
+
+/** Test-only: pass internal initialIntervalMs through public wait(). */
+function fastWait(options: WaitForSandboxOptions = {}): WaitOptions {
+  return { initialIntervalMs: 1, ...options } as WaitOptions;
+}
 
 describe("Sandbox status and wait", () => {
   it("gets the current sandbox status", async () => {
@@ -57,7 +65,7 @@ describe("Sandbox status and wait", () => {
       },
     );
 
-    await expect(sandbox.wait({ intervalMs: 1, timeoutMs: 100 })).resolves.toBe(sandbox);
+    await expect(sandbox.wait(fastWait({ timeoutMs: 100 }))).resolves.toBe(sandbox);
   });
 
   it("retries transient unavailable status checks while waiting", async () => {
@@ -80,8 +88,79 @@ describe("Sandbox status and wait", () => {
       waitUntilRunning: false,
     });
 
-    await expect(sandbox.wait({ intervalMs: 1, timeoutMs: 100 })).resolves.toBe(sandbox);
+    await expect(sandbox.wait(fastWait({ timeoutMs: 5_000 }))).resolves.toBe(sandbox);
     expect(getCalls).toBe(2);
+  });
+
+  it("retries transient timeout status checks while waiting", async () => {
+    let getCalls = 0;
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async get(request) {
+        getCalls += 1;
+        if (getCalls === 1) {
+          throw new CWSandboxTimeoutError("deadline");
+        }
+
+        return {
+          sandboxId: request.sandboxId,
+          status: "running",
+        };
+      },
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"], {
+      waitUntilRunning: false,
+    });
+
+    await expect(sandbox.wait(fastWait({ timeoutMs: 5_000 }))).resolves.toBe(sandbox);
+    expect(getCalls).toBe(2);
+  });
+
+  it("retries transient resource-exhausted status checks while waiting", async () => {
+    let getCalls = 0;
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async get(request) {
+        getCalls += 1;
+        if (getCalls === 1) {
+          throw new CWSandboxResourceExhaustedError("busy");
+        }
+
+        return {
+          sandboxId: request.sandboxId,
+          status: "running",
+        };
+      },
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"], {
+      waitUntilRunning: false,
+    });
+
+    await expect(sandbox.wait(fastWait({ timeoutMs: 5_000 }))).resolves.toBe(sandbox);
+    expect(getCalls).toBe(2);
+  });
+
+  it("passes a poll timeoutMs on wait status Gets", async () => {
+    let getRequest: Parameters<SandboxTransport["get"]>[0] | undefined;
+    const transport: SandboxTransport = {
+      ...createFakeTransport(["running"]),
+      async get(request) {
+        getRequest = request;
+        return {
+          sandboxId: request.sandboxId,
+          status: "running",
+        };
+      },
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"], {
+      waitUntilRunning: false,
+    });
+
+    await sandbox.wait(fastWait({ timeoutMs: 60_000 }));
+
+    expect(getRequest?.timeoutMs).toBeTypeOf("number");
+    expect(getRequest?.timeoutMs).toBeGreaterThan(0);
+    expect(getRequest?.timeoutMs).toBeLessThanOrEqual(15_000);
   });
 
   it("waits until the requested target status", async () => {
@@ -93,7 +172,7 @@ describe("Sandbox status and wait", () => {
     );
 
     await expect(
-      sandbox.wait({ intervalMs: 1, targetStatus: "completed", timeoutMs: 100 }),
+      sandbox.wait(fastWait({ targetStatus: "completed", timeoutMs: 100 })),
     ).resolves.toBe(sandbox);
   });
 
@@ -106,7 +185,7 @@ describe("Sandbox status and wait", () => {
     );
 
     await expect(
-      sandbox.wait({ intervalMs: 1, targetStatus: "terminal", timeoutMs: 100 }),
+      sandbox.wait(fastWait({ targetStatus: "terminal", timeoutMs: 100 })),
     ).resolves.toBe(sandbox);
     expect(sandbox.status).toBe("failed");
   });
@@ -123,7 +202,7 @@ describe("Sandbox status and wait", () => {
     });
 
     await expect(
-      sandbox.wait({ intervalMs: 1, targetStatus: "terminal", timeoutMs: 100 }),
+      sandbox.wait(fastWait({ targetStatus: "terminal", timeoutMs: 100 })),
     ).rejects.toThrow(CWSandboxNotFoundError);
   });
 
@@ -132,7 +211,7 @@ describe("Sandbox status and wait", () => {
       waitUntilRunning: false,
     });
 
-    await expect(sandbox.wait({ intervalMs: 1, timeoutMs: 100 })).rejects.toThrow(
+    await expect(sandbox.wait(fastWait({ timeoutMs: 100 }))).rejects.toThrow(
       CWSandboxTransportError,
     );
   });
@@ -142,7 +221,7 @@ describe("Sandbox status and wait", () => {
       waitUntilRunning: false,
     });
 
-    await expect(sandbox.wait({ intervalMs: 1, timeoutMs: 100 })).rejects.toMatchObject({
+    await expect(sandbox.wait(fastWait({ timeoutMs: 100 }))).rejects.toMatchObject({
       operation: "Wait for sandbox",
       sandboxId: "sandbox-for-echo",
     });
@@ -153,17 +232,13 @@ describe("Sandbox status and wait", () => {
       waitUntilRunning: false,
     });
 
-    await expect(sandbox.wait({ intervalMs: 1, timeoutMs: 1 })).rejects.toThrow(
-      CWSandboxTimeoutError,
-    );
+    await expect(sandbox.wait(fastWait({ timeoutMs: 1 }))).rejects.toThrow(CWSandboxTimeoutError);
   });
 
   it("throws typed validation errors for invalid wait and status options", async () => {
     const sandbox = await createClient().run(["echo", "hello"], { waitUntilRunning: false });
 
-    await expect(sandbox.wait({ intervalMs: Number.NaN })).rejects.toThrow(
-      CWSandboxValidationError,
-    );
+    await expect(sandbox.wait({ timeoutMs: Number.NaN })).rejects.toThrow(CWSandboxValidationError);
     await expect(sandbox.getStatus({ timeoutMs: Number.NaN })).rejects.toThrow(
       CWSandboxValidationError,
     );
@@ -179,7 +254,7 @@ describe("Sandbox status and wait", () => {
     controller.abort(reason);
 
     await expect(
-      sandbox.wait({ intervalMs: 1, signal: controller.signal, timeoutMs: 100 }),
+      sandbox.wait(fastWait({ signal: controller.signal, timeoutMs: 100 })),
     ).rejects.toBe(reason);
   });
 });

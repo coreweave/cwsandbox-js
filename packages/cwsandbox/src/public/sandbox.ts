@@ -28,7 +28,6 @@ export type SandboxStatus =
 export type WaitTargetStatus = "completed" | "paused" | "running" | "terminal";
 
 export interface WaitOptions extends RequestOptions {
-  readonly intervalMs?: number;
   readonly targetStatus?: WaitTargetStatus;
 }
 

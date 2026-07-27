@@ -69,7 +69,6 @@ export function validateSandboxRunOptions(options: SandboxRunOptions): void {
 
 export function validateWaitOptions(options: WaitOptions): void {
   validateRequestOptions(options);
-  validateNonNegativeFinite(options.intervalMs, "intervalMs");
 }
 
 export function validateStopOptions(options: StopOptions): void {

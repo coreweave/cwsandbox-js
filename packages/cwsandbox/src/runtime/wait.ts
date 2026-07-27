@@ -7,13 +7,21 @@ import {
   CWSandboxTerminalStateUnavailableError,
   CWSandboxTimeoutError,
   CWSandboxTransportError,
-  CWSandboxUnavailableError,
 } from "../errors.js";
+import {
+  DEFAULT_MAX_POLL_INTERVAL_MS,
+  DEFAULT_POLL_BACKOFF_FACTOR,
+  DEFAULT_POLL_INTERVAL_MS,
+  DEFAULT_POLL_RETRY_BUDGET_MS,
+  DEFAULT_POLL_RPC_TIMEOUT_MS,
+  retryTransientRpc,
+  sleep,
+  throwIfAborted,
+} from "../internal/retry-transient-rpc.js";
 import { validateWaitOptions } from "../internal/validation/index.js";
 import type { GetSandboxResult, SandboxStatus, WaitOptions } from "../public/sandbox.js";
 import type { SandboxRuntime } from "./context.js";
 
-const DEFAULT_WAIT_INTERVAL_MS = 1_000;
 const DEFAULT_WAIT_TIMEOUT_MS = 60_000;
 const DEFAULT_WAIT_TARGET_STATUS = "running";
 const NOT_FOUND_AFTER_STOP_RETRY_MS = 2_000;
@@ -21,6 +29,11 @@ const TERMINAL_STATUSES = new Set<SandboxStatus>(["completed", "failed", "termin
 const WAIT_OPERATION = "Wait for sandbox";
 
 export interface WaitForSandboxOptions extends WaitOptions {
+  /**
+   * Initial happy-path poll interval in ms. Defaults to Python-parity 200ms and
+   * backs off toward 2s. Test-only escape hatch — not part of public WaitOptions.
+   */
+  readonly initialIntervalMs?: number;
   /**
    * Soft-retry `CWSandboxNotFoundError` for ~2s, then throw
    * `CWSandboxTerminalStateUnavailableError`. Used by stop-owned waits only.
@@ -40,7 +53,7 @@ export async function waitForSandbox(
 ): Promise<void> {
   validateWaitOptions(options);
 
-  const intervalMs = options.intervalMs ?? DEFAULT_WAIT_INTERVAL_MS;
+  let intervalMs = options.initialIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const targetStatus = options.targetStatus ?? DEFAULT_WAIT_TARGET_STATUS;
   const deadline =
     options.unbounded === true
@@ -51,9 +64,9 @@ export async function waitForSandbox(
   while (true) {
     throwIfAborted(options.signal);
 
-    let result: GetSandboxResult | undefined;
+    let result: GetSandboxResult;
     try {
-      result = await getStatusForWait(runtime, options.signal);
+      result = await getStatusForWait(runtime, options.signal, deadline);
       notFoundRetryDeadline = undefined;
     } catch (error) {
       if (!(error instanceof CWSandboxNotFoundError) || options.retryNotFoundAfterStop !== true) {
@@ -90,13 +103,12 @@ export async function waitForSandbox(
       }
 
       await sleep(Math.min(intervalMs, remainingDeadlineMs), options.signal);
+      intervalMs = nextPollIntervalMs(intervalMs);
       continue;
     }
 
-    if (result !== undefined) {
-      onStatus?.(result);
-    }
-    const status = result?.status;
+    onStatus?.(result);
+    const { status } = result;
     if (isWaitTargetReached(status, targetStatus)) {
       return;
     }
@@ -124,11 +136,17 @@ export async function waitForSandbox(
       }
 
       await sleep(Math.min(intervalMs, remainingMs), options.signal);
+      intervalMs = nextPollIntervalMs(intervalMs);
       continue;
     }
 
     await sleep(intervalMs, options.signal);
+    intervalMs = nextPollIntervalMs(intervalMs);
   }
+}
+
+function nextPollIntervalMs(intervalMs: number): number {
+  return Math.min(intervalMs * DEFAULT_POLL_BACKOFF_FACTOR, DEFAULT_MAX_POLL_INTERVAL_MS);
 }
 
 function isWaitTargetReached(
@@ -149,43 +167,30 @@ function isWaitTargetReached(
 async function getStatusForWait(
   runtime: SandboxRuntime,
   signal: AbortSignal | undefined,
-): Promise<GetSandboxResult | undefined> {
-  try {
-    return await runtime.transport.get({
+  deadline: number | undefined,
+): Promise<GetSandboxResult> {
+  const remainingWaitMs =
+    deadline === undefined ? DEFAULT_POLL_RETRY_BUDGET_MS : Math.max(0, deadline - Date.now());
+  const budgetMs = Math.min(DEFAULT_POLL_RETRY_BUDGET_MS, remainingWaitMs);
+
+  return retryTransientRpc(
+    async () => {
+      // Clamp each Get so a wedged RPC cannot overrun the wait deadline or the
+      // poll RPC timeout. Floor at 1ms to avoid degenerate zero-timeout calls.
+      const remainingMs =
+        deadline === undefined ? DEFAULT_POLL_RPC_TIMEOUT_MS : Math.max(1, deadline - Date.now());
+      const timeoutMs = Math.min(DEFAULT_POLL_RPC_TIMEOUT_MS, remainingMs);
+
+      return runtime.transport.get({
+        ...(signal === undefined ? {} : { signal }),
+        sandboxId: runtime.sandboxId,
+        timeoutMs,
+      });
+    },
+    {
+      budgetMs,
+      operation: WAIT_OPERATION,
       ...(signal === undefined ? {} : { signal }),
-      sandboxId: runtime.sandboxId,
-    });
-  } catch (error) {
-    if (error instanceof CWSandboxUnavailableError) {
-      return undefined;
-    }
-
-    throw error;
-  }
-}
-
-function throwIfAborted(signal: AbortSignal | undefined): void {
-  signal?.throwIfAborted();
-}
-
-function sleep(timeoutMs: number, signal: AbortSignal | undefined): Promise<void> {
-  signal?.throwIfAborted();
-
-  return new Promise((resolve, reject) => {
-    const onAbort = (): void => {
-      clearTimeout(timeout);
-      signal?.removeEventListener("abort", onAbort);
-      try {
-        signal?.throwIfAborted();
-      } catch (error) {
-        reject(error);
-      }
-    };
-    const timeout = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, timeoutMs);
-
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
+    },
+  );
 }
