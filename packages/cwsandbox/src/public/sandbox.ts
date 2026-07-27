@@ -66,7 +66,6 @@ export interface StopOptions extends RequestOptions {
    * `CWSANDBOX_SANDBOX_NOT_FOUND`) as success. Defaults to `false`.
    */
   readonly missingOk?: boolean;
-  readonly snapshotOnStop?: boolean;
 }
 
 export interface DeleteOptions extends RequestOptions {
