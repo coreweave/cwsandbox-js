@@ -84,7 +84,7 @@ export async function retryTransientRpc<T>(
   const nonRetryable = options.nonRetryable ?? [];
 
   let retryDeadline: number | undefined;
-  let lastError: unknown;
+  let lastError: CWSandboxError | undefined;
   let prevSleepMs = DEFAULT_POLL_INTERVAL_MS;
 
   while (true) {
@@ -96,7 +96,7 @@ export async function retryTransientRpc<T>(
     });
     if (timeoutMs === undefined) {
       if (lastError !== undefined) {
-        throw lastError;
+        rethrowError(lastError);
       }
       // First attempt with no usable remaining time: still invoke once with a
       // 1ms timeout so callers/transports observe a real attempt rather than a
@@ -107,15 +107,16 @@ export async function retryTransientRpc<T>(
     try {
       return await attempt({ timeoutMs });
     } catch (error) {
-      lastError = error;
       if (
         !isCWSandboxError(error) ||
         nonRetryable.some((type) => error instanceof type) ||
         classifyPollError(error) !== "retryable" ||
         options.budgetMs <= 0
       ) {
-        throw error;
+        rethrowError(error);
       }
+
+      lastError = error;
 
       if (retryDeadline === undefined) {
         const armed = now() + options.budgetMs;
@@ -125,7 +126,7 @@ export async function retryTransientRpc<T>(
 
       const current = now();
       if (current >= retryDeadline) {
-        throw error;
+        rethrowError(lastError);
       }
 
       const remainingMs = retryDeadline - current;
@@ -148,10 +149,18 @@ export async function retryTransientRpc<T>(
       prevSleepMs = sleepForMs;
 
       if (now() >= retryDeadline) {
-        throw lastError;
+        rethrowError(lastError);
       }
     }
   }
+}
+
+/** Satisfy `typescript/only-throw-error` while rethrowing caught values unchanged. */
+function rethrowError(error: unknown): never {
+  if (error instanceof Error) {
+    throw error;
+  }
+  throw new Error(typeof error === "string" ? error : "Unknown error", { cause: error });
 }
 
 /**
