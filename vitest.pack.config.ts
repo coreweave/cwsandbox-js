@@ -7,6 +7,6 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     exclude: ["dist/**", "node_modules/**"],
-    include: ["scripts/check-package-consumers.test.ts"],
+    include: ["scripts/check-package-tarball.test.ts"],
   },
 });

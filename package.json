@@ -27,9 +27,10 @@
     "typecheck": "pnpm --filter @coreweave/cwsandbox typecheck",
     "test": "pnpm --filter @coreweave/cwsandbox test",
     "test:package": "pnpm build && vitest run --config vitest.package.config.ts",
+    "test:pack": "pnpm build && vitest run --config vitest.pack.config.ts",
     "test:readme": "vitest run --config vitest.readme.config.ts",
     "test:types": "pnpm --filter @coreweave/cwsandbox test:types",
-    "check": "pnpm lint && pnpm format && pnpm typecheck && pnpm test && pnpm test:types && pnpm test:readme && pnpm test:package && pnpm example:weave:typecheck && pnpm package:tanstack:typecheck && pnpm package:tanstack:test && pnpm example:tanstack:typecheck"
+    "check": "pnpm lint && pnpm format && pnpm typecheck && pnpm test && pnpm test:types && pnpm test:readme && pnpm test:package && pnpm test:pack && pnpm example:weave:typecheck && pnpm package:tanstack:typecheck && pnpm package:tanstack:test && pnpm example:tanstack:typecheck"
   },
   "devDependencies": {
     "@bufbuild/buf": "^1.72.0",
