@@ -37,7 +37,7 @@ import type { SandboxRuntime } from "./runtime/context.js";
 import { createSandboxFiles } from "./runtime/files.js";
 import { createSandboxLogs } from "./runtime/logs.js";
 import { startShell } from "./runtime/shell.js";
-import { waitForSandbox } from "./runtime/wait.js";
+import { waitForSandbox, type WaitForSandboxOptions } from "./runtime/wait.js";
 import type { SandboxTransport } from "./transport.js";
 
 const TERMINAL_STATUSES = new Set<SandboxStatus>(["completed", "failed", "terminated"]);
@@ -151,7 +151,9 @@ export class Sandbox {
   }
 
   public async wait(options: WaitOptions = {}): Promise<Sandbox> {
-    await waitForSandbox(this.runtime, options, (metadata) => {
+    // Cast preserves test-only WaitForSandboxOptions fields (e.g. initialIntervalMs)
+    // when callers pass a widened object through the public WaitOptions signature.
+    await waitForSandbox(this.runtime, options as WaitForSandboxOptions, (metadata) => {
       this.updateMetadata(metadata);
     });
     return this;

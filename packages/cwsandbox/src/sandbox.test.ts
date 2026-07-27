@@ -9,6 +9,7 @@ import {
   CWSandboxValidationError,
   Sandbox,
   type SandboxTransport,
+  type WaitOptions,
 } from "./index.js";
 import {
   createClient,
@@ -344,7 +345,7 @@ describe("Sandbox", () => {
     };
 
     const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
-    await sandbox.wait({ intervalMs: 1, timeoutMs: 10 });
+    await sandbox.wait({ initialIntervalMs: 1, timeoutMs: 10 } as WaitOptions);
 
     expect(sandbox.status).toBe("running");
     expect(sandbox.runnerId).toBe("runner-id");

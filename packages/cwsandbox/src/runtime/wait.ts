@@ -7,13 +7,20 @@ import {
   CWSandboxTerminalStateUnavailableError,
   CWSandboxTimeoutError,
   CWSandboxTransportError,
-  CWSandboxUnavailableError,
 } from "../errors.js";
+import {
+  DEFAULT_MAX_POLL_INTERVAL_MS,
+  DEFAULT_POLL_BACKOFF_FACTOR,
+  DEFAULT_POLL_INTERVAL_MS,
+  DEFAULT_POLL_RETRY_BUDGET_MS,
+  retryTransientRpc,
+  sleep as defaultSleep,
+  throwIfAborted,
+} from "../internal/retry-transient-rpc.js";
 import { validateWaitOptions } from "../internal/validation/index.js";
 import type { GetSandboxResult, SandboxStatus, WaitOptions } from "../public/sandbox.js";
 import type { SandboxRuntime } from "./context.js";
 
-const DEFAULT_WAIT_INTERVAL_MS = 1_000;
 const DEFAULT_WAIT_TIMEOUT_MS = 60_000;
 const DEFAULT_WAIT_TARGET_STATUS = "running";
 const NOT_FOUND_AFTER_STOP_RETRY_MS = 2_000;
@@ -22,10 +29,27 @@ const WAIT_OPERATION = "Wait for sandbox";
 
 export interface WaitForSandboxOptions extends WaitOptions {
   /**
+   * Initial happy-path poll interval in ms. Defaults to Python-parity 200ms and
+   * backs off toward 2s. Test-only escape hatch — not part of public WaitOptions.
+   */
+  readonly initialIntervalMs?: number;
+  /**
+   * Test-only clock. Defaults to `Date.now`. Used for wait deadlines and retry budget.
+   */
+  readonly now?: () => number;
+  /**
    * Soft-retry `CWSandboxNotFoundError` for ~2s, then throw
    * `CWSandboxTerminalStateUnavailableError`. Used by stop-owned waits only.
    */
   readonly retryNotFoundAfterStop?: boolean;
+  /**
+   * Test-only RNG in `[0, 1)` for retry jitter. Defaults to `Math.random`.
+   */
+  readonly random?: () => number;
+  /**
+   * Test-only sleep. Defaults to abort-aware `setTimeout` sleep.
+   */
+  readonly sleep?: (timeoutMs: number, signal: AbortSignal | undefined) => Promise<void>;
   /**
    * When true, poll until the target is reached with no wall-clock deadline.
    * Public `sandbox.wait()` keeps the default 60s timeout when this is unset.
@@ -40,31 +64,31 @@ export async function waitForSandbox(
 ): Promise<void> {
   validateWaitOptions(options);
 
-  const intervalMs = options.intervalMs ?? DEFAULT_WAIT_INTERVAL_MS;
+  const now = options.now ?? Date.now;
+  const sleepFn = options.sleep ?? defaultSleep;
+  let intervalMs = options.initialIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const targetStatus = options.targetStatus ?? DEFAULT_WAIT_TARGET_STATUS;
   const deadline =
-    options.unbounded === true
-      ? undefined
-      : Date.now() + (options.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS);
+    options.unbounded === true ? undefined : now() + (options.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS);
   let notFoundRetryDeadline: number | undefined;
 
   while (true) {
     throwIfAborted(options.signal);
 
-    let result: GetSandboxResult | undefined;
+    let result: GetSandboxResult;
     try {
-      result = await getStatusForWait(runtime, options.signal);
+      result = await getStatusForWait(runtime, deadline, options, now);
       notFoundRetryDeadline = undefined;
     } catch (error) {
       if (!(error instanceof CWSandboxNotFoundError) || options.retryNotFoundAfterStop !== true) {
         throw error;
       }
 
-      const now = Date.now();
+      const current = now();
       if (notFoundRetryDeadline === undefined) {
-        notFoundRetryDeadline = now + NOT_FOUND_AFTER_STOP_RETRY_MS;
+        notFoundRetryDeadline = current + NOT_FOUND_AFTER_STOP_RETRY_MS;
       }
-      if (now >= notFoundRetryDeadline) {
+      if (current >= notFoundRetryDeadline) {
         throw new CWSandboxTerminalStateUnavailableError(
           `Stop succeeded for sandbox '${runtime.sandboxId}', but backend did not report terminal state within ${(NOT_FOUND_AFTER_STOP_RETRY_MS / 1_000).toFixed(1)}s. The terminal outcome (completed or failed) is not observable from the client.`,
           {
@@ -74,11 +98,11 @@ export async function waitForSandbox(
         );
       }
 
-      const remainingNotFoundMs = notFoundRetryDeadline - now;
+      const remainingNotFoundMs = notFoundRetryDeadline - current;
       const remainingDeadlineMs =
         deadline === undefined
           ? remainingNotFoundMs
-          : Math.min(remainingNotFoundMs, deadline - now);
+          : Math.min(remainingNotFoundMs, deadline - current);
       if (remainingDeadlineMs <= 0) {
         throw new CWSandboxTimeoutError(
           `Timed out waiting for sandbox '${runtime.sandboxId}' to reach status '${targetStatus}'.`,
@@ -89,14 +113,13 @@ export async function waitForSandbox(
         );
       }
 
-      await sleep(Math.min(intervalMs, remainingDeadlineMs), options.signal);
+      await sleepFn(Math.min(intervalMs, remainingDeadlineMs), options.signal);
+      intervalMs = nextPollIntervalMs(intervalMs);
       continue;
     }
 
-    if (result !== undefined) {
-      onStatus?.(result);
-    }
-    const status = result?.status;
+    onStatus?.(result);
+    const { status } = result;
     if (isWaitTargetReached(status, targetStatus)) {
       return;
     }
@@ -112,7 +135,7 @@ export async function waitForSandbox(
     }
 
     if (deadline !== undefined) {
-      const remainingMs = deadline - Date.now();
+      const remainingMs = deadline - now();
       if (remainingMs <= 0) {
         throw new CWSandboxTimeoutError(
           `Timed out waiting for sandbox '${runtime.sandboxId}' to reach status '${targetStatus}'.`,
@@ -123,12 +146,18 @@ export async function waitForSandbox(
         );
       }
 
-      await sleep(Math.min(intervalMs, remainingMs), options.signal);
+      await sleepFn(Math.min(intervalMs, remainingMs), options.signal);
+      intervalMs = nextPollIntervalMs(intervalMs);
       continue;
     }
 
-    await sleep(intervalMs, options.signal);
+    await sleepFn(intervalMs, options.signal);
+    intervalMs = nextPollIntervalMs(intervalMs);
   }
+}
+
+function nextPollIntervalMs(intervalMs: number): number {
+  return Math.min(intervalMs * DEFAULT_POLL_BACKOFF_FACTOR, DEFAULT_MAX_POLL_INTERVAL_MS);
 }
 
 function isWaitTargetReached(
@@ -148,44 +177,47 @@ function isWaitTargetReached(
 
 async function getStatusForWait(
   runtime: SandboxRuntime,
-  signal: AbortSignal | undefined,
-): Promise<GetSandboxResult | undefined> {
-  try {
-    return await runtime.transport.get({
-      ...(signal === undefined ? {} : { signal }),
-      sandboxId: runtime.sandboxId,
-    });
-  } catch (error) {
-    if (error instanceof CWSandboxUnavailableError) {
-      return undefined;
-    }
+  deadline: number | undefined,
+  options: WaitForSandboxOptions,
+  now: () => number,
+): Promise<GetSandboxResult> {
+  if (deadline !== undefined && now() >= deadline) {
+    throwWaitTimeout(runtime.sandboxId, options.targetStatus);
+  }
 
+  try {
+    return await retryTransientRpc(
+      async ({ timeoutMs }) =>
+        runtime.transport.get({
+          ...(options.signal === undefined ? {} : { signal: options.signal }),
+          sandboxId: runtime.sandboxId,
+          timeoutMs,
+        }),
+      {
+        budgetMs: DEFAULT_POLL_RETRY_BUDGET_MS,
+        operation: WAIT_OPERATION,
+        now,
+        ...(deadline === undefined ? {} : { deadline }),
+        ...(options.random === undefined ? {} : { random: options.random }),
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+        ...(options.sleep === undefined ? {} : { sleep: options.sleep }),
+      },
+    );
+  } catch (error) {
+    // Outer wait shield (Python wait_for): wait wall clock wins over last transient.
+    if (deadline !== undefined && now() >= deadline) {
+      throwWaitTimeout(runtime.sandboxId, options.targetStatus);
+    }
     throw error;
   }
 }
 
-function throwIfAborted(signal: AbortSignal | undefined): void {
-  signal?.throwIfAborted();
-}
-
-function sleep(timeoutMs: number, signal: AbortSignal | undefined): Promise<void> {
-  signal?.throwIfAborted();
-
-  return new Promise((resolve, reject) => {
-    const onAbort = (): void => {
-      clearTimeout(timeout);
-      signal?.removeEventListener("abort", onAbort);
-      try {
-        signal?.throwIfAborted();
-      } catch (error) {
-        reject(error);
-      }
-    };
-    const timeout = setTimeout(() => {
-      signal?.removeEventListener("abort", onAbort);
-      resolve();
-    }, timeoutMs);
-
-    signal?.addEventListener("abort", onAbort, { once: true });
-  });
+function throwWaitTimeout(sandboxId: string, targetStatus: WaitOptions["targetStatus"]): never {
+  throw new CWSandboxTimeoutError(
+    `Timed out waiting for sandbox '${sandboxId}' to reach status '${targetStatus ?? DEFAULT_WAIT_TARGET_STATUS}'.`,
+    {
+      operation: WAIT_OPERATION,
+      sandboxId,
+    },
+  );
 }
