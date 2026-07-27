@@ -49,7 +49,11 @@ describe("packed package consumers", () => {
       writeProjectFile(
         fixtureDir,
         "package.json",
-        JSON.stringify({ name: "cwsandbox-tarball-consumer", private: true, type: "module" }, null, 2),
+        JSON.stringify(
+          { name: "cwsandbox-tarball-consumer", private: true, type: "module" },
+          null,
+          2,
+        ),
       );
 
       const install = spawnSync("npm", ["install", tarballPath], {
