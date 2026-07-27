@@ -67,6 +67,9 @@ jobs:
       - name: Package tests
         run: pnpm test:package
 
+      - name: Pack tests
+        run: pnpm test:pack
+
       - name: Weave example typecheck
         run: pnpm example:weave:typecheck
 
