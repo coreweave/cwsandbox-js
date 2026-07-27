@@ -212,10 +212,7 @@ async function getStatusForWait(
   }
 }
 
-function throwWaitTimeout(
-  sandboxId: string,
-  targetStatus: WaitOptions["targetStatus"],
-): never {
+function throwWaitTimeout(sandboxId: string, targetStatus: WaitOptions["targetStatus"]): never {
   throw new CWSandboxTimeoutError(
     `Timed out waiting for sandbox '${sandboxId}' to reach status '${targetStatus ?? DEFAULT_WAIT_TARGET_STATUS}'.`,
     {

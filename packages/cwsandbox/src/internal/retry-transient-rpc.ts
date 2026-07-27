@@ -116,8 +116,7 @@ export async function retryTransientRpc<T>(
 
       if (retryDeadline === undefined) {
         const armed = now() + options.budgetMs;
-        retryDeadline =
-          options.deadline === undefined ? armed : Math.min(armed, options.deadline);
+        retryDeadline = options.deadline === undefined ? armed : Math.min(armed, options.deadline);
       }
 
       const current = now();
