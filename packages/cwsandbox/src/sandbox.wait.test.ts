@@ -279,7 +279,7 @@ describe("Sandbox status and wait", () => {
     expect(getCalls).toBe(1);
   });
 
-  it("clamps the retry budget to remaining timeoutMs on sustained UNAVAILABLE", async () => {
+  it("maps wait-deadline exhaustion during UNAVAILABLE retries to Timeout", async () => {
     let nowMs = 1_000;
     const last = new CWSandboxUnavailableError("still down");
     const transport: SandboxTransport = {
@@ -295,6 +295,8 @@ describe("Sandbox status and wait", () => {
       transport,
     };
 
+    // Smaller than the internal 30s retry budget; wait deadline must win and
+    // surface Timeout (Python outer wait_for), not the last transient.
     await expect(
       waitForSandbox(runtime, {
         now: () => nowMs,
@@ -302,9 +304,78 @@ describe("Sandbox status and wait", () => {
         sleep: async (timeoutMs) => {
           nowMs += timeoutMs;
         },
-        // Smaller than the internal 30s retry budget; clamp must win.
         timeoutMs: 1_000,
       }),
+    ).rejects.toThrow(CWSandboxTimeoutError);
+    expect(nowMs).toBeLessThanOrEqual(2_000);
+  });
+
+  it("does not let a slow first Get plus retries overrun timeoutMs", async () => {
+    let nowMs = 0;
+    let getCalls = 0;
+    const last = new CWSandboxUnavailableError("still down");
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async get({ timeoutMs }) {
+        getCalls += 1;
+        if (getCalls === 1) {
+          // Simulate a wedged Get that consumes the poll RPC cap.
+          nowMs += Math.min(timeoutMs ?? 15_000, 15_000);
+        }
+        throw last;
+      },
+    };
+    const runtime: SandboxRuntime = {
+      observedFileOpCapBytes: undefined,
+      sandboxId: "sandbox-overrun",
+      streamingFallbackNotified: false,
+      transport,
+    };
+
+    await expect(
+      waitForSandbox(runtime, {
+        now: () => nowMs,
+        random: () => 0,
+        sleep: async (timeoutMs) => {
+          nowMs += timeoutMs;
+        },
+        timeoutMs: 20_000,
+      }),
+    ).rejects.toThrow(CWSandboxTimeoutError);
+
+    expect(nowMs).toBeLessThanOrEqual(20_000);
+    // Must not arm a fresh 30s retry burst after the 15s first Get.
+    expect(nowMs).toBeLessThan(35_000);
+  });
+
+  it("rethrows last transient when retry budget dies with wait time left", async () => {
+    let nowMs = 0;
+    const last = new CWSandboxUnavailableError("still down");
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async get() {
+        throw last;
+      },
+    };
+    const runtime: SandboxRuntime = {
+      observedFileOpCapBytes: undefined,
+      sandboxId: "sandbox-budget",
+      streamingFallbackNotified: false,
+      transport,
+    };
+
+    await expect(
+      waitForSandbox(runtime, {
+        now: () => nowMs,
+        random: () => 0,
+        sleep: async (timeoutMs) => {
+          nowMs += timeoutMs;
+        },
+        // Wait far longer than the 30s retry budget.
+        timeoutMs: 120_000,
+      }),
     ).rejects.toBe(last);
+
+    expect(nowMs).toBeLessThanOrEqual(30_000);
   });
 });

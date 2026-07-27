@@ -15,7 +15,10 @@ import {
 import {
   classifyPollError,
   DEFAULT_POLL_INTERVAL_MS,
+  DEFAULT_POLL_RPC_TIMEOUT_MS,
   MAX_POLL_RETRY_HINTED_DELAY_MS,
+  MIN_POLL_RPC_TIMEOUT_MS,
+  resolveAttemptTimeoutMs,
   retryTransientRpc,
 } from "./retry-transient-rpc.js";
 
@@ -236,5 +239,128 @@ describe("retryTransientRpc", () => {
       ),
     ).rejects.toThrow(CWSandboxUnavailableError);
     expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("clamps retryDeadline to an absolute deadline after the first failure", async () => {
+    let nowMs = 0;
+    const last = new CWSandboxUnavailableError("still down");
+    const timeouts: number[] = [];
+
+    await expect(
+      retryTransientRpc(
+        async ({ timeoutMs }) => {
+          timeouts.push(timeoutMs);
+          // Slow first Get burns most of the wait deadline before failing.
+          if (timeouts.length === 1) {
+            nowMs += 15_000;
+          }
+          throw last;
+        },
+        {
+          budgetMs: 30_000,
+          deadline: 20_000,
+          now: () => nowMs,
+          operation: "test",
+          random: () => 0,
+          sleep: async (timeoutMs) => {
+            nowMs += timeoutMs;
+          },
+        },
+      ),
+    ).rejects.toBe(last);
+
+    expect(nowMs).toBeLessThanOrEqual(20_000);
+    expect(timeouts[0]).toBe(15_000);
+    // After the slow first Get, remaining wait time is 5s — not a fresh 30s budget.
+    expect(timeouts.slice(1).every((ms) => ms <= 5_000)).toBe(true);
+  });
+
+  it("passes per-attempt timeoutMs clamped to remaining retry budget", async () => {
+    let nowMs = 0;
+    const timeouts: number[] = [];
+    const last = new CWSandboxUnavailableError("still down");
+
+    await expect(
+      retryTransientRpc(
+        async ({ timeoutMs }) => {
+          timeouts.push(timeoutMs);
+          throw last;
+        },
+        {
+          budgetMs: 500,
+          now: () => nowMs,
+          operation: "test",
+          random: () => 0,
+          sleep: async (timeoutMs) => {
+            nowMs += timeoutMs;
+          },
+        },
+      ),
+    ).rejects.toBe(last);
+
+    expect(timeouts[0]).toBe(500);
+    expect(timeouts.every((ms) => ms <= 500)).toBe(true);
+    expect(timeouts.every((ms) => ms <= DEFAULT_POLL_RPC_TIMEOUT_MS)).toBe(true);
+  });
+
+  it("skips further Gets when remaining retry time is under 100ms", async () => {
+    let nowMs = 0;
+    let calls = 0;
+    const last = new CWSandboxUnavailableError("still down");
+
+    await expect(
+      retryTransientRpc(
+        async () => {
+          calls += 1;
+          throw last;
+        },
+        {
+          budgetMs: 1_000,
+          now: () => nowMs,
+          operation: "test",
+          random: () => 0,
+          sleep: async () => {
+            // Leave 50ms — below MIN_POLL_RPC_TIMEOUT_MS — before the next Get.
+            nowMs = 1_000 - 50;
+          },
+        },
+      ),
+    ).rejects.toBe(last);
+
+    expect(calls).toBe(1);
+    expect(MIN_POLL_RPC_TIMEOUT_MS).toBe(100);
+  });
+});
+
+describe("resolveAttemptTimeoutMs", () => {
+  it("caps the first attempt by poll RPC timeout, budget, and deadline", () => {
+    expect(
+      resolveAttemptTimeoutMs({
+        budgetMs: 30_000,
+        deadline: 10_000,
+        now: 0,
+        retryDeadline: undefined,
+      }),
+    ).toBe(10_000);
+
+    expect(
+      resolveAttemptTimeoutMs({
+        budgetMs: 30_000,
+        deadline: undefined,
+        now: 0,
+        retryDeadline: undefined,
+      }),
+    ).toBe(DEFAULT_POLL_RPC_TIMEOUT_MS);
+  });
+
+  it("returns undefined when a retry Get would be under 100ms", () => {
+    expect(
+      resolveAttemptTimeoutMs({
+        budgetMs: 30_000,
+        deadline: undefined,
+        now: 9_950,
+        retryDeadline: 10_000,
+      }),
+    ).toBeUndefined();
   });
 });

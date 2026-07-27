@@ -13,7 +13,6 @@ import {
   DEFAULT_POLL_BACKOFF_FACTOR,
   DEFAULT_POLL_INTERVAL_MS,
   DEFAULT_POLL_RETRY_BUDGET_MS,
-  DEFAULT_POLL_RPC_TIMEOUT_MS,
   retryTransientRpc,
   sleep as defaultSleep,
   throwIfAborted,
@@ -182,31 +181,46 @@ async function getStatusForWait(
   options: WaitForSandboxOptions,
   now: () => number,
 ): Promise<GetSandboxResult> {
-  const remainingWaitMs =
-    deadline === undefined ? DEFAULT_POLL_RETRY_BUDGET_MS : Math.max(0, deadline - now());
-  const budgetMs = Math.min(DEFAULT_POLL_RETRY_BUDGET_MS, remainingWaitMs);
+  if (deadline !== undefined && now() >= deadline) {
+    throwWaitTimeout(runtime.sandboxId, options.targetStatus);
+  }
 
-  return retryTransientRpc(
-    async () => {
-      // Clamp each Get so a wedged RPC cannot overrun the wait deadline or the
-      // poll RPC timeout. Floor at 1ms to avoid degenerate zero-timeout calls.
-      const remainingMs =
-        deadline === undefined ? DEFAULT_POLL_RPC_TIMEOUT_MS : Math.max(1, deadline - now());
-      const timeoutMs = Math.min(DEFAULT_POLL_RPC_TIMEOUT_MS, remainingMs);
-
-      return runtime.transport.get({
+  try {
+    return await retryTransientRpc(
+      async ({ timeoutMs }) =>
+        runtime.transport.get({
+          ...(options.signal === undefined ? {} : { signal: options.signal }),
+          sandboxId: runtime.sandboxId,
+          timeoutMs,
+        }),
+      {
+        budgetMs: DEFAULT_POLL_RETRY_BUDGET_MS,
+        operation: WAIT_OPERATION,
+        now,
+        ...(deadline === undefined ? {} : { deadline }),
+        ...(options.random === undefined ? {} : { random: options.random }),
         ...(options.signal === undefined ? {} : { signal: options.signal }),
-        sandboxId: runtime.sandboxId,
-        timeoutMs,
-      });
-    },
+        ...(options.sleep === undefined ? {} : { sleep: options.sleep }),
+      },
+    );
+  } catch (error) {
+    // Outer wait shield (Python wait_for): wait wall clock wins over last transient.
+    if (deadline !== undefined && now() >= deadline) {
+      throwWaitTimeout(runtime.sandboxId, options.targetStatus);
+    }
+    throw error;
+  }
+}
+
+function throwWaitTimeout(
+  sandboxId: string,
+  targetStatus: WaitOptions["targetStatus"],
+): never {
+  throw new CWSandboxTimeoutError(
+    `Timed out waiting for sandbox '${sandboxId}' to reach status '${targetStatus ?? DEFAULT_WAIT_TARGET_STATUS}'.`,
     {
-      budgetMs,
       operation: WAIT_OPERATION,
-      now,
-      ...(options.random === undefined ? {} : { random: options.random }),
-      ...(options.signal === undefined ? {} : { signal: options.signal }),
-      ...(options.sleep === undefined ? {} : { sleep: options.sleep }),
+      sandboxId,
     },
   );
 }

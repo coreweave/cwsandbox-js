@@ -204,10 +204,13 @@ console.log(sandbox.status); // completed | failed | terminated
 
 Status polling uses an internal backoff (about 200ms toward 2s). Transient Get
 failures (`unavailable`, request deadline, `resource_exhausted`) are retried within
-an internal ~30s budget (clamped to remaining `timeoutMs`); `NOT_FOUND` is not
-retried on observe-only waits. When the server includes AIP-193 `RetryInfo`, the
-SDK honors `retryDelayMs` (capped at 10s). Poll pacing and retry budget are not
-public options — bound waits with `timeoutMs` / `signal`.
+an internal ~30s budget; the wait’s absolute `timeoutMs` deadline also clamps that
+burst so retries cannot overrun the waiter. `NOT_FOUND` is not retried on
+observe-only waits. When the server includes AIP-193 `RetryInfo`, the SDK honors
+`retryDelayMs` (capped at 10s). Poll pacing and retry budget are not public
+options — bound waits with `timeoutMs` / `signal` / `targetStatus` (the former
+fixed `intervalMs` wait option is removed in beta; Python has no wait poll-interval
+knob either).
 
 Modern runtimes can also use explicit resource management:
 
