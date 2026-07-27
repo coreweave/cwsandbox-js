@@ -194,7 +194,6 @@ export class Sandbox {
         ...(options.gracefulShutdownSeconds === undefined
           ? {}
           : { gracefulShutdownSeconds: options.gracefulShutdownSeconds }),
-        ...(options.snapshotOnStop === undefined ? {} : { snapshotOnStop: options.snapshotOnStop }),
       });
     }
 

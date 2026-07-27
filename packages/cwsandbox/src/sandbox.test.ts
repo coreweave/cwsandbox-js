@@ -51,13 +51,11 @@ describe("Sandbox", () => {
 
     await sandbox.stop({
       gracefulShutdownSeconds: 5,
-      snapshotOnStop: true,
     });
 
     expect(stopRequest).toEqual({
       gracefulShutdownSeconds: 5,
       sandboxId: "sandbox-for-echo",
-      snapshotOnStop: true,
     });
   });
 

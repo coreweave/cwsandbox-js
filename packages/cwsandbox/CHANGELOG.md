@@ -8,6 +8,8 @@ SPDX-PackageName: cwsandbox
 
 ## Unreleased
 
+- Remove incomplete public `snapshotOnStop` from `stop()` until file-system
+  snapshots (FSS) are supported end-to-end
 - Parse AIP-193 `ErrorInfo` / `RetryInfo` from gRPC status details and expose
   `reason`, `domain`, `metadata`, and `retryDelayMs` on transport errors
 - Domain-gated remaps for `CWSANDBOX_SANDBOX_NOT_FOUND` and unavailable reasons

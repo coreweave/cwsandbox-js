@@ -75,7 +75,6 @@ export function validateStopOptions(options: StopOptions): void {
   validateRequestOptions(options);
   validateNonNegativeInteger(options.gracefulShutdownSeconds, "gracefulShutdownSeconds");
   validateOptionalBoolean(options.missingOk, "missingOk");
-  validateOptionalBoolean(options.snapshotOnStop, "snapshotOnStop");
 }
 
 export function validateDeleteOptions(options: DeleteOptions): void {

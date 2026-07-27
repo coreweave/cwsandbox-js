@@ -144,7 +144,7 @@ export class GrpcSandboxTransport implements SandboxTransport {
       () =>
         this.client.stop(
           {
-            fileSystemSnapshotOnStop: request.snapshotOnStop ?? false,
+            fileSystemSnapshotOnStop: false,
             gracefulShutdownSeconds: request.gracefulShutdownSeconds ?? 0,
             idempotencyKey: "",
             maxTimeoutSeconds: timeoutMsToSeconds(request.timeoutMs),

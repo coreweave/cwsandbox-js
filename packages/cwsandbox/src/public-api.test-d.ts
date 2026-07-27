@@ -539,9 +539,9 @@ client.listSandboxes({ pageToken: "page-1" });
 
 // @ts-expect-error listAll owns pagination and does not accept pageToken.
 client.listAll({ pageToken: "page-1" });
-expectTypeOf(sandbox.stop({ gracefulShutdownSeconds: 5, snapshotOnStop: true })).toEqualTypeOf<
-  Promise<void>
->();
+expectTypeOf(sandbox.stop({ gracefulShutdownSeconds: 5 })).toEqualTypeOf<Promise<void>>();
+// @ts-expect-error snapshotOnStop is hidden until FSS is supported.
+sandbox.stop({ snapshotOnStop: true });
 expectTypeOf(sandbox.stop({ missingOk: true })).toEqualTypeOf<Promise<void>>();
 expectTypeOf(sandbox.delete()).toEqualTypeOf<Promise<void>>();
 expectTypeOf(sandbox.delete({ missingOk: true })).toEqualTypeOf<Promise<void>>();
