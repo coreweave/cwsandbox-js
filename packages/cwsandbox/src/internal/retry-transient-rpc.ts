@@ -84,7 +84,6 @@ export async function retryTransientRpc<T>(
   const nonRetryable = options.nonRetryable ?? [];
 
   let retryDeadline: number | undefined;
-  let lastError: CWSandboxError | undefined;
   let prevSleepMs = DEFAULT_POLL_INTERVAL_MS;
 
   while (true) {
@@ -95,28 +94,25 @@ export async function retryTransientRpc<T>(
       retryDeadline,
     });
     if (timeoutMs === undefined) {
-      if (lastError !== undefined) {
-        rethrowError(lastError);
-      }
       // First attempt with no usable remaining time: still invoke once with a
-      // 1ms timeout so callers/transports observe a real attempt rather than a
-      // synthetic error invented by the helper.
+      // 1ms timeout so callers/transports observe a real attempt.
       return await attempt({ timeoutMs: 1 });
     }
 
     try {
       return await attempt({ timeoutMs });
     } catch (error) {
+      if (!(error instanceof Error)) {
+        throw new Error(typeof error === "string" ? error : "Unknown error", { cause: error });
+      }
       if (
         !isCWSandboxError(error) ||
         nonRetryable.some((type) => error instanceof type) ||
         classifyPollError(error) !== "retryable" ||
         options.budgetMs <= 0
       ) {
-        rethrowError(error);
+        throw error;
       }
-
-      lastError = error;
 
       if (retryDeadline === undefined) {
         const armed = now() + options.budgetMs;
@@ -126,7 +122,7 @@ export async function retryTransientRpc<T>(
 
       const current = now();
       if (current >= retryDeadline) {
-        rethrowError(lastError);
+        throw error;
       }
 
       const remainingMs = retryDeadline - current;
@@ -149,18 +145,22 @@ export async function retryTransientRpc<T>(
       prevSleepMs = sleepForMs;
 
       if (now() >= retryDeadline) {
-        rethrowError(lastError);
+        throw error;
+      }
+
+      // Skip another Get when remaining retry/wait time is under 100ms.
+      if (
+        resolveAttemptTimeoutMs({
+          budgetMs: options.budgetMs,
+          deadline: options.deadline,
+          now: now(),
+          retryDeadline,
+        }) === undefined
+      ) {
+        throw error;
       }
     }
   }
-}
-
-/** Satisfy `typescript/only-throw-error` while rethrowing caught values unchanged. */
-function rethrowError(error: unknown): never {
-  if (error instanceof Error) {
-    throw error;
-  }
-  throw new Error(typeof error === "string" ? error : "Unknown error", { cause: error });
 }
 
 /**
