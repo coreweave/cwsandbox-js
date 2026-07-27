@@ -14,7 +14,8 @@ import {
   type SandboxTransport,
   type WaitOptions,
 } from "./index.js";
-import type { WaitForSandboxOptions } from "./runtime/wait.js";
+import type { SandboxRuntime } from "./runtime/context.js";
+import { waitForSandbox, type WaitForSandboxOptions } from "./runtime/wait.js";
 import { createClient, createFakeTransport } from "./test/helpers.js";
 
 /** Test-only: pass internal initialIntervalMs through public wait(). */
@@ -256,5 +257,54 @@ describe("Sandbox status and wait", () => {
     await expect(
       sandbox.wait(fastWait({ signal: controller.signal, timeoutMs: 100 })),
     ).rejects.toBe(reason);
+  });
+
+  it("returns immediately with a single Get when already at the target status", async () => {
+    let getCalls = 0;
+    const transport: SandboxTransport = {
+      ...createFakeTransport(["running"]),
+      async get(request) {
+        getCalls += 1;
+        return {
+          sandboxId: request.sandboxId,
+          status: "running",
+        };
+      },
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"], {
+      waitUntilRunning: false,
+    });
+
+    await expect(sandbox.wait(fastWait({ timeoutMs: 100 }))).resolves.toBe(sandbox);
+    expect(getCalls).toBe(1);
+  });
+
+  it("clamps the retry budget to remaining timeoutMs on sustained UNAVAILABLE", async () => {
+    let nowMs = 1_000;
+    const last = new CWSandboxUnavailableError("still down");
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async get() {
+        throw last;
+      },
+    };
+    const runtime: SandboxRuntime = {
+      observedFileOpCapBytes: undefined,
+      sandboxId: "sandbox-clamp",
+      streamingFallbackNotified: false,
+      transport,
+    };
+
+    await expect(
+      waitForSandbox(runtime, {
+        now: () => nowMs,
+        random: () => 0,
+        sleep: async (timeoutMs) => {
+          nowMs += timeoutMs;
+        },
+        // Smaller than the internal 30s retry budget; clamp must win.
+        timeoutMs: 1_000,
+      }),
+    ).rejects.toBe(last);
   });
 });

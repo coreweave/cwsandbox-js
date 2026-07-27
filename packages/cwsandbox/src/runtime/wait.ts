@@ -15,7 +15,7 @@ import {
   DEFAULT_POLL_RETRY_BUDGET_MS,
   DEFAULT_POLL_RPC_TIMEOUT_MS,
   retryTransientRpc,
-  sleep,
+  sleep as defaultSleep,
   throwIfAborted,
 } from "../internal/retry-transient-rpc.js";
 import { validateWaitOptions } from "../internal/validation/index.js";
@@ -35,10 +35,22 @@ export interface WaitForSandboxOptions extends WaitOptions {
    */
   readonly initialIntervalMs?: number;
   /**
+   * Test-only clock. Defaults to `Date.now`. Used for wait deadlines and retry budget.
+   */
+  readonly now?: () => number;
+  /**
    * Soft-retry `CWSandboxNotFoundError` for ~2s, then throw
    * `CWSandboxTerminalStateUnavailableError`. Used by stop-owned waits only.
    */
   readonly retryNotFoundAfterStop?: boolean;
+  /**
+   * Test-only RNG in `[0, 1)` for retry jitter. Defaults to `Math.random`.
+   */
+  readonly random?: () => number;
+  /**
+   * Test-only sleep. Defaults to abort-aware `setTimeout` sleep.
+   */
+  readonly sleep?: (timeoutMs: number, signal: AbortSignal | undefined) => Promise<void>;
   /**
    * When true, poll until the target is reached with no wall-clock deadline.
    * Public `sandbox.wait()` keeps the default 60s timeout when this is unset.
@@ -53,12 +65,12 @@ export async function waitForSandbox(
 ): Promise<void> {
   validateWaitOptions(options);
 
+  const now = options.now ?? Date.now;
+  const sleepFn = options.sleep ?? defaultSleep;
   let intervalMs = options.initialIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
   const targetStatus = options.targetStatus ?? DEFAULT_WAIT_TARGET_STATUS;
   const deadline =
-    options.unbounded === true
-      ? undefined
-      : Date.now() + (options.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS);
+    options.unbounded === true ? undefined : now() + (options.timeoutMs ?? DEFAULT_WAIT_TIMEOUT_MS);
   let notFoundRetryDeadline: number | undefined;
 
   while (true) {
@@ -66,18 +78,18 @@ export async function waitForSandbox(
 
     let result: GetSandboxResult;
     try {
-      result = await getStatusForWait(runtime, options.signal, deadline);
+      result = await getStatusForWait(runtime, deadline, options, now);
       notFoundRetryDeadline = undefined;
     } catch (error) {
       if (!(error instanceof CWSandboxNotFoundError) || options.retryNotFoundAfterStop !== true) {
         throw error;
       }
 
-      const now = Date.now();
+      const current = now();
       if (notFoundRetryDeadline === undefined) {
-        notFoundRetryDeadline = now + NOT_FOUND_AFTER_STOP_RETRY_MS;
+        notFoundRetryDeadline = current + NOT_FOUND_AFTER_STOP_RETRY_MS;
       }
-      if (now >= notFoundRetryDeadline) {
+      if (current >= notFoundRetryDeadline) {
         throw new CWSandboxTerminalStateUnavailableError(
           `Stop succeeded for sandbox '${runtime.sandboxId}', but backend did not report terminal state within ${(NOT_FOUND_AFTER_STOP_RETRY_MS / 1_000).toFixed(1)}s. The terminal outcome (completed or failed) is not observable from the client.`,
           {
@@ -87,11 +99,11 @@ export async function waitForSandbox(
         );
       }
 
-      const remainingNotFoundMs = notFoundRetryDeadline - now;
+      const remainingNotFoundMs = notFoundRetryDeadline - current;
       const remainingDeadlineMs =
         deadline === undefined
           ? remainingNotFoundMs
-          : Math.min(remainingNotFoundMs, deadline - now);
+          : Math.min(remainingNotFoundMs, deadline - current);
       if (remainingDeadlineMs <= 0) {
         throw new CWSandboxTimeoutError(
           `Timed out waiting for sandbox '${runtime.sandboxId}' to reach status '${targetStatus}'.`,
@@ -102,7 +114,7 @@ export async function waitForSandbox(
         );
       }
 
-      await sleep(Math.min(intervalMs, remainingDeadlineMs), options.signal);
+      await sleepFn(Math.min(intervalMs, remainingDeadlineMs), options.signal);
       intervalMs = nextPollIntervalMs(intervalMs);
       continue;
     }
@@ -124,7 +136,7 @@ export async function waitForSandbox(
     }
 
     if (deadline !== undefined) {
-      const remainingMs = deadline - Date.now();
+      const remainingMs = deadline - now();
       if (remainingMs <= 0) {
         throw new CWSandboxTimeoutError(
           `Timed out waiting for sandbox '${runtime.sandboxId}' to reach status '${targetStatus}'.`,
@@ -135,12 +147,12 @@ export async function waitForSandbox(
         );
       }
 
-      await sleep(Math.min(intervalMs, remainingMs), options.signal);
+      await sleepFn(Math.min(intervalMs, remainingMs), options.signal);
       intervalMs = nextPollIntervalMs(intervalMs);
       continue;
     }
 
-    await sleep(intervalMs, options.signal);
+    await sleepFn(intervalMs, options.signal);
     intervalMs = nextPollIntervalMs(intervalMs);
   }
 }
@@ -166,11 +178,12 @@ function isWaitTargetReached(
 
 async function getStatusForWait(
   runtime: SandboxRuntime,
-  signal: AbortSignal | undefined,
   deadline: number | undefined,
+  options: WaitForSandboxOptions,
+  now: () => number,
 ): Promise<GetSandboxResult> {
   const remainingWaitMs =
-    deadline === undefined ? DEFAULT_POLL_RETRY_BUDGET_MS : Math.max(0, deadline - Date.now());
+    deadline === undefined ? DEFAULT_POLL_RETRY_BUDGET_MS : Math.max(0, deadline - now());
   const budgetMs = Math.min(DEFAULT_POLL_RETRY_BUDGET_MS, remainingWaitMs);
 
   return retryTransientRpc(
@@ -178,11 +191,11 @@ async function getStatusForWait(
       // Clamp each Get so a wedged RPC cannot overrun the wait deadline or the
       // poll RPC timeout. Floor at 1ms to avoid degenerate zero-timeout calls.
       const remainingMs =
-        deadline === undefined ? DEFAULT_POLL_RPC_TIMEOUT_MS : Math.max(1, deadline - Date.now());
+        deadline === undefined ? DEFAULT_POLL_RPC_TIMEOUT_MS : Math.max(1, deadline - now());
       const timeoutMs = Math.min(DEFAULT_POLL_RPC_TIMEOUT_MS, remainingMs);
 
       return runtime.transport.get({
-        ...(signal === undefined ? {} : { signal }),
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
         sandboxId: runtime.sandboxId,
         timeoutMs,
       });
@@ -190,7 +203,10 @@ async function getStatusForWait(
     {
       budgetMs,
       operation: WAIT_OPERATION,
-      ...(signal === undefined ? {} : { signal }),
+      now,
+      ...(options.random === undefined ? {} : { random: options.random }),
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+      ...(options.sleep === undefined ? {} : { sleep: options.sleep }),
     },
   );
 }
