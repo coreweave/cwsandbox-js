@@ -20,6 +20,12 @@ import type {
 } from "./generated/coreweave/sandbox/v1beta2/streaming.js";
 import { linkedAbortController, toRpcOptions, withGrpcErrorMapping } from "./rpc.js";
 import {
+  awaitStdinReadyOrAbort,
+  createStdinReadyGate,
+  stdinReadyTimeoutMs,
+  type StdinReadyGate,
+} from "./stdin-ready-gate.js";
+import {
   sendStreamingClose,
   sendStreamingResize,
   sendStreamingShellInit,
@@ -46,7 +52,14 @@ export async function startGrpcShell(
     requestsCompleted = true;
     await call.requests.complete();
   };
-  const input = createGrpcTerminalInputController(call, completeRequests, abortController, request);
+  const stdinReady = createStdinReadyGate();
+  const input = createGrpcTerminalInputController(
+    call,
+    completeRequests,
+    abortController,
+    request,
+    stdinReady,
+  );
   const controller = createTerminalSession(request.command, input);
 
   await withGrpcErrorMapping(
@@ -55,7 +68,7 @@ export async function startGrpcShell(
     request.sandboxId,
   );
 
-  void collectTerminalSession(call, controller, request, completeRequests);
+  void collectTerminalSession(call, controller, request, completeRequests, stdinReady);
   return controller.session;
 }
 
@@ -64,6 +77,7 @@ async function collectTerminalSession(
   controller: TerminalSessionController,
   request: StartShellRequest,
   onTerminal: () => Promise<void> = async () => undefined,
+  stdinReady?: StdinReadyGate,
 ): Promise<void> {
   let terminal = false;
 
@@ -71,6 +85,7 @@ async function collectTerminalSession(
     for await (const response of call.responses) {
       switch (response.response.oneofKind) {
         case "ready":
+          stdinReady?.signalReady();
           await controller.dispatch({
             sessionId: response.response.ready.sessionId,
             type: "ready",
@@ -84,28 +99,38 @@ async function collectTerminalSession(
           break;
         case "exit":
           terminal = true;
+          stdinReady?.signalFailed(
+            new CWSandboxTransportError("Terminal session exited before stdin was ready.", {
+              operation: "Terminal session",
+              sandboxId: request.sandboxId,
+              transport: "grpc",
+            }),
+          );
           await controller.dispatch({
             exitCode: response.response.exit.exitCode,
             type: "exit",
           });
           await onTerminal().catch(() => undefined);
           break;
-        case "error":
+        case "error": {
           terminal = true;
+          const error = new CWSandboxTransportError(
+            response.response.error.message || "Terminal session failed.",
+            {
+              operation: "Terminal session",
+              sandboxId: request.sandboxId,
+              transport: "grpc",
+              transportCode: response.response.error.code,
+            },
+          );
+          stdinReady?.signalFailed(error);
           await controller.dispatch({
-            error: new CWSandboxTransportError(
-              response.response.error.message || "Terminal session failed.",
-              {
-                operation: "Terminal session",
-                sandboxId: request.sandboxId,
-                transport: "grpc",
-                transportCode: response.response.error.code,
-              },
-            ),
+            error,
             type: "error",
           });
           await onTerminal().catch(() => undefined);
           break;
+        }
         case undefined:
           break;
       }
@@ -113,21 +138,25 @@ async function collectTerminalSession(
 
     await call.status;
     if (!terminal) {
+      const error = new CWSandboxTransportError("Terminal session ended without an exit status.", {
+        operation: "Terminal session",
+        sandboxId: request.sandboxId,
+        transport: "grpc",
+      });
+      stdinReady?.signalFailed(error);
       await controller.dispatch({
-        error: new CWSandboxTransportError("Terminal session ended without an exit status.", {
-          operation: "Terminal session",
-          sandboxId: request.sandboxId,
-          transport: "grpc",
-        }),
+        error,
         type: "error",
       });
     }
   } catch (error) {
+    const mapped = mapGrpcError(error, {
+      operation: "Terminal session",
+      sandboxId: request.sandboxId,
+    });
+    stdinReady?.signalFailed(mapped);
     await controller.dispatch({
-      error: mapGrpcError(error, {
-        operation: "Terminal session",
-        sandboxId: request.sandboxId,
-      }),
+      error: mapped,
       type: "error",
     });
   } finally {
@@ -140,15 +169,20 @@ function createGrpcTerminalInputController(
   completeRequests: () => Promise<void>,
   abortController: AbortController,
   request: StartShellRequest,
+  stdinReady: StdinReadyGate,
 ): TerminalInputController {
+  const readyTimeoutMs = stdinReadyTimeoutMs(request.timeoutMs);
+
   return {
     async cancel(reason) {
+      stdinReady.signalFailed(reason);
       abortController.abort(reason);
     },
     async close() {
       await withGrpcErrorMapping(
         "Close terminal stdin",
         async () => {
+          await awaitStdinReadyOrAbort(stdinReady, readyTimeoutMs, abortController);
           await sendStreamingClose(call.requests);
           await completeRequests();
         },
@@ -158,14 +192,20 @@ function createGrpcTerminalInputController(
     async resize(cols, rows) {
       await withGrpcErrorMapping(
         "Resize terminal",
-        () => sendStreamingResize(call.requests, cols, rows),
+        async () => {
+          await awaitStdinReadyOrAbort(stdinReady, readyTimeoutMs, abortController);
+          await sendStreamingResize(call.requests, cols, rows);
+        },
         request.sandboxId,
       );
     },
     async write(data) {
       await withGrpcErrorMapping(
         "Write terminal stdin",
-        () => sendStreamingStdin(call.requests, data),
+        async () => {
+          await awaitStdinReadyOrAbort(stdinReady, readyTimeoutMs, abortController);
+          await sendStreamingStdin(call.requests, data);
+        },
         request.sandboxId,
       );
     },
