@@ -19,10 +19,15 @@ For platform concepts and product guides, see the
 
 This package targets Node.js `>=22` and ESM projects.
 
-Install the SDK from the registry or workspace where your team publishes it:
+```bash
+npm install @coreweave/cwsandbox@beta
+```
+
+Other package managers:
 
 ```bash
-pnpm add @coreweave/cwsandbox
+pnpm add @coreweave/cwsandbox@beta
+yarn add @coreweave/cwsandbox@beta
 ```
 
 Use an API key with the Node gRPC client:
