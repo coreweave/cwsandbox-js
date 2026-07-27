@@ -2,7 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
-import { CWSandboxFileError } from "../errors.js";
+import {
+  CWSandboxFileError,
+  CWSandboxStreamBackpressureError,
+  CWSandboxStreamTruncatedError,
+} from "../errors.js";
 import type { RequestOptions } from "../public/common.js";
 import { startCommand } from "../runtime/commands.js";
 import type { SandboxRuntime } from "../runtime/context.js";
@@ -15,24 +19,35 @@ import {
 import { MAX_AUTO_FALLBACK_BYTES, STREAMING_WRITE_CHUNK_SIZE } from "./file-limits.js";
 
 /**
- * Python-shaped write: one StreamExec with `cat >` + in-script `wc -c` verify.
- * Requires a shell and `cat`/`wc` in the sandbox image (no preflight probe).
+ * Buffered write fallback: stage to a sibling temp file, verify size, then
+ * `mv` onto the target so a mid-failure does not truncate an existing destination.
+ * Requires a shell and `cat`/`wc`/`mv` in the sandbox image (no preflight probe).
  */
 const WRITE_SCRIPT = [
   "path=$1",
   "expected=$2",
-  'if ! cat > "$path"; then',
-  '  printf "%s\\n" "Failed to write input stream to $path" >&2',
+  'tmp="$path.tmp.$$"',
+  "trap 'rm -f \"$tmp\"' EXIT",
+  'if ! cat > "$tmp"; then',
+  '  printf "%s\\n" "Failed to write input stream to temp for $path" >&2',
+  '  rm -f "$tmp"',
   "  exit 1",
   "fi",
-  'actual=$(wc -c < "$path") || exit 1',
+  'actual=$(wc -c < "$tmp") || { rm -f "$tmp"; exit 1; }',
   "set -- $actual",
   "actual=$1",
   'if [ "$actual" != "$expected" ]; then',
   '  printf "%s\\n" "Expected $expected bytes but wrote $actual bytes; ' +
-    'target may be partial or truncated" >&2',
+    'temp write incomplete" >&2',
+  '  rm -f "$tmp"',
   "  exit 1",
   "fi",
+  'if ! mv -f "$tmp" "$path"; then',
+  '  printf "%s\\n" "Failed to rename temp file onto $path" >&2',
+  '  rm -f "$tmp"',
+  "  exit 1",
+  "fi",
+  "trap - EXIT",
 ].join("\n");
 
 const READ_SCRIPT = [
@@ -54,19 +69,19 @@ export async function writeFileViaStreamExec(
   content: Uint8Array,
   options: RequestOptions = {},
 ): Promise<void> {
-  try {
-    const process = await startCommand(
-      runtime,
-      ["/bin/sh", "-c", WRITE_SCRIPT, "cwsandbox-write-file", path, String(content.byteLength)],
-      {
-        ...options,
-        binaryOutput: true,
-        bufferedMaxKiB: 64,
-        check: false,
-        stdin: true,
-      },
-    );
+  const process = await startCommand(
+    runtime,
+    ["/bin/sh", "-c", WRITE_SCRIPT, "cwsandbox-write-file", path, String(content.byteLength)],
+    {
+      ...options,
+      binaryOutput: true,
+      bufferedMaxKiB: 64,
+      check: false,
+      stdin: true,
+    },
+  );
 
+  try {
     for (let offset = 0; offset < content.byteLength; offset += STREAMING_WRITE_CHUNK_SIZE) {
       const end = Math.min(offset + STREAMING_WRITE_CHUNK_SIZE, content.byteLength);
       // Copy so gRPC ownership of the frame cannot alias the caller's buffer.
@@ -80,26 +95,35 @@ export async function writeFileViaStreamExec(
         result.stderr.trim() || `fallback command exited with status ${result.exitCode}`;
       throw new CWSandboxFileError(
         `Failed to write file '${path}' via exec-stream fallback: ${detail}. ` +
-          "The target may be partial or truncated.",
+          "The destination was not replaced (temp write / rename failed).",
         {
           filepath: path,
           operation: "Write file",
+          reason: CWSANDBOX_FILE_IO_FAILED,
           sandboxId: runtime.sandboxId,
         },
       );
     }
   } catch (error) {
-    if (error instanceof CWSandboxFileError) {
+    if (process.status === "running" || process.status === "starting") {
+      await process.cancel().catch(() => undefined);
+    }
+    if (
+      error instanceof CWSandboxFileError ||
+      error instanceof CWSandboxStreamBackpressureError ||
+      error instanceof CWSandboxStreamTruncatedError
+    ) {
       throw error;
     }
 
     throw new CWSandboxFileError(
       `Failed to write file '${path}' via exec-stream fallback. ` +
-        `The target may be partial or truncated. Upstream error: ${String(error)}`,
+        `The destination was not replaced. Upstream error: ${String(error)}`,
       {
         cause: error,
         filepath: path,
         operation: "Write file",
+        reason: CWSANDBOX_FILE_IO_FAILED,
         sandboxId: runtime.sandboxId,
       },
     );
@@ -107,8 +131,9 @@ export async function writeFileViaStreamExec(
 }
 
 /**
- * Read via StreamExec (`/bin/sh` + `cat`). Uses binaryOutput so wait() does not
- * decode/build a full stdout string for large payloads.
+ * Read via StreamExec (`/bin/sh` + `cat`).
+ * Uses internal `binaryOutput` (buffered path): bytes land in `wait().stdoutBytes`
+ * without decoding a full stdout string or enqueueing `stdoutBinary`.
  */
 export async function readFileViaStreamExec(
   runtime: SandboxRuntime,

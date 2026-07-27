@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
-import { CWSandboxFileError } from "../errors.js";
+import { CWSandboxFileError, CWSandboxValidationError } from "../errors.js";
 import { CWSANDBOX_FILE_TOO_LARGE } from "../internal/error-info.js";
 import {
   isFileTooLargeReason,
@@ -19,6 +19,7 @@ import {
   readFileViaStreamExec,
   writeFileViaStreamExec,
 } from "../internal/file-stream-fallback.js";
+import { readFileStream, writeFileStream, type FileChunkSource } from "../internal/file-stream.js";
 import {
   normalizeFileContent,
   normalizeFileWrites,
@@ -41,9 +42,36 @@ const textDecoder = new TextDecoder();
 export function createSandboxFiles(runtime: SandboxRuntime): SandboxFiles {
   return {
     read: readFile.bind(undefined, runtime) as SandboxFiles["read"],
+    readStream: (path, options) => readStreamingFile(runtime, path, options),
     readText: readTextFile.bind(undefined, runtime) as SandboxFiles["readText"],
     write: writeFile.bind(undefined, runtime) as SandboxFiles["write"],
+    writeStream: (path, source, options) => writeStreamingFile(runtime, path, source, options),
   };
+}
+
+function readStreamingFile(
+  runtime: SandboxRuntime,
+  path: string,
+  options: RequestOptions = {},
+): AsyncIterable<Uint8Array> {
+  validateRequestOptions(options);
+  if (typeof path !== "string" || path.length === 0) {
+    throw new CWSandboxValidationError("readStream path must be a non-empty string.");
+  }
+  return readFileStream(runtime, path, options);
+}
+
+async function writeStreamingFile(
+  runtime: SandboxRuntime,
+  path: string,
+  source: FileChunkSource,
+  options: RequestOptions = {},
+): Promise<void> {
+  validateRequestOptions(options);
+  if (typeof path !== "string" || path.length === 0) {
+    throw new CWSandboxValidationError("writeStream path must be a non-empty string.");
+  }
+  await writeFileStream(runtime, path, source, options);
 }
 
 function readFile(

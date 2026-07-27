@@ -4,8 +4,13 @@
 
 import type { DuplexStreamingCall } from "@protobuf-ts/runtime-rpc";
 
-import { CWSandboxTransportError } from "../../errors.js";
-import type { CommandProcess } from "../../public/commands.js";
+import {
+  CWSandboxStreamBackpressureError,
+  CWSandboxStreamTruncatedError,
+  CWSandboxTransportError,
+} from "../../errors.js";
+import { STREAM_BACKPRESSURE, STREAM_TRUNCATED } from "../../internal/error-info.js";
+import type { InternalCommandProcess } from "../../internal/start-command-options.js";
 import {
   createCommandProcess,
   type CommandInputController,
@@ -21,6 +26,7 @@ import {
 } from "./generated/coreweave/sandbox/v1beta2/streaming.js";
 import { linkedAbortController, toRpcOptions, withGrpcErrorMapping } from "./rpc.js";
 import {
+  awaitStdinReadyOrAbort,
   createStdinReadyGate,
   stdinReadyTimeoutMs,
   type StdinReadyGate,
@@ -30,7 +36,7 @@ import { sendStreamingClose, sendStreamingInit, sendStreamingStdin } from "./str
 export async function startGrpcCommand(
   streamingClient: GatewayStreamingServiceClient,
   request: StartCommandRequest,
-): Promise<CommandProcess> {
+): Promise<InternalCommandProcess> {
   const abortController = linkedAbortController(request.signal);
   const call = streamingClient.streamExec(
     toRpcOptions({
@@ -55,23 +61,23 @@ export async function startGrpcCommand(
     request,
     stdinReady,
   );
+  const sharedProcessOptions = {
+    ...(request.binaryOutput === undefined ? {} : { binaryOutput: request.binaryOutput }),
+    ...(request.bufferedMaxKiB === undefined ? {} : { bufferedMaxKiB: request.bufferedMaxKiB }),
+    ...(request.check === undefined ? {} : { check: request.check }),
+    ...(request.streamStdoutOnly === undefined
+      ? {}
+      : { streamStdoutOnly: request.streamStdoutOnly }),
+  };
   const commandProcessOptions =
     request.stdin === true
       ? {
-          ...(request.binaryOutput === undefined ? {} : { binaryOutput: request.binaryOutput }),
-          ...(request.bufferedMaxKiB === undefined
-            ? {}
-            : { bufferedMaxKiB: request.bufferedMaxKiB }),
-          ...(request.check === undefined ? {} : { check: request.check }),
+          ...sharedProcessOptions,
           input,
           stdin: true as const,
         }
       : {
-          ...(request.binaryOutput === undefined ? {} : { binaryOutput: request.binaryOutput }),
-          ...(request.bufferedMaxKiB === undefined
-            ? {}
-            : { bufferedMaxKiB: request.bufferedMaxKiB }),
-          ...(request.check === undefined ? {} : { check: request.check }),
+          ...sharedProcessOptions,
           input,
         };
   const controller = createCommandProcess(request.command, commandProcessOptions);
@@ -136,14 +142,10 @@ async function collectStreamingCommand(
           break;
         case "error": {
           terminal = true;
-          const error = new CWSandboxTransportError(
+          const error = mapExecStreamError(
+            response.response.error.code,
             response.response.error.message || "Streaming command failed.",
-            {
-              operation: "Streaming command",
-              sandboxId: request.sandboxId,
-              transport: "grpc",
-              transportCode: response.response.error.code,
-            },
+            request.sandboxId,
           );
           stdinReady?.signalFailed(error);
           await controller.dispatch({
@@ -186,6 +188,48 @@ async function collectStreamingCommand(
   }
 }
 
+const BACKPRESSURE_MESSAGE =
+  "Output stream ended early because it was not being read fast enough to " +
+  "keep up with the command's output; some output was lost. If you do slow " +
+  "work between reads, move it off the read loop (drain into a fast local " +
+  "sink such as a file, then process afterward) and use files.readStream / " +
+  "files.writeStream for large files. If the destination is itself slow and " +
+  "cannot keep up no matter how tight the loop, split the work into smaller " +
+  "transfers. Retrying the same pattern will hit this again.";
+
+const TRUNCATED_MESSAGE =
+  "The command completed but some of its output was lost in transit, " +
+  "so the output you received is incomplete. For large output, write " +
+  "it to a file and retrieve the file (files.readStream) instead " +
+  "of streaming over stdout. Re-running may truncate again and may " +
+  "have side effects, so re-run only if the command is idempotent.";
+
+/** Exported for unit tests that assert stream codes are not remasked. */
+export function mapExecStreamError(
+  code: string,
+  message: string,
+  sandboxId: string | undefined,
+): Error {
+  if (code === STREAM_BACKPRESSURE) {
+    return new CWSandboxStreamBackpressureError(BACKPRESSURE_MESSAGE, {
+      streamCode: STREAM_BACKPRESSURE,
+    });
+  }
+
+  if (code === STREAM_TRUNCATED) {
+    return new CWSandboxStreamTruncatedError(TRUNCATED_MESSAGE, {
+      streamCode: STREAM_TRUNCATED,
+    });
+  }
+
+  return new CWSandboxTransportError(message, {
+    operation: "Streaming command",
+    ...(sandboxId === undefined ? {} : { sandboxId }),
+    transport: "grpc",
+    transportCode: code,
+  });
+}
+
 function createGrpcCommandInputController(
   call: DuplexStreamingCall<ProtoExecStreamRequest, ProtoExecStreamResponse>,
   completeRequests: () => Promise<void>,
@@ -204,9 +248,7 @@ function createGrpcCommandInputController(
       await withGrpcErrorMapping(
         "Close streaming stdin",
         async () => {
-          if (stdinReady !== undefined) {
-            await stdinReady.wait(readyTimeoutMs);
-          }
+          await awaitStdinReadyOrAbort(stdinReady, readyTimeoutMs, abortController);
           await sendStreamingClose(call.requests);
           await completeRequests();
         },
@@ -217,9 +259,7 @@ function createGrpcCommandInputController(
       await withGrpcErrorMapping(
         "Write streaming stdin",
         async () => {
-          if (stdinReady !== undefined) {
-            await stdinReady.wait(readyTimeoutMs);
-          }
+          await awaitStdinReadyOrAbort(stdinReady, readyTimeoutMs, abortController);
           await sendStreamingStdin(call.requests, data);
         },
         request.sandboxId,

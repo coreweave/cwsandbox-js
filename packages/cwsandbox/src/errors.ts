@@ -76,17 +76,68 @@ export class CWSandboxNotImplementedError extends CWSandboxError {
   }
 }
 
+/**
+ * Command or stream execution failure (Python `SandboxExecutionError` peer).
+ *
+ * Command `check: true` failures construct with a `ProcessResult`. Stream-channel
+ * subclasses may omit `result` (Python `exec_result` is often `None`).
+ */
 export class CWSandboxExecutionError extends CWSandboxError {
-  public readonly result: ProcessResult;
+  public readonly result: ProcessResult | undefined;
 
-  public constructor(result: ProcessResult, options?: ErrorOptions) {
-    super(
-      `Command '${result.command.join(" ")}' exited with code ${result.exitCode}.`,
-      "execution_error",
-      options,
-    );
+  public constructor(result: ProcessResult, options?: ErrorOptions);
+  public constructor(message: string, options?: ErrorOptions);
+  public constructor(resultOrMessage: ProcessResult | string, options?: ErrorOptions) {
+    if (typeof resultOrMessage === "string") {
+      super(resultOrMessage, "execution_error", options);
+      this.result = undefined;
+    } else {
+      super(
+        `Command '${resultOrMessage.command.join(" ")}' exited with code ${resultOrMessage.exitCode}.`,
+        "execution_error",
+        options,
+      );
+      this.result = resultOrMessage;
+    }
     this.name = "CWSandboxExecutionError";
-    this.result = result;
+  }
+}
+
+/**
+ * Stream ended early because the consumer did not keep up (Python
+ * `SandboxStreamBackpressureError` peer). Subclasses `CWSandboxExecutionError`
+ * so `instanceof CWSandboxExecutionError` matches Python's hierarchy.
+ * `streamCode` is an ExecStreamError channel code (typically
+ * `STREAM_BACKPRESSURE`), not an AIP-193 `reason`.
+ */
+export class CWSandboxStreamBackpressureError extends CWSandboxExecutionError {
+  public readonly streamCode: string;
+
+  public constructor(
+    message: string,
+    options: ErrorOptions & { readonly streamCode?: string } = {},
+  ) {
+    super(message, options);
+    this.name = "CWSandboxStreamBackpressureError";
+    this.streamCode = options.streamCode ?? "STREAM_BACKPRESSURE";
+  }
+}
+
+/**
+ * Command completed but some output was lost in transit (Python
+ * `SandboxStreamTruncatedError` peer). `streamCode` is typically
+ * `STREAM_TRUNCATED`, not an AIP-193 `reason`.
+ */
+export class CWSandboxStreamTruncatedError extends CWSandboxExecutionError {
+  public readonly streamCode: string;
+
+  public constructor(
+    message: string,
+    options: ErrorOptions & { readonly streamCode?: string } = {},
+  ) {
+    super(message, options);
+    this.name = "CWSandboxStreamTruncatedError";
+    this.streamCode = options.streamCode ?? "STREAM_TRUNCATED";
   }
 }
 

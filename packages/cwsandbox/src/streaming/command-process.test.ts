@@ -9,6 +9,7 @@ import {
   CWSandboxTimeoutError,
   CWSandboxValidationError,
 } from "../errors.js";
+import { STREAMING_OUTPUT_QUEUE_SIZE } from "../internal/file-limits.js";
 import { createCommandProcess, type CommandInputController } from "./command-process.js";
 
 describe("CommandProcess", () => {
@@ -68,6 +69,8 @@ describe("CommandProcess", () => {
   it("binaryOutput skips decoding stdout text while keeping stdoutBytes", async () => {
     const controller = createCommandProcess(["python"], { binaryOutput: true });
     const payload = new Uint8Array([0, 159, 146, 150, 1, 2, 3]);
+    // Buffered binaryOutput does not enqueue stdoutBinary (avoids hang without a drain).
+    const binary = collect(controller.process.stdoutBinary);
 
     await controller.dispatch({ data: payload, type: "stdout" });
     await controller.dispatch({ data: new TextEncoder().encode("oops"), type: "stderr" });
@@ -78,6 +81,57 @@ describe("CommandProcess", () => {
     expect(result.stdoutBytes).toEqual(payload);
     expect(result.stderr).toBe("oops");
     expect(result.stderrBytes).toEqual(new TextEncoder().encode("oops"));
+    await expect(binary).resolves.toEqual([]);
+  });
+
+  it("streamStdoutOnly exposes stdoutBinary without accumulating wait().stdoutBytes", async () => {
+    const controller = createCommandProcess(["python"], {
+      binaryOutput: true,
+      streamStdoutOnly: true,
+    });
+    const chunkA = new Uint8Array([1, 2, 3]);
+    const chunkB = new Uint8Array([4, 5]);
+    const binary = collect(controller.process.stdoutBinary);
+
+    await controller.dispatch({ data: chunkA, type: "stdout" });
+    await controller.dispatch({ data: chunkB, type: "stdout" });
+    await controller.dispatch({ exitCode: 0, type: "exit" });
+
+    const result = await controller.process.wait();
+    expect(result.stdoutBytes).toEqual(new Uint8Array());
+    expect(result.stdoutBytesProduced).toBe(5);
+    expect(result.stdoutTruncated).toBe(false);
+    await expect(binary).resolves.toEqual([chunkA, chunkB]);
+  });
+
+  it("applies backpressure on stdoutBinary instead of silently dropping frames", async () => {
+    const controller = createCommandProcess(["python"], {
+      binaryOutput: true,
+      streamStdoutOnly: true,
+    });
+    const frameCount = STREAMING_OUTPUT_QUEUE_SIZE + 1;
+    const producer = (async () => {
+      for (let index = 0; index < frameCount; index += 1) {
+        await controller.dispatch({
+          data: new Uint8Array([index % 256]),
+          type: "stdout",
+        });
+      }
+      await controller.dispatch({ exitCode: 0, type: "exit" });
+    })();
+
+    // Let the producer fill the queue before the consumer starts draining.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const chunks = await collect(controller.process.stdoutBinary);
+    await producer;
+
+    expect(chunks).toHaveLength(frameCount);
+    expect(chunks.map((chunk) => chunk[0])).toEqual(
+      Array.from({ length: frameCount }, (_, index) => index % 256),
+    );
+    await expect(controller.process.wait()).resolves.toMatchObject({ exitCode: 0 });
   });
 
   it("rejects wait for checked non-zero exits while preserving status and exit code", async () => {

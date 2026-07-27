@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
-import type { ProcessResult, CommandProcess, TerminalSession } from "./public/commands.js";
+import type { InternalCommandProcess } from "./internal/start-command-options.js";
+import type { ProcessResult, TerminalSession } from "./public/commands.js";
 import type { LogEntryStream, LogRawStream, LogStream } from "./public/logs.js";
 import type {
   GetSandboxResult,
@@ -30,7 +31,8 @@ export interface SandboxTransport {
   list(options: ListSandboxesOptions): Promise<ListSandboxesResult>;
   delete(request: DeleteSandboxRequest): Promise<void>;
   exec(request: ExecRequest): Promise<ProcessResult>;
-  startCommand(request: StartCommandRequest): Promise<CommandProcess>;
+  /** Returns an internal process that may expose `stdoutBinary` for file I/O. */
+  startCommand(request: StartCommandRequest): Promise<InternalCommandProcess>;
   startShell(request: StartShellRequest): Promise<TerminalSession>;
   streamLogs(request: StreamLogsRequest): Promise<LogEntryStream | LogRawStream | LogStream>;
   stop(request: StopSandboxRequest): Promise<void>;

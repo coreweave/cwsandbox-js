@@ -144,7 +144,7 @@ pnpm example:weave:typecheck
 - `client.run(command, options)` starts a sandbox with a custom main process.
 - `sandbox.commands.run(...)` buffers command output.
 - `sandbox.commands.start(...)` streams command output and optionally accepts stdin.
-- `sandbox.files.*` reads and writes sandbox files.
+- `sandbox.files.*` reads and writes sandbox files (`readStream` / `writeStream` for incremental transfers).
 - `sandbox.logs.*` reads or streams the sandbox main process logs.
 - `sandbox.wait(...)`, `sandbox.stop(...)`, and `sandbox.delete(...)` manage lifecycle.
   `stop()` requests shutdown and waits until the sandbox is terminal; use
@@ -274,6 +274,10 @@ console.log(result.exitCode);
 console.log(result.ok);
 ```
 
+`commands.start()` is text-oriented (`stdout` / `stderr` are string streams). For
+binary file transfers, use `files.readStream` / `files.writeStream` instead of
+command stdout.
+
 `process.poll()` returns `undefined` while the command is still running, then the exit code after completion. `process.exitCode` is also populated after the command exits.
 `process.wait({ timeoutMs, signal })` can bound how long you wait locally without changing the running command.
 
@@ -342,7 +346,7 @@ import { CWSandboxExecutionError } from "@coreweave/cwsandbox";
 try {
   await sandbox.commands.run(["pytest", "-q"], { check: true });
 } catch (error) {
-  if (error instanceof CWSandboxExecutionError) {
+  if (error instanceof CWSandboxExecutionError && error.result !== undefined) {
     console.error(error.result.exitCode);
     console.error(error.result.stderr);
   } else {
@@ -434,16 +438,50 @@ const text = await sandbox.files.readText("/tmp/hello.txt");
 const bytes = await sandbox.files.read("/tmp/hello.txt");
 ```
 
+### Buffered vs streaming
+
+| API                                      | Shape                                | Best for                                                |
+| ---------------------------------------- | ------------------------------------ | ------------------------------------------------------- |
+| `files.read` / `files.write`             | Fully buffered `Uint8Array` / string | Small–medium files                                      |
+| Auto StreamExec fallback (#9)            | Still buffered end-to-end            | Mid-size unary overflow up to ~256 MiB                  |
+| `files.readStream` / `files.writeStream` | Incremental `Uint8Array` chunks      | Large files; escape hatch past the 256 MiB buffered cap |
+
 Payloads up to roughly 32 MiB use unary file RPCs. Larger payloads (up to
 256 MiB) automatically fall back to a single StreamExec (`sh` + `cat`) path,
 matching the Python SDK. Writes above 256 MiB (and oversized reads that are not
-auto-fallback candidates) are refused with `CWSandboxFileError` and reason
-`CWSANDBOX_FILE_TOO_LARGE`. Incremental streaming file APIs are not in this
-package yet (tracked separately). The StreamExec auto-fallback can still OOM
-(exit 137) on larger mid-size payloads today — the same environmental limit as
-Python.
+auto-fallback candidates) are refused on the buffered APIs with
+`CWSandboxFileError` and reason `CWSANDBOX_FILE_TOO_LARGE` — use
+`writeStream` / `readStream` instead. The buffered StreamExec auto-fallback can
+still OOM (exit 137) on larger mid-size payloads today — the same environmental
+limit as Python; incremental streaming avoids accumulating the full payload in
+the SDK.
 
-The same methods also accept batch inputs:
+```ts
+// Incremental write: bare buffer is sliced into 64 KiB chunks, or pass an iterable.
+await sandbox.files.writeStream("/tmp/big.bin", new Uint8Array(1024));
+
+await sandbox.files.writeStream("/tmp/chunks.bin", [
+  new Uint8Array([1, 2]),
+  new Uint8Array([3, 4]),
+]);
+
+// Incremental read: drain promptly into a fast local sink (avoid slow work here).
+let total = 0;
+for await (const chunk of sandbox.files.readStream("/tmp/big.bin")) {
+  total += chunk.byteLength;
+}
+console.log(total);
+```
+
+Notes for streaming:
+
+- Mid-failure or `signal` abort on `writeStream` may leave a **partial remote file**.
+- Early stop / abort on `readStream` best-effort cancels the StreamExec process.
+- Slow work inside the read loop can trip `CWSandboxStreamBackpressureError`
+  (`STREAM_BACKPRESSURE`); drain first, process afterward.
+- Bad iterable chunks (not `Uint8Array`) throw `CWSandboxValidationError`.
+
+The buffered methods also accept batch inputs:
 
 ```ts
 await sandbox.files.write({
@@ -749,6 +787,7 @@ Transport failures may also carry AIP-193 fields when the backend includes
 ```ts
 import { CWSANDBOX_FILE_TOO_LARGE } from "@coreweave/cwsandbox";
 import { CWSandboxNotFoundError } from "@coreweave/cwsandbox";
+import { CWSandboxStreamBackpressureError } from "@coreweave/cwsandbox";
 import { CWSandboxTimeoutError } from "@coreweave/cwsandbox";
 import { CWSandboxTransportError } from "@coreweave/cwsandbox";
 import { CWSandboxUnavailableError } from "@coreweave/cwsandbox";
@@ -764,6 +803,8 @@ try {
     console.error("Sandbox service is temporarily unavailable.");
   } else if (error instanceof CWSandboxNotFoundError) {
     console.error("Sandbox no longer exists.");
+  } else if (error instanceof CWSandboxStreamBackpressureError) {
+    console.error("Drain streams faster or use files.readStream / writeStream.");
   } else if (
     error instanceof CWSandboxTransportError &&
     error.reason === CWSANDBOX_FILE_TOO_LARGE

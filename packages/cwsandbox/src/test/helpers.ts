@@ -7,8 +7,6 @@ import type {
   Command,
   CommandInputData,
   CommandInputWriter,
-  CommandProcess,
-  CommandProcessWithStdin,
   LogEntryStream,
   LogRawStream,
   LogStream,
@@ -18,6 +16,10 @@ import type {
   SandboxTransport,
   TerminalSession,
 } from "../index.js";
+import type {
+  InternalCommandProcess,
+  InternalCommandProcessWithStdin,
+} from "../internal/start-command-options.js";
 
 const textEncoder = new TextEncoder();
 
@@ -63,12 +65,15 @@ export function createCommandInputWriter(): CommandInputWriter {
   };
 }
 
-export function createCommandProcess(command: Command): CommandProcess;
-export function createCommandProcess(command: Command, stdin: true): CommandProcessWithStdin;
+export function createCommandProcess(command: Command): InternalCommandProcess;
+export function createCommandProcess(
+  command: Command,
+  stdin: true,
+): InternalCommandProcessWithStdin;
 export function createCommandProcess(
   command: Command,
   stdin = false,
-): CommandProcess | CommandProcessWithStdin {
+): InternalCommandProcess | InternalCommandProcessWithStdin {
   const process = {
     cancel: async () => undefined,
     command,
@@ -76,6 +81,7 @@ export function createCommandProcess(
     stderr: emptyStream(),
     status: "exited" as const,
     stdout: streamFrom([command.join(" ")]),
+    stdoutBinary: emptyBinaryStream(),
     poll() {
       return 0;
     },
@@ -219,6 +225,8 @@ export function createFakeTransport(
 }
 
 async function* emptyStream(): AsyncIterable<string> {}
+
+async function* emptyBinaryStream(): AsyncIterable<Uint8Array> {}
 
 async function* byteStreamFrom(values: readonly Uint8Array[]): AsyncIterable<Uint8Array> {
   for (const value of values) {

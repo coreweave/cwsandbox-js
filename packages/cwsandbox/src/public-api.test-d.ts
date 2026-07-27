@@ -103,6 +103,7 @@ const transport = {
       stderr: (async function* () {})(),
       status: "exited" as const,
       stdout: (async function* () {})(),
+      stdoutBinary: (async function* () {})(),
       poll() {
         return 0;
       },
@@ -433,6 +434,8 @@ expectTypeOf(commandProcess.exitCode).toEqualTypeOf<number | undefined>();
 expectTypeOf(commandProcess.poll()).toEqualTypeOf<number | undefined>();
 expectTypeOf(commandProcess.stdout).toEqualTypeOf<CommandOutputStream>();
 expectTypeOf(commandProcess.stderr).toEqualTypeOf<CommandOutputStream>();
+// @ts-expect-error public CommandProcess does not expose stdoutBinary
+void commandProcess.stdoutBinary;
 expectTypeOf(commandProcess.wait()).toEqualTypeOf<
   Promise<Awaited<ReturnType<typeof sandbox.commands.run>>>
 >();
@@ -454,9 +457,13 @@ expectTypeOf(sandbox.commands.start(command, stdinOptions)).toEqualTypeOf<
 expectTypeOf(sandbox.commands.start(command, { check: true })).toEqualTypeOf<
   Promise<CommandProcess>
 >();
+// @ts-expect-error binaryOutput is not part of public StartCommandOptions
+void sandbox.commands.start(command, { binaryOutput: true });
+// @ts-expect-error streamStdoutOnly is not part of public StartCommandOptions
+void sandbox.commands.start(command, { streamStdoutOnly: true });
 expectTypeOf(sandbox.exec(command, { check: true })).toEqualTypeOf<Promise<ProcessResult>>();
 const executionError = new CWSandboxExecutionError(await sandbox.commands.run(command));
-expectTypeOf(executionError.result).toEqualTypeOf<ProcessResult>();
+expectTypeOf(executionError.result).toEqualTypeOf<ProcessResult | undefined>();
 const terminal = await sandbox.shell();
 expectTypeOf(terminal.command).toEqualTypeOf<Command>();
 expectTypeOf(terminal.exitCode).toEqualTypeOf<number | undefined>();

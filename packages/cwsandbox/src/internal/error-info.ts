@@ -16,6 +16,18 @@ export const CWSANDBOX_FILE_PERMISSION_DENIED = "CWSANDBOX_FILE_PERMISSION_DENIE
 export const CWSANDBOX_FILE_TOO_LARGE = "CWSANDBOX_FILE_TOO_LARGE";
 export const CWSANDBOX_FILE_TRUNCATED = "CWSANDBOX_FILE_TRUNCATED";
 
+/**
+ * Terminal `ExecStreamError.code` when the consumer falls behind. This is a
+ * streaming-channel code, not an AIP-193 ErrorInfo `reason`.
+ */
+export const STREAM_BACKPRESSURE = "STREAM_BACKPRESSURE";
+
+/**
+ * Terminal `ExecStreamError.code` when the command finished but some output
+ * was lost in transit. Streaming-channel code, not an AIP-193 `reason`.
+ */
+export const STREAM_TRUNCATED = "STREAM_TRUNCATED";
+
 export const FILE_ERROR_REASONS: ReadonlySet<string> = new Set([
   CWSANDBOX_FILE_NOT_FOUND,
   CWSANDBOX_FILE_IS_DIRECTORY,

@@ -10,7 +10,6 @@ import {
   CWSandboxTransportError,
   CWSandboxValidationError,
   type CommandInputData,
-  type CommandProcessWithStdin,
   type SandboxTransport,
 } from "./index.js";
 import {
@@ -24,6 +23,7 @@ import {
   DEFAULT_FILE_OPERATION_CAP_BYTES,
   MAX_AUTO_FALLBACK_BYTES,
 } from "./internal/file-limits.js";
+import type { InternalCommandProcessWithStdin } from "./internal/start-command-options.js";
 import {
   createClient,
   createCommandInputWriter,
@@ -300,7 +300,10 @@ describe("Sandbox files", () => {
       writeFile,
       async startCommand(request) {
         startRequest = request;
-        const process = createCommandProcess(request.command, true) as CommandProcessWithStdin;
+        const process = createCommandProcess(
+          request.command,
+          true,
+        ) as InternalCommandProcessWithStdin;
         const stdin = createCommandInputWriter();
         return {
           ...process,
@@ -324,16 +327,91 @@ describe("Sandbox files", () => {
     expect(startRequest?.command[0]).toBe("/bin/sh");
     expect(startRequest?.command).toContain("/tmp/large.bin");
     expect(startRequest?.binaryOutput).toBe(true);
+    const script = String(startRequest?.command[2] ?? "");
+    expect(script).toContain('tmp="$path.tmp.$$"');
+    expect(script).toContain("trap 'rm -f \"$tmp\"' EXIT");
+    expect(script).toContain('mv -f "$tmp" "$path"');
+    expect(script).toContain("trap - EXIT");
     expect(stdinChunks.reduce((total, chunk) => total + chunk.byteLength, 0)).toBe(
       content.byteLength,
     );
+  });
+
+  it("maps StreamExec write non-zero exits to CWSANDBOX_FILE_IO_FAILED", async () => {
+    const content = new Uint8Array(DEFAULT_FILE_OPERATION_CAP_BYTES + 1);
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async startCommand(request) {
+        const process = createCommandProcess(
+          request.command,
+          true,
+        ) as InternalCommandProcessWithStdin;
+        return {
+          ...process,
+          status: "running",
+          async wait() {
+            return createProcessResult(request.command, {
+              exitCode: 1,
+              stderr: "disk full",
+            });
+          },
+        };
+      },
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"]);
+
+    await expect(sandbox.files.write("/tmp/large.bin", content)).rejects.toMatchObject({
+      filepath: "/tmp/large.bin",
+      reason: CWSANDBOX_FILE_IO_FAILED,
+    });
+  });
+
+  it("cancels StreamExec write fallback when stdin write fails", async () => {
+    const content = new Uint8Array(DEFAULT_FILE_OPERATION_CAP_BYTES + 1);
+    let cancelled = false;
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async startCommand(request) {
+        const process = createCommandProcess(
+          request.command,
+          true,
+        ) as InternalCommandProcessWithStdin;
+        const stdin = createCommandInputWriter();
+        return {
+          ...process,
+          status: "running",
+          stdin: {
+            ...stdin,
+            async write() {
+              throw new Error("write timed out");
+            },
+          },
+          async cancel() {
+            cancelled = true;
+          },
+          async wait() {
+            return createProcessResult(request.command, { exitCode: 0 });
+          },
+        };
+      },
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"]);
+
+    await expect(sandbox.files.write("/tmp/large.bin", content)).rejects.toMatchObject({
+      filepath: "/tmp/large.bin",
+      reason: CWSANDBOX_FILE_IO_FAILED,
+    });
+    expect(cancelled).toBe(true);
   });
 
   it("falls back to StreamExec when unary write reports FILE_TOO_LARGE", async () => {
     const content = new Uint8Array(1024);
     const startCommand = vi.fn<SandboxTransport["startCommand"]>(async (request) => {
       if (request.stdin === true) {
-        const process = createCommandProcess(request.command, true) as CommandProcessWithStdin;
+        const process = createCommandProcess(
+          request.command,
+          true,
+        ) as InternalCommandProcessWithStdin;
         return {
           ...process,
           async wait() {
@@ -625,7 +703,10 @@ describe("Sandbox files", () => {
       });
     });
     const startCommand = vi.fn<SandboxTransport["startCommand"]>(async (request) => {
-      const process = createCommandProcess(request.command, true) as CommandProcessWithStdin;
+      const process = createCommandProcess(
+        request.command,
+        true,
+      ) as InternalCommandProcessWithStdin;
       return {
         ...process,
         async wait() {
@@ -682,7 +763,10 @@ describe("Sandbox files", () => {
     const signal = AbortSignal.abort();
     const startCommand = vi.fn<SandboxTransport["startCommand"]>(async (request) => {
       expect(request.signal?.aborted).toBe(true);
-      const process = createCommandProcess(request.command, true) as CommandProcessWithStdin;
+      const process = createCommandProcess(
+        request.command,
+        true,
+      ) as InternalCommandProcessWithStdin;
       return {
         ...process,
         async wait(options) {

@@ -200,7 +200,12 @@ function createProcessResult(
   };
 }
 
-function createCommandProcess(command: Command): CommandProcessWithStdin {
+/** Matches transport `startCommand` when it requires internal `stdoutBinary`. */
+type FakeCommandProcess = CommandProcessWithStdin & {
+  readonly stdoutBinary: AsyncIterable<Uint8Array>;
+};
+
+function createCommandProcess(command: Command): FakeCommandProcess {
   return {
     cancel: async () => undefined,
     command,
@@ -212,6 +217,7 @@ function createCommandProcess(command: Command): CommandProcessWithStdin {
     stderr: streamFrom([]),
     stdin: createCommandInputWriter(),
     stdout: streamFrom(["ok"]),
+    stdoutBinary: streamBytesFrom([]),
     async wait() {
       return createProcessResult(command, { stdout: "ok" });
     },
@@ -228,6 +234,12 @@ function createCommandInputWriter(): CommandInputWriter {
 }
 
 async function* streamFrom(values: readonly string[]): AsyncIterable<string> {
+  for (const value of values) {
+    yield value;
+  }
+}
+
+async function* streamBytesFrom(values: readonly Uint8Array[]): AsyncIterable<Uint8Array> {
   for (const value of values) {
     yield value;
   }

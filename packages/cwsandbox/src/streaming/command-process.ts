@@ -8,14 +8,20 @@ import {
   CWSandboxTransportError,
   CWSandboxValidationError,
 } from "../errors.js";
+import {
+  STREAMING_OUTPUT_QUEUE_SIZE,
+  STREAMING_READ_STDERR_CAP_BYTES,
+} from "../internal/file-limits.js";
+import type {
+  InternalCommandProcess,
+  InternalCommandProcessWithStdin,
+} from "../internal/start-command-options.js";
 import { validateRequestOptions } from "../internal/validation/index.js";
 import type {
   Command,
   CommandInputData,
   CommandInputWriter,
-  CommandProcess,
   CommandProcessStatus,
-  CommandProcessWithStdin,
   ProcessResult,
 } from "../public/commands.js";
 import type { RequestOptions } from "../public/common.js";
@@ -24,8 +30,6 @@ import { AsyncQueue } from "./async-queue.js";
 const textDecoder = new TextDecoder();
 const textEncoder = new TextEncoder();
 const OUTPUT_ACCUMULATION_LIMIT_BYTES = 1024 * 1024;
-/** Match Python STREAMING_READ_STDERR_CAP_BYTES for binary file reads. */
-const BINARY_STDERR_CAP_BYTES = 16 * 1024;
 
 export type InternalCommandEvent =
   | { readonly sessionId: string; readonly type: "ready" }
@@ -35,7 +39,7 @@ export type InternalCommandEvent =
   | { readonly error: unknown; readonly type: "error" };
 
 export interface StreamingCommandProcessController<
-  TProcess extends CommandProcess = CommandProcess,
+  TProcess extends InternalCommandProcess = InternalCommandProcess,
 > {
   readonly process: TProcess;
   dispatch(event: InternalCommandEvent): Promise<void>;
@@ -47,22 +51,32 @@ export interface CommandInputController {
   write(data: Uint8Array): Promise<void>;
 }
 
+/**
+ * Streaming process construction options (internal).
+ * Binary flags are not exposed on public `StartCommandOptions`.
+ */
 export interface CommandProcessOptions {
   /**
-   * When true, accumulate stdout as bytes only: skip UTF-8 decode into the
-   * text queue and leave ProcessResult.stdout as "".
+   * Skip UTF-8 decode into the text `stdout` queue; leave `wait().stdout` as
+   * `""`. Alone (buffered path): accumulate into `wait().stdoutBytes` only.
+   * With `streamStdoutOnly`: also push frames to `stdoutBinary`.
    */
   readonly binaryOutput?: boolean;
   readonly bufferedMaxKiB?: number;
   readonly check?: boolean;
   readonly input?: CommandInputController;
   readonly stdin?: boolean;
+  /**
+   * With `binaryOutput`, skip wait-buffer accumulation and enqueue frames on
+   * the bounded `stdoutBinary` queue (backpressure). Used by `files.readStream`.
+   */
+  readonly streamStdoutOnly?: boolean;
 }
 
 export function createCommandProcess(
   command: Command,
   options: CommandProcessOptions & { readonly input: CommandInputController; readonly stdin: true },
-): StreamingCommandProcessController<CommandProcessWithStdin>;
+): StreamingCommandProcessController<InternalCommandProcessWithStdin>;
 export function createCommandProcess(
   command: Command,
   options?: CommandProcessOptions,
@@ -126,17 +140,21 @@ class OutputAccumulator {
   }
 }
 
-class StreamingCommandProcess implements CommandProcess {
+class StreamingCommandProcess implements InternalCommandProcess {
   public readonly stderr: AsyncIterable<string>;
   public readonly stdin: CommandInputWriter | undefined;
   public readonly stdout: AsyncIterable<string>;
+  public readonly stdoutBinary: AsyncIterable<Uint8Array>;
 
   private readonly stderrQueue = new AsyncQueue<string>();
   private readonly stdoutQueue = new AsyncQueue<string>();
+  private readonly stdoutBinaryQueue = new AsyncQueue<Uint8Array>(STREAMING_OUTPUT_QUEUE_SIZE);
   private readonly stderrAccumulator: OutputAccumulator;
   private readonly stdoutAccumulator: OutputAccumulator;
   private readonly binaryOutput: boolean;
+  private readonly streamStdoutOnly: boolean;
   private readonly check: boolean;
+  private stdoutBytesProduced = 0;
   private result: ProcessResult | undefined;
   private sessionId: string | undefined;
   private currentExitCode: number | undefined;
@@ -157,13 +175,15 @@ class StreamingCommandProcess implements CommandProcess {
         : options.bufferedMaxKiB * 1024;
     this.input = options.input;
     this.binaryOutput = options.binaryOutput === true;
+    this.streamStdoutOnly = options.streamStdoutOnly === true;
     this.check = options.check === true;
     this.stdoutAccumulator = new OutputAccumulator(limitBytes);
     this.stderrAccumulator = new OutputAccumulator(
-      this.binaryOutput ? BINARY_STDERR_CAP_BYTES : limitBytes,
+      this.binaryOutput ? STREAMING_READ_STDERR_CAP_BYTES : limitBytes,
     );
     this.stdout = this.stdoutQueue;
     this.stderr = this.stderrQueue;
+    this.stdoutBinary = this.stdoutBinaryQueue;
     this.stdin =
       options.stdin === true && options.input !== undefined
         ? new StreamingCommandInputWriter(options.input, () => this.currentStatus)
@@ -181,8 +201,17 @@ class StreamingCommandProcess implements CommandProcess {
         this.currentStatus = "running";
         return;
       case "stdout":
-        this.stdoutAccumulator.append(event.data);
-        if (!this.binaryOutput) {
+        this.stdoutBytesProduced += event.data.byteLength;
+        if (!this.streamStdoutOnly) {
+          this.stdoutAccumulator.append(event.data);
+        }
+        if (this.binaryOutput && this.streamStdoutOnly) {
+          // readStream path: bounded queue with backpressure. Buffered
+          // binaryOutput (file fallback) uses the accumulator / wait() only —
+          // never enqueue without a drain or dispatch can hang before exit.
+          // Copy so gRPC ownership of the frame cannot alias the caller's buffer.
+          await this.stdoutBinaryQueue.push(event.data.slice());
+        } else if (!this.binaryOutput) {
           this.stdoutQueue.tryPush(textDecoder.decode(event.data));
         }
         return;
@@ -207,11 +236,16 @@ class StreamingCommandProcess implements CommandProcess {
           stderrBytesProduced: this.stderrAccumulator.produced(),
           stderrTruncated: this.stderrAccumulator.isTruncated(),
           stdout: this.binaryOutput ? "" : this.stdoutAccumulator.text(),
-          stdoutBytes: this.stdoutAccumulator.bytesValue(),
-          stdoutBytesProduced: this.stdoutAccumulator.produced(),
-          stdoutTruncated: this.stdoutAccumulator.isTruncated(),
+          stdoutBytes: this.streamStdoutOnly
+            ? new Uint8Array()
+            : this.stdoutAccumulator.bytesValue(),
+          stdoutBytesProduced: this.streamStdoutOnly
+            ? this.stdoutBytesProduced
+            : this.stdoutAccumulator.produced(),
+          stdoutTruncated: this.streamStdoutOnly ? false : this.stdoutAccumulator.isTruncated(),
         };
         this.stdoutQueue.close();
+        this.stdoutBinaryQueue.close();
         this.stderrQueue.close();
         if (this.check && this.result.exitCode !== 0) {
           this.reject(new CWSandboxExecutionError(this.result));
@@ -227,6 +261,7 @@ class StreamingCommandProcess implements CommandProcess {
 
         this.currentStatus = "failed";
         this.stdoutQueue.fail(event.error);
+        this.stdoutBinaryQueue.fail(event.error);
         this.stderrQueue.fail(event.error);
         this.reject(event.error);
         return;
@@ -250,6 +285,7 @@ class StreamingCommandProcess implements CommandProcess {
     });
     this.currentStatus = "cancelled";
     this.stdoutQueue.fail(error);
+    this.stdoutBinaryQueue.fail(error);
     this.stderrQueue.fail(error);
     this.reject(error);
     await this.cancelInput(error);

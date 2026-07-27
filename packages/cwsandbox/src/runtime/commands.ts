@@ -4,12 +4,14 @@
 
 import { CWSandboxExecutionError } from "../errors.js";
 import { normalizeCommand } from "../internal/commands.js";
-import type { InternalStartCommandOptions } from "../internal/start-command-options.js";
+import type {
+  InternalCommandProcess,
+  InternalCommandProcessWithStdin,
+  InternalStartCommandOptions,
+} from "../internal/start-command-options.js";
 import { validateExecOptions, validateStartCommandOptions } from "../internal/validation/index.js";
 import type {
   CommandInput,
-  CommandProcess,
-  CommandProcessWithStdin,
   ExecOptions,
   ProcessResult,
   SandboxCommands,
@@ -19,8 +21,9 @@ import type {
 import type { SandboxRuntime } from "./context.js";
 
 export function createSandboxCommands(runtime: SandboxRuntime): SandboxCommands {
+  // Narrow to public SandboxCommands.start (no binary flags / stdoutBinary).
   const start = ((command: CommandInput, options?: StartCommandOptions) =>
-    startCommand(runtime, command, options)) as SandboxCommands["start"];
+    startCommand(runtime, command, options)) as unknown as SandboxCommands["start"];
   return {
     run: (command, execOptions) => execCommand(runtime, command, execOptions),
     start,
@@ -50,17 +53,17 @@ export function startCommand(
   runtime: SandboxRuntime,
   command: CommandInput,
   options: StartCommandOptionsWithStdin & InternalStartCommandOptions,
-): Promise<CommandProcessWithStdin>;
+): Promise<InternalCommandProcessWithStdin>;
 export function startCommand(
   runtime: SandboxRuntime,
   command: CommandInput,
   options?: InternalStartCommandOptions,
-): Promise<CommandProcess>;
+): Promise<InternalCommandProcess>;
 export async function startCommand(
   runtime: SandboxRuntime,
   command: CommandInput,
   options: InternalStartCommandOptions = {},
-): Promise<CommandProcess | CommandProcessWithStdin> {
+): Promise<InternalCommandProcess | InternalCommandProcessWithStdin> {
   validateStartCommandOptions(options);
 
   return runtime.transport.startCommand({
