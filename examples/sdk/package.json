@@ -1,0 +1,35 @@
+{
+  "name": "@coreweave/cwsandbox-example-sdk",
+  "version": "0.0.0",
+  "private": true,
+  "license": "BSD-3-Clause",
+  "author": "CoreWeave, Inc.",
+  "type": "module",
+  "scripts": {
+    "quick-start": "tsx quick-start.ts",
+    "basic-execution": "tsx basic-execution.ts",
+    "streaming-exec": "tsx streaming-exec.ts",
+    "stdin-streaming": "tsx stdin-streaming.ts",
+    "large-file-streaming": "tsx large-file-streaming.ts",
+    "resource-configuration": "tsx resource-configuration.ts",
+    "error-handling": "tsx error-handling.ts",
+    "reconnect-to-sandbox": "tsx reconnect-to-sandbox.ts",
+    "delete-sandboxes": "tsx delete-sandboxes.ts",
+    "cleanup-by-tag": "tsx cleanup-by-tag.ts",
+    "cleanup-old-sandboxes": "tsx cleanup-old-sandboxes.ts",
+    "list-stopped-sandboxes": "tsx list-stopped-sandboxes.ts",
+    "multiple-sandboxes": "tsx multiple-sandboxes.ts",
+    "parallel-batch-job": "tsx parallel-batch-job.ts",
+    "interactive-streaming": "tsx interactive-streaming.ts",
+    "wandb-integration": "tsx wandb-integration.ts",
+    "typecheck": "tsc --noEmit --project tsconfig.json"
+  },
+  "dependencies": {
+    "@coreweave/cwsandbox": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "tsx": "^4.23.1",
+    "typescript": "^6.0.3"
+  }
+}

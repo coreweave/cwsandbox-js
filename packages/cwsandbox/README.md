@@ -113,33 +113,30 @@ they can carry their own peer dependencies and compatibility tests.
 
 ## Examples
 
-Runnable starter examples live under `examples/`.
+Runnable recipes live under [`examples/`](../../examples/). See
+[`examples/README.md`](../../examples/README.md) for the full gallery (SDK scripts
+in `examples/sdk/`, plus Weave and TanStack integrations) and the local list of
+Python examples not yet matched in JS.
 
-- `examples/tanstack` runs a deterministic command through the experimental TanStack AI sandbox adapter.
-- `examples/weave` traces a minimal CoreWeave Sandbox hello-world command with the Weave TypeScript SDK.
-
-Run the TanStack example with:
+Quick start:
 
 ```bash
-pnpm --dir examples/tanstack start
+pnpm --dir examples/sdk quick-start
 ```
 
-Typecheck it without creating a live sandbox:
+Typecheck the SDK recipe package without creating a live sandbox:
 
 ```bash
-pnpm example:tanstack:typecheck
+pnpm --dir examples/sdk typecheck
 ```
 
-Run the Weave example with:
+Integration examples:
 
 ```bash
-pnpm --dir examples/weave start
-```
-
-Typecheck it without creating a live sandbox:
-
-```bash
+pnpm example:weave
+pnpm example:tanstack
 pnpm example:weave:typecheck
+pnpm example:tanstack:typecheck
 ```
 
 ## API Map
