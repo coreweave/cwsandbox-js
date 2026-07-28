@@ -5,8 +5,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CWSandboxFailedError,
   CWSandboxNotFoundError,
   CWSandboxResourceExhaustedError,
+  CWSandboxTerminatedError,
   CWSandboxTimeoutError,
   CWSandboxTransportError,
   CWSandboxUnavailableError,
@@ -207,25 +209,98 @@ describe("Sandbox status and wait", () => {
     ).rejects.toThrow(CWSandboxNotFoundError);
   });
 
-  it("throws a typed transport error for terminal wait statuses", async () => {
-    const sandbox = await createClient(createFakeTransport(["failed"])).run(["echo", "hello"], {
+  it("treats paused as ready for the default running wait", async () => {
+    const sandbox = await createClient(createFakeTransport(["paused"])).run(["echo", "hello"], {
       waitUntilRunning: false,
     });
 
-    await expect(sandbox.wait(fastWait({ timeoutMs: 100 }))).rejects.toThrow(
-      CWSandboxTransportError,
-    );
+    await expect(sandbox.wait(fastWait({ timeoutMs: 100 }))).resolves.toBe(sandbox);
+    expect(sandbox.status).toBe("paused");
   });
 
-  it("throws a structured transport error when completed before the default wait target", async () => {
+  it("treats polled paused as ready for the default running wait", async () => {
+    const sandbox = await createClient(createFakeTransport(["creating", "paused"])).run(
+      ["echo", "hello"],
+      { waitUntilRunning: false },
+    );
+
+    await expect(sandbox.wait(fastWait({ timeoutMs: 100 }))).resolves.toBe(sandbox);
+    expect(sandbox.status).toBe("paused");
+  });
+
+  it("succeeds when completed during default wait-until-running", async () => {
     const sandbox = await createClient(createFakeTransport(["completed"])).run(["echo", "hello"], {
       waitUntilRunning: false,
     });
 
-    await expect(sandbox.wait(fastWait({ timeoutMs: 100 }))).rejects.toMatchObject({
-      operation: "Wait for sandbox",
-      sandboxId: "sandbox-for-echo",
+    await expect(sandbox.wait(fastWait({ timeoutMs: 100 }))).resolves.toBe(sandbox);
+    expect(sandbox.status).toBe("completed");
+  });
+
+  it("throws CWSandboxFailedError when failed during default wait-until-running", async () => {
+    const sandbox = await createClient(createFakeTransport(["failed"])).run(["echo", "hello"], {
+      waitUntilRunning: false,
     });
+
+    await expect(sandbox.wait(fastWait({ timeoutMs: 100 }))).rejects.toSatisfy(
+      (error: unknown) =>
+        error instanceof CWSandboxFailedError &&
+        error.operation === "Wait for sandbox" &&
+        error.sandboxId === "sandbox-for-echo",
+    );
+  });
+
+  it("throws CWSandboxTerminatedError when terminated during default wait-until-running", async () => {
+    const sandbox = await createClient(createFakeTransport(["terminated"])).run(["echo", "hello"], {
+      waitUntilRunning: false,
+    });
+
+    await expect(sandbox.wait(fastWait({ timeoutMs: 100 }))).rejects.toBeInstanceOf(
+      CWSandboxTerminatedError,
+    );
+  });
+
+  it("drains terminating to completed for default wait-until-running", async () => {
+    const sandbox = await createClient(createFakeTransport(["terminating", "completed"])).run(
+      ["echo", "hello"],
+      { waitUntilRunning: false },
+    );
+
+    await expect(sandbox.wait(fastWait({ timeoutMs: 100 }))).resolves.toBe(sandbox);
+    expect(sandbox.status).toBe("completed");
+  });
+
+  it("drains terminating to failed with CWSandboxFailedError", async () => {
+    const sandbox = await createClient(createFakeTransport(["terminating", "failed"])).run(
+      ["echo", "hello"],
+      { waitUntilRunning: false },
+    );
+
+    await expect(sandbox.wait(fastWait({ timeoutMs: 100 }))).rejects.toBeInstanceOf(
+      CWSandboxFailedError,
+    );
+  });
+
+  it("keeps exact match for explicit paused target", async () => {
+    const sandbox = await createClient(createFakeTransport(["running", "paused"])).run(
+      ["echo", "hello"],
+      { waitUntilRunning: false },
+    );
+
+    await expect(sandbox.wait(fastWait({ targetStatus: "paused", timeoutMs: 100 }))).resolves.toBe(
+      sandbox,
+    );
+    expect(sandbox.status).toBe("paused");
+  });
+
+  it("keeps transport error when a non-running target hits a different terminal", async () => {
+    const sandbox = await createClient(createFakeTransport(["failed"])).run(["echo", "hello"], {
+      waitUntilRunning: false,
+    });
+
+    await expect(
+      sandbox.wait(fastWait({ targetStatus: "completed", timeoutMs: 100 })),
+    ).rejects.toBeInstanceOf(CWSandboxTransportError);
   });
 
   it("throws a typed timeout error when wait exceeds the timeout", async () => {

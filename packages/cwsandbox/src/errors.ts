@@ -11,6 +11,8 @@ export type CWSandboxErrorCode =
   | "not_found"
   | "not_implemented"
   | "resource_exhausted"
+  | "sandbox_failed"
+  | "sandbox_terminated"
   | "terminal_state_unavailable"
   | "timeout_error"
   | "transport_error"
@@ -239,5 +241,42 @@ export class CWSandboxValidationError extends CWSandboxError {
   public constructor(message: string, options?: ErrorOptions) {
     super(message, "validation_error", options);
     this.name = "CWSandboxValidationError";
+  }
+}
+
+/**
+ * Sandbox failed to start or reached a fatal failed status during wait-until-running
+ * (Python `SandboxFailedError` peer).
+ */
+export class CWSandboxFailedError extends CWSandboxError {
+  public readonly operation: string | undefined;
+  public readonly sandboxId: string | undefined;
+
+  public constructor(
+    message: string,
+    options: { readonly operation?: string; readonly sandboxId?: string } & ErrorOptions = {},
+  ) {
+    super(message, "sandbox_failed", options);
+    this.name = "CWSandboxFailedError";
+    this.operation = options.operation;
+    this.sandboxId = options.sandboxId;
+  }
+}
+
+/**
+ * Sandbox was terminated during wait-until-running (Python `SandboxTerminatedError` peer).
+ */
+export class CWSandboxTerminatedError extends CWSandboxError {
+  public readonly operation: string | undefined;
+  public readonly sandboxId: string | undefined;
+
+  public constructor(
+    message: string,
+    options: { readonly operation?: string; readonly sandboxId?: string } & ErrorOptions = {},
+  ) {
+    super(message, "sandbox_terminated", options);
+    this.name = "CWSandboxTerminatedError";
+    this.operation = options.operation;
+    this.sandboxId = options.sandboxId;
   }
 }

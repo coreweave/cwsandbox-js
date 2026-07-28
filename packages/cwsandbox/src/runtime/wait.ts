@@ -3,7 +3,9 @@
 // SPDX-PackageName: cwsandbox
 
 import {
+  CWSandboxFailedError,
   CWSandboxNotFoundError,
+  CWSandboxTerminatedError,
   CWSandboxTerminalStateUnavailableError,
   CWSandboxTimeoutError,
   CWSandboxTransportError,
@@ -124,7 +126,30 @@ export async function waitForSandbox(
       return;
     }
 
-    if (targetStatus !== "terminal" && status !== undefined && TERMINAL_STATUSES.has(status)) {
+    if (targetStatus === "running") {
+      // Python wait-until-running: completed during startup succeeds; failed/terminated
+      // raise typed errors; terminating drains toward a real terminal.
+      if (status === "completed") {
+        return;
+      }
+      if (status === "failed") {
+        throw new CWSandboxFailedError(`Sandbox '${runtime.sandboxId}' failed to start`, {
+          operation: WAIT_OPERATION,
+          sandboxId: runtime.sandboxId,
+        });
+      }
+      if (status === "terminated") {
+        throw new CWSandboxTerminatedError(`Sandbox '${runtime.sandboxId}' was terminated`, {
+          operation: WAIT_OPERATION,
+          sandboxId: runtime.sandboxId,
+        });
+      }
+      // terminating / creating / pending: keep polling
+    } else if (
+      targetStatus !== "terminal" &&
+      status !== undefined &&
+      TERMINAL_STATUSES.has(status)
+    ) {
       throw new CWSandboxTransportError(
         `Sandbox '${runtime.sandboxId}' reached terminal status '${status}' before '${targetStatus}'.`,
         {
@@ -170,6 +195,11 @@ function isWaitTargetReached(
 
   if (targetStatus === "terminal") {
     return TERMINAL_STATUSES.has(status);
+  }
+
+  // Python `_RUNNING_STATUSES = {RUNNING, PAUSED}` for wait-until-running.
+  if (targetStatus === "running") {
+    return status === "running" || status === "paused";
   }
 
   return status === targetStatus;
