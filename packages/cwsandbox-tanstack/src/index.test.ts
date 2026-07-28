@@ -4,15 +4,17 @@
 
 import {
   CWSandboxNotFoundError,
-  SandboxClient,
   type Command,
   type CommandInputData,
   type CommandInputWriter,
   type CommandProcessWithStdin,
   type ProcessResult,
-  type SandboxTransport,
-  type StartSandboxRequest,
-  type WriteFileRequest,
+  type Sandbox,
+  type SandboxClient,
+  type SandboxCommands,
+  type SandboxFiles,
+  type SandboxLogs,
+  type SandboxStatus,
 } from "@coreweave/cwsandbox";
 import { UnsupportedCapabilityError } from "@tanstack/ai-sandbox";
 import { describe, expect, it } from "vitest";
@@ -23,9 +25,9 @@ const encoder = new TextEncoder();
 
 describe("cwsandboxTanStackProvider", () => {
   it("creates TanStack sandbox handles backed by SandboxClient", async () => {
-    const tracking = createTrackingTransport();
+    const tracking = createTrackingClient();
     const provider = cwsandboxTanStackProvider({
-      client: new SandboxClient({ transport: tracking.transport }),
+      client: tracking.client,
     });
 
     const handle = await provider.create({ env: { API_TOKEN: "secret" } });
@@ -52,7 +54,7 @@ describe("cwsandboxTanStackProvider", () => {
       stdout: "ok",
     });
     expect(text).toBe("file contents");
-    expect(tracking.startRequests[0]?.environmentVariables).toEqual({ API_TOKEN: "secret" });
+    expect(tracking.startOptions[0]?.environmentVariables).toEqual({ API_TOKEN: "secret" });
     expect(tracking.execCommands[0]).toEqual([
       "/usr/bin/env",
       "FROM_HANDLE=yes",
@@ -63,15 +65,14 @@ describe("cwsandboxTanStackProvider", () => {
     ]);
     expect(tracking.execOptions[0]?.cwd).toBe("/workspace/app");
     expect(tracking.writeRequests[0]).toEqual({
-      content: encoder.encode("hello"),
       path: "/workspace/app/input.txt",
-      sandboxId: "sandbox-1",
+      content: encoder.encode("hello"),
     });
   });
 
   it("resumes existing sandboxes and returns null for missing sandboxes", async () => {
     const provider = cwsandboxTanStackProvider({
-      client: new SandboxClient({ transport: createTrackingTransport().transport }),
+      client: createTrackingClient().client,
     });
 
     await expect(provider.resume({ id: "sandbox-1" })).resolves.toMatchObject({
@@ -81,9 +82,9 @@ describe("cwsandboxTanStackProvider", () => {
   });
 
   it("destroys sandboxes through the client", async () => {
-    const tracking = createTrackingTransport();
+    const tracking = createTrackingClient();
     const provider = cwsandboxTanStackProvider({
-      client: new SandboxClient({ transport: tracking.transport }),
+      client: tracking.client,
     });
     const handle = await provider.create({});
 
@@ -95,7 +96,7 @@ describe("cwsandboxTanStackProvider", () => {
 
   it("fails clearly for unsupported capabilities", async () => {
     const provider = cwsandboxTanStackProvider({
-      client: new SandboxClient({ transport: createTrackingTransport().transport }),
+      client: createTrackingClient().client,
     });
     const handle = await provider.create({});
 
@@ -104,74 +105,179 @@ describe("cwsandboxTanStackProvider", () => {
   });
 });
 
-interface TrackingTransport {
+interface WriteRequest {
+  readonly content: Uint8Array;
+  readonly path: string;
+}
+
+interface TrackingClient {
+  readonly client: SandboxClient;
   readonly deletedSandboxIds: string[];
   readonly execCommands: Command[];
   readonly execOptions: Array<{ readonly cwd?: string }>;
-  readonly startRequests: StartSandboxRequest[];
-  readonly transport: SandboxTransport;
-  readonly writeRequests: WriteFileRequest[];
+  readonly startOptions: Array<{
+    readonly environmentVariables?: Readonly<Record<string, string>>;
+  }>;
+  readonly writeRequests: WriteRequest[];
 }
 
-function createTrackingTransport(): TrackingTransport {
+function createTrackingClient(): TrackingClient {
   const deletedSandboxIds: string[] = [];
   const execCommands: Command[] = [];
   const execOptions: Array<{ readonly cwd?: string }> = [];
-  const startRequests: StartSandboxRequest[] = [];
-  const writeRequests: WriteFileRequest[] = [];
+  const startOptions: Array<{ readonly environmentVariables?: Readonly<Record<string, string>> }> =
+    [];
+  const writeRequests: WriteRequest[] = [];
+
+  let sandboxCounter = 0;
+
+  function createFakeSandbox(sandboxId: string, status: SandboxStatus = "running"): Sandbox {
+    const files: SandboxFiles = {
+      read: (async (path: string) => {
+        if (path === "/workspace/app/output.txt") {
+          return encoder.encode("file contents");
+        }
+        return new Uint8Array();
+      }) as SandboxFiles["read"],
+      readStream: () => emptyBinaryIterable(),
+      readText: (async (path: string) => {
+        if (path === "/workspace/app/output.txt") {
+          return "file contents";
+        }
+        return "";
+      }) as SandboxFiles["readText"],
+      write: (async (path: string, content: string | Uint8Array) => {
+        writeRequests.push({
+          content: typeof content === "string" ? encoder.encode(content) : content,
+          path,
+        });
+      }) as SandboxFiles["write"],
+      writeStream: async () => undefined,
+    };
+
+    const commands: SandboxCommands = {
+      run: async (command, options = {}) => {
+        const normalized = normalizeCommand(command);
+        execCommands.push(normalized);
+        execOptions.push(options.cwd === undefined ? {} : { cwd: options.cwd });
+        return createProcessResult(normalized, { stdout: "ok" });
+      },
+      start: (async (command) =>
+        createCommandProcess(normalizeCommand(command))) as SandboxCommands["start"],
+    };
+
+    const logs: SandboxLogs = {
+      read: async () => {
+        throw new Error("Logs not used");
+      },
+      stream: async () => {
+        throw new Error("Logs not used");
+      },
+      streamEntries: async () => {
+        throw new Error("Logs not used");
+      },
+      streamRaw: async () => {
+        throw new Error("Logs not used");
+      },
+    };
+
+    const sandbox: Sandbox = {
+      appliedEgressMode: undefined,
+      appliedIngressMode: undefined,
+      commands,
+      delete: async () => {
+        deletedSandboxIds.push(sandboxId);
+      },
+      exec: async (command, options = {}) => {
+        const normalized = normalizeCommand(command);
+        execCommands.push(normalized);
+        execOptions.push(options.cwd === undefined ? {} : { cwd: options.cwd });
+        return createProcessResult(normalized, { stdout: "ok" });
+      },
+      exposedPorts: undefined,
+      files,
+      getStatus: async () => status,
+      inspect: async () => ({ sandboxId, status }),
+      logs,
+      profileId: undefined,
+      resourceLimits: undefined,
+      resourceRequests: undefined,
+      runnerGroupId: undefined,
+      runnerId: undefined,
+      sandboxId,
+      serviceAddress: undefined,
+      shell: async () => {
+        throw new Error("Shell not used");
+      },
+      startedAt: undefined,
+      status,
+      statusReason: undefined,
+      stop: async () => undefined,
+      wait: async () => sandbox,
+      async [Symbol.asyncDispose]() {
+        await sandbox.stop();
+      },
+    };
+    return sandbox;
+  }
+
+  const client: SandboxClient = {
+    async create(options) {
+      sandboxCounter++;
+      const envVarsCreate = options?.environmentVariables;
+      startOptions.push(envVarsCreate !== undefined ? { environmentVariables: envVarsCreate } : {});
+      return createFakeSandbox(`sandbox-${sandboxCounter}`);
+    },
+    async run(_, options) {
+      sandboxCounter++;
+      const envVarsRun = options?.environmentVariables;
+      startOptions.push(envVarsRun !== undefined ? { environmentVariables: envVarsRun } : {});
+      return createFakeSandbox(`sandbox-${sandboxCounter}`);
+    },
+    async get(sandboxId) {
+      if (sandboxId === "missing") {
+        throw new CWSandboxNotFoundError("Sandbox not found.");
+      }
+      return { sandboxId, status: "running" };
+    },
+    async fromId(sandboxId) {
+      if (sandboxId === "missing") {
+        throw new CWSandboxNotFoundError("Sandbox not found.");
+      }
+      return createFakeSandbox(sandboxId);
+    },
+    async list() {
+      return { sandboxes: [] };
+    },
+    listSandboxes() {
+      throw new Error("listSandboxes not used in these tests.");
+    },
+    async listAll() {
+      return [];
+    },
+    async delete(sandboxId) {
+      deletedSandboxIds.push(sandboxId);
+    },
+    async withSandbox(_commandOrCallback, _callbackOrOptions) {
+      throw new Error("withSandbox not used in these tests.");
+    },
+  };
 
   return {
+    client,
     deletedSandboxIds,
     execCommands,
     execOptions,
-    startRequests,
-    transport: {
-      async delete(request) {
-        deletedSandboxIds.push(request.sandboxId);
-      },
-      async exec(request) {
-        execCommands.push(request.command);
-        execOptions.push(request.cwd === undefined ? {} : { cwd: request.cwd });
-        return createProcessResult(request.command, { stdout: "ok" });
-      },
-      async get(request) {
-        if (request.sandboxId === "missing") {
-          throw new CWSandboxNotFoundError("Sandbox not found.");
-        }
-        return {
-          sandboxId: request.sandboxId,
-          status: "running",
-        };
-      },
-      async list() {
-        return { sandboxes: [] };
-      },
-      async readFile() {
-        return { content: encoder.encode("file contents") };
-      },
-      async start(request) {
-        startRequests.push(request);
-        return {
-          sandboxId: "sandbox-1",
-          status: "running",
-        };
-      },
-      async startCommand(request) {
-        return createCommandProcess(request.command);
-      },
-      async startShell() {
-        throw new Error("Shell is not used in these tests.");
-      },
-      async stop() {},
-      async streamLogs() {
-        throw new Error("Logs are not used in these tests.");
-      },
-      async writeFile(request) {
-        writeRequests.push(request);
-      },
-    },
+    startOptions,
     writeRequests,
   };
+}
+
+function normalizeCommand(command: Command | readonly string[]): Command {
+  if (command.length === 0) {
+    throw new Error("command must be non-empty");
+  }
+  return command as Command;
 }
 
 function createProcessResult(
@@ -200,12 +306,7 @@ function createProcessResult(
   };
 }
 
-/** Matches transport `startCommand` when it requires internal `stdoutBinary`. */
-type FakeCommandProcess = CommandProcessWithStdin & {
-  readonly stdoutBinary: AsyncIterable<Uint8Array>;
-};
-
-function createCommandProcess(command: Command): FakeCommandProcess {
+function createCommandProcess(command: Command): CommandProcessWithStdin {
   return {
     cancel: async () => undefined,
     command,
@@ -217,7 +318,6 @@ function createCommandProcess(command: Command): FakeCommandProcess {
     stderr: streamFrom([]),
     stdin: createCommandInputWriter(),
     stdout: streamFrom(["ok"]),
-    stdoutBinary: streamBytesFrom([]),
     async wait() {
       return createProcessResult(command, { stdout: "ok" });
     },
@@ -239,8 +339,4 @@ async function* streamFrom(values: readonly string[]): AsyncIterable<string> {
   }
 }
 
-async function* streamBytesFrom(values: readonly Uint8Array[]): AsyncIterable<Uint8Array> {
-  for (const value of values) {
-    yield value;
-  }
-}
+async function* emptyBinaryIterable(): AsyncIterable<Uint8Array> {}

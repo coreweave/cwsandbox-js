@@ -4,15 +4,10 @@
 
 import type { SandboxId } from "../public/sandbox.js";
 import type { SandboxTransport } from "../transport.js";
+import type { FileAdapter } from "../transport/file-adapter.js";
 
 export interface SandboxRuntime {
   readonly sandboxId: SandboxId;
   readonly transport: SandboxTransport;
-  /**
-   * Server-reported unary file cap from `FILE_TOO_LARGE` `max_size_bytes`.
-   * Raw value; clamp at use via `fileOperationCapBytes`.
-   */
-  observedFileOpCapBytes: number | undefined;
-  /** One-shot INFO log when StreamExec file fallback first fires on this sandbox. */
-  streamingFallbackNotified: boolean;
+  readonly fileAdapter: FileAdapter;
 }

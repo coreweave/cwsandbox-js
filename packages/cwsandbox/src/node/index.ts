@@ -4,11 +4,11 @@
 
 import { SandboxClient } from "../client.js";
 import { CWSandboxConfigurationError } from "../errors.js";
+import type { SandboxClient as SandboxClientInterface } from "../public/client.js";
+import { createGrpcFileAdapter } from "../transports/node-grpc/file-adapter.js";
 import { GrpcSandboxTransport } from "../transports/node-grpc/grpc-transport.js";
 
 export { DEFAULT_KEEP_ALIVE_COMMAND } from "../defaults.js";
-export { GrpcSandboxTransport } from "../transports/node-grpc/grpc-transport.js";
-export type { GrpcSandboxTransportOptions } from "../transports/node-grpc/grpc-transport.js";
 export { DEFAULT_CONTAINER_IMAGE } from "../transports/node-grpc/mappers.js";
 
 export const DEFAULT_BASE_URL = "https://api.cwsandbox.com";
@@ -24,23 +24,22 @@ export interface NodeSandboxClientOptions {
   readonly baseUrl?: string;
 }
 
-export function createSandboxClient(options: NodeSandboxClientOptions): SandboxClient {
+export function createSandboxClient(options: NodeSandboxClientOptions): SandboxClientInterface {
   const apiKey = options.apiKey.trim();
   if (apiKey === "") {
     throw new CWSandboxConfigurationError("CWSandbox API key is required.");
   }
 
   const baseUrl = normalizeBaseUrl(options.baseUrl);
+  const transport = new GrpcSandboxTransport({ apiKey, baseUrl });
+  const fileAdapter = createGrpcFileAdapter(transport.clients);
 
-  return new SandboxClient({
-    transport: new GrpcSandboxTransport({
-      apiKey,
-      baseUrl,
-    }),
-  });
+  return new SandboxClient({ fileAdapter, transport });
 }
 
-export function createSandboxClientFromEnv(env: CWSandboxEnvironment = process.env): SandboxClient {
+export function createSandboxClientFromEnv(
+  env: CWSandboxEnvironment = process.env,
+): SandboxClientInterface {
   const apiKey = env.CWSANDBOX_API_KEY ?? "";
   const baseUrl = env.CWSANDBOX_BASE_URL?.trim();
 

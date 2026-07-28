@@ -1,0 +1,513 @@
+// SPDX-FileCopyrightText: 2026 CoreWeave, Inc.
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-PackageName: cwsandbox
+
+import {
+  CWSandboxFileError,
+  CWSandboxStreamBackpressureError,
+  CWSandboxStreamTruncatedError,
+  CWSandboxTransportError,
+} from "../../errors.js";
+import {
+  CWSANDBOX_FILE_IO_FAILED,
+  CWSANDBOX_FILE_IS_DIRECTORY,
+  CWSANDBOX_FILE_NOT_FOUND,
+  CWSANDBOX_FILE_TRUNCATED,
+} from "../../internal/error-info.js";
+import {
+  STREAMING_OUTPUT_QUEUE_SIZE,
+  STREAMING_WRITE_CHUNK_SIZE,
+  TRUNCATION_CHECK_MIN_BYTES,
+} from "../../internal/file-limits.js";
+import { AsyncQueue } from "../../streaming/async-queue.js";
+import type {
+  FileAdapter,
+  ReadFileRequest,
+  ReadFileResult,
+  ReadStreamRequest,
+  WriteFileRequest,
+  WriteStreamRequest,
+} from "../../transport/file-adapter.js";
+import type { GrpcClients } from "./channel.js";
+import { startExecSession } from "./exec-session.js";
+import type { GatewayStreamingServiceClient } from "./generated/coreweave/sandbox/v1beta2/streaming.client.js";
+import { timeoutMsToSeconds } from "./mappers.js";
+import { toRpcOptions, withGrpcErrorMapping } from "./rpc.js";
+
+/**
+ * Explicit `files.writeStream` script: direct `cat >` (no temp-and-rename).
+ * A mid-stream cancel or transport error may leave a partial file.
+ */
+const WRITE_STREAM_DIRECT_SCRIPT = [
+  "path=$1",
+  'if ! cat > "$path"; then',
+  '  printf "%s\\n" "Failed to write input stream to $path" >&2',
+  "  exit 1",
+  "fi",
+].join("\n");
+
+/**
+ * Buffered-write fallback script: stage to a sibling temp file, verify size,
+ * then `mv` onto the target so a mid-failure does not truncate an existing
+ * destination.
+ */
+const WRITE_STREAM_ATOMIC_SCRIPT = [
+  "path=$1",
+  "expected=$2",
+  'tmp="$path.tmp.$$"',
+  "trap 'rm -f \"$tmp\"' EXIT",
+  'if ! cat > "$tmp"; then',
+  '  printf "%s\\n" "Failed to write input stream to temp for $path" >&2',
+  '  rm -f "$tmp"',
+  "  exit 1",
+  "fi",
+  'actual=$(wc -c < "$tmp") || { rm -f "$tmp"; exit 1; }',
+  "set -- $actual",
+  "actual=$1",
+  'if [ "$actual" != "$expected" ]; then',
+  '  printf "%s\\n" "Expected $expected bytes but wrote $actual bytes; temp write incomplete" >&2',
+  '  rm -f "$tmp"',
+  "  exit 1",
+  "fi",
+  'if ! mv -f "$tmp" "$path"; then',
+  '  printf "%s\\n" "Failed to rename temp file onto $path" >&2',
+  '  rm -f "$tmp"',
+  "  exit 1",
+  "fi",
+  "trap - EXIT",
+].join("\n");
+
+const READ_STREAM_SCRIPT = [
+  "path=$1",
+  'if [ ! -e "$path" ]; then',
+  '  printf "%s\\n" "File not found: $path" >&2',
+  "  exit 2",
+  "fi",
+  'if [ -d "$path" ]; then',
+  '  printf "%s\\n" "Path is a directory: $path" >&2',
+  "  exit 3",
+  "fi",
+  'cat < "$path"',
+].join("\n");
+
+const STAT_SCRIPT = 'stat -c %s -- "$1" 2>/dev/null';
+
+export function createGrpcFileAdapter(clients: GrpcClients): FileAdapter {
+  return {
+    read: (request) => grpcReadFile(clients.client, request),
+    write: (request) => grpcWriteFile(clients.client, request),
+    readStream: (request) => grpcReadStream(clients.streamingClient, request),
+    writeStream: (request) => grpcWriteStream(clients.streamingClient, request),
+  };
+}
+
+async function grpcWriteFile(
+  client: GrpcClients["client"],
+  request: WriteFileRequest,
+): Promise<void> {
+  const response = await withGrpcErrorMapping(
+    "Write file",
+    () =>
+      client.addFile(
+        {
+          fileContents: request.content,
+          filepath: request.path,
+          maxTimeoutSeconds: timeoutMsToSeconds(request.timeoutMs),
+          sandboxId: request.sandboxId,
+        },
+        toRpcOptions(request),
+      ).response,
+    { filepath: request.path, sandboxId: request.sandboxId },
+  );
+
+  assertGrpcSuccess(response, {
+    fallbackMessage: "Failed to write file.",
+    operation: "Write file",
+    sandboxId: request.sandboxId,
+  });
+}
+
+async function grpcReadFile(
+  client: GrpcClients["client"],
+  request: ReadFileRequest,
+): Promise<ReadFileResult> {
+  const response = await withGrpcErrorMapping(
+    "Read file",
+    () =>
+      client.retrieveFile(
+        {
+          filepath: request.path,
+          maxTimeoutSeconds: timeoutMsToSeconds(request.timeoutMs),
+          sandboxId: request.sandboxId,
+        },
+        toRpcOptions(request),
+      ).response,
+    { filepath: request.path, sandboxId: request.sandboxId },
+  );
+
+  assertGrpcSuccess(response, {
+    fallbackMessage: "Failed to read file.",
+    operation: "Read file",
+    sandboxId: request.sandboxId,
+  });
+
+  return { content: response.fileContents };
+}
+
+function grpcReadStream(
+  streamingClient: GatewayStreamingServiceClient,
+  request: ReadStreamRequest,
+): AsyncIterable<Uint8Array> {
+  return {
+    [Symbol.asyncIterator]() {
+      return grpcReadStreamIterator(streamingClient, request);
+    },
+  };
+}
+
+async function* grpcReadStreamIterator(
+  streamingClient: GatewayStreamingServiceClient,
+  request: ReadStreamRequest,
+): AsyncGenerator<Uint8Array, void, undefined> {
+  const expectedSize = await statFileSize(streamingClient, request);
+  const outputQueue = new AsyncQueue<Uint8Array>(STREAMING_OUTPUT_QUEUE_SIZE);
+
+  const session = await startExecSession(streamingClient, {
+    command: ["/bin/sh", "-c", READ_STREAM_SCRIPT, "cwsandbox-read-file-streaming", request.path],
+    sandboxId: request.sandboxId,
+    ...(request.signal !== undefined ? { signal: request.signal } : {}),
+    ...(request.timeoutMs !== undefined ? { timeoutMs: request.timeoutMs } : {}),
+  });
+
+  const onAbort = (): void => {
+    session.cancel(request.signal?.reason);
+  };
+  request.signal?.addEventListener("abort", onAbort, { once: true });
+
+  let exitCode: number | undefined;
+  let stderr = "";
+  let delivered = 0;
+
+  // Collect frames in the background; push stdout to queue.
+  const collect = (async () => {
+    try {
+      for await (const frame of session.frames) {
+        switch (frame.type) {
+          case "stdout":
+            await outputQueue.push(frame.data.slice());
+            delivered += frame.data.byteLength;
+            break;
+          case "stderr":
+            stderr += new TextDecoder().decode(frame.data);
+            break;
+          case "exit":
+            exitCode = frame.exitCode;
+            break;
+          case "error":
+            outputQueue.fail(frame.error);
+            return;
+          case "ready":
+            break;
+        }
+      }
+      outputQueue.close();
+    } catch (error) {
+      outputQueue.fail(error);
+    }
+  })();
+
+  try {
+    request.signal?.throwIfAborted();
+    for await (const chunk of outputQueue) {
+      request.signal?.throwIfAborted();
+      yield chunk;
+    }
+
+    await collect;
+
+    if (exitCode !== 0) {
+      throw mapReadStreamExit(request.sandboxId, request.path, exitCode ?? -1, stderr);
+    }
+
+    verifyNoTruncation(request.sandboxId, request.path, delivered, expectedSize);
+  } catch (error) {
+    if (
+      error instanceof CWSandboxFileError ||
+      error instanceof CWSandboxStreamBackpressureError ||
+      error instanceof CWSandboxStreamTruncatedError
+    ) {
+      throw error;
+    }
+
+    session.cancel(error);
+    throw error;
+  } finally {
+    request.signal?.removeEventListener("abort", onAbort);
+  }
+}
+
+async function grpcWriteStream(
+  streamingClient: GatewayStreamingServiceClient,
+  request: WriteStreamRequest,
+): Promise<void> {
+  const script =
+    request.mode === "atomic" ? WRITE_STREAM_ATOMIC_SCRIPT : WRITE_STREAM_DIRECT_SCRIPT;
+
+  const args: [string, ...string[]] =
+    request.mode === "atomic"
+      ? [
+          "/bin/sh",
+          "-c",
+          script,
+          "cwsandbox-write-file",
+          request.path,
+          String(request.expectedBytes ?? 0),
+        ]
+      : ["/bin/sh", "-c", script, "cwsandbox-write-file-streaming", request.path];
+
+  const session = await startExecSession(streamingClient, {
+    command: args,
+    sandboxId: request.sandboxId,
+    stdin: true,
+    ...(request.signal !== undefined ? { signal: request.signal } : {}),
+    ...(request.timeoutMs !== undefined ? { timeoutMs: request.timeoutMs } : {}),
+  });
+
+  const input = session.input;
+  if (input === undefined) {
+    throw new CWSandboxTransportError("Expected stdin on file write session.", {
+      operation: "Write file",
+      sandboxId: request.sandboxId,
+      transport: "grpc",
+    });
+  }
+
+  let exitCode: number | undefined;
+  let stderr = "";
+
+  const collect = (async () => {
+    for await (const frame of session.frames) {
+      switch (frame.type) {
+        case "stderr":
+          stderr += new TextDecoder().decode(frame.data);
+          break;
+        case "exit":
+          exitCode = frame.exitCode;
+          break;
+        case "error":
+          throw frame.error;
+        case "ready":
+        case "stdout":
+          break;
+      }
+    }
+  })();
+
+  try {
+    for await (const chunk of iterateFileChunks(request.source)) {
+      request.signal?.throwIfAborted();
+      await input.write(chunk.slice());
+    }
+    await input.close();
+
+    await collect;
+
+    if (exitCode !== 0) {
+      const detail = stderr.trim() || `write command exited with status ${exitCode ?? -1}`;
+      const message =
+        request.mode === "atomic"
+          ? `Failed to write file '${request.path}' via exec-stream fallback: ${detail}. The destination was not replaced (temp write / rename failed).`
+          : `Failed to stream-write file '${request.path}': ${detail}. The target may be partial or truncated.`;
+      throw new CWSandboxFileError(message, {
+        filepath: request.path,
+        operation: "Write file",
+        reason: CWSANDBOX_FILE_IO_FAILED,
+        sandboxId: request.sandboxId,
+      });
+    }
+  } catch (error) {
+    session.cancel(error);
+    if (
+      error instanceof CWSandboxFileError ||
+      error instanceof CWSandboxStreamBackpressureError ||
+      error instanceof CWSandboxStreamTruncatedError
+    ) {
+      throw error;
+    }
+    if (isAbortError(error)) {
+      throw error;
+    }
+    throw new CWSandboxFileError(
+      `Failed to ${request.mode === "atomic" ? "write" : "stream-write"} file '${request.path}'. Upstream error: ${String(error)}`,
+      {
+        cause: error,
+        filepath: request.path,
+        operation: "Write file",
+        reason: CWSANDBOX_FILE_IO_FAILED,
+        sandboxId: request.sandboxId,
+      },
+    );
+  }
+}
+
+async function statFileSize(
+  streamingClient: GatewayStreamingServiceClient,
+  request: ReadStreamRequest,
+): Promise<number | undefined> {
+  try {
+    const session = await startExecSession(streamingClient, {
+      command: ["/bin/sh", "-c", STAT_SCRIPT, "cwsandbox-stat", request.path],
+      sandboxId: request.sandboxId,
+      ...(request.signal !== undefined ? { signal: request.signal } : {}),
+      ...(request.timeoutMs !== undefined ? { timeoutMs: request.timeoutMs } : {}),
+    });
+
+    let stdout = "";
+    let exitCode: number | undefined;
+    for await (const frame of session.frames) {
+      if (frame.type === "stdout") {
+        stdout += new TextDecoder().decode(frame.data);
+      } else if (frame.type === "exit") {
+        exitCode = frame.exitCode;
+      }
+    }
+    if (exitCode !== 0) {
+      return undefined;
+    }
+    const value = Number.parseInt(stdout.trim(), 10);
+    if (!Number.isFinite(value) || value < 0) {
+      return undefined;
+    }
+    return value;
+  } catch {
+    return undefined;
+  }
+}
+
+async function* iterateFileChunks(
+  source: WriteStreamRequest["source"],
+): AsyncGenerator<Uint8Array> {
+  if (source instanceof Uint8Array) {
+    for (let offset = 0; offset < source.byteLength; offset += STREAMING_WRITE_CHUNK_SIZE) {
+      const end = Math.min(offset + STREAMING_WRITE_CHUNK_SIZE, source.byteLength);
+      yield source.subarray(offset, end);
+    }
+    return;
+  }
+
+  if (isAsyncIterable(source)) {
+    for await (const chunk of source) {
+      yield coerceChunk(chunk);
+    }
+    return;
+  }
+
+  for (const chunk of source) {
+    yield coerceChunk(chunk);
+  }
+}
+
+function coerceChunk(chunk: unknown): Uint8Array {
+  if (chunk instanceof Uint8Array) {
+    return chunk;
+  }
+  throw new Error("writeStream chunk must be a Uint8Array.");
+}
+
+function isAsyncIterable(value: object): value is AsyncIterable<Uint8Array> {
+  return Symbol.asyncIterator in value;
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    (error instanceof Error && error.name === "AbortError") ||
+    (typeof DOMException !== "undefined" &&
+      error instanceof DOMException &&
+      error.name === "AbortError")
+  );
+}
+
+function assertGrpcSuccess(
+  response: { readonly errorMessage?: string; readonly success: boolean },
+  options: {
+    readonly fallbackMessage: string;
+    readonly operation: string;
+    readonly sandboxId: string;
+  },
+): void {
+  if (!response.success) {
+    throw new CWSandboxTransportError(response.errorMessage || options.fallbackMessage, {
+      operation: options.operation,
+      sandboxId: options.sandboxId,
+      transport: "grpc",
+    });
+  }
+}
+
+function mapReadStreamExit(
+  sandboxId: string,
+  path: string,
+  exitCode: number,
+  stderr: string,
+): CWSandboxFileError {
+  const detail = stderr.trim() || `stream-read command exited with status ${exitCode}`;
+  if (exitCode === 2) {
+    return new CWSandboxFileError(
+      `File operation failed (${CWSANDBOX_FILE_NOT_FOUND}): ${detail}`,
+      {
+        filepath: path,
+        operation: "Read file",
+        reason: CWSANDBOX_FILE_NOT_FOUND,
+        sandboxId,
+      },
+    );
+  }
+  if (exitCode === 3) {
+    return new CWSandboxFileError(
+      `File operation failed (${CWSANDBOX_FILE_IS_DIRECTORY}): ${detail}`,
+      {
+        filepath: path,
+        operation: "Read file",
+        reason: CWSANDBOX_FILE_IS_DIRECTORY,
+        sandboxId,
+      },
+    );
+  }
+  return new CWSandboxFileError(`Failed to stream-read file '${path}': ${detail}`, {
+    filepath: path,
+    operation: "Read file",
+    reason: CWSANDBOX_FILE_IO_FAILED,
+    sandboxId,
+  });
+}
+
+function verifyNoTruncation(
+  sandboxId: string,
+  path: string,
+  delivered: number,
+  expected: number | undefined,
+): void {
+  if (expected === undefined || expected === 0 || expected < TRUNCATION_CHECK_MIN_BYTES) {
+    return;
+  }
+  if (delivered >= expected) {
+    return;
+  }
+
+  throw new CWSandboxFileError(
+    `readStream of '${path}' was truncated: got ${delivered} of ${expected} bytes. ` +
+      "Use readStream and drain it promptly, or read the file in smaller parts.",
+    {
+      filepath: path,
+      metadata: {
+        bytes_delivered: String(delivered),
+        filepath: path,
+        operation: "read_file_streaming",
+        size_bytes: String(expected),
+      },
+      operation: "Read file",
+      reason: CWSANDBOX_FILE_TRUNCATED,
+      sandboxId,
+    },
+  );
+}

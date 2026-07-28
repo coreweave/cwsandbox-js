@@ -9,13 +9,9 @@ import {
   CWSandboxResourceExhaustedError,
   CWSandboxTransportError,
   CWSandboxValidationError,
-  type CommandInputData,
-  type SandboxTransport,
 } from "./index.js";
 import {
-  CWSANDBOX_FILE_IS_DIRECTORY,
   CWSANDBOX_FILE_IO_FAILED,
-  CWSANDBOX_FILE_NOT_FOUND,
   CWSANDBOX_FILE_TOO_LARGE,
   CWSANDBOX_FILE_TRUNCATED,
 } from "./internal/error-info.js";
@@ -23,25 +19,20 @@ import {
   DEFAULT_FILE_OPERATION_CAP_BYTES,
   MAX_AUTO_FALLBACK_BYTES,
 } from "./internal/file-limits.js";
-import type { InternalCommandProcessWithStdin } from "./internal/start-command-options.js";
-import {
-  createClient,
-  createCommandInputWriter,
-  createCommandProcess,
-  createFakeTransport,
-  createProcessResult,
-} from "./test/helpers.js";
+import { createClient, createFakeFileAdapter } from "./test/helpers.js";
+import type { FileAdapter } from "./transport/file-adapter.js";
+
+type WriteStreamCall = { readonly mode: string; readonly path: string; readonly sandboxId: string };
 
 describe("Sandbox files", () => {
   it("writes string files through the files namespace", async () => {
-    let writeRequest: Parameters<SandboxTransport["writeFile"]>[0] | undefined;
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async writeFile(request) {
+    let writeRequest: Parameters<FileAdapter["write"]>[0] | undefined;
+    const fileAdapter = createFakeFileAdapter({
+      async write(request) {
         writeRequest = request;
       },
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await sandbox.files.write("/tmp/input.txt", "hello", { timeoutMs: 1234 });
 
@@ -55,14 +46,13 @@ describe("Sandbox files", () => {
 
   it("writes byte files through the files namespace", async () => {
     const content = new Uint8Array([1, 2, 3]);
-    let writeRequest: Parameters<SandboxTransport["writeFile"]>[0] | undefined;
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async writeFile(request) {
+    let writeRequest: Parameters<FileAdapter["write"]>[0] | undefined;
+    const fileAdapter = createFakeFileAdapter({
+      async write(request) {
         writeRequest = request;
       },
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await sandbox.files.write("/tmp/input.bin", content);
 
@@ -74,14 +64,13 @@ describe("Sandbox files", () => {
   });
 
   it("writes record batch files through the files namespace", async () => {
-    const writeRequests: Parameters<SandboxTransport["writeFile"]>[0][] = [];
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async writeFile(request) {
+    const writeRequests: Parameters<FileAdapter["write"]>[0][] = [];
+    const fileAdapter = createFakeFileAdapter({
+      async write(request) {
         writeRequests.push(request);
       },
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await sandbox.files.write(
       {
@@ -109,14 +98,13 @@ describe("Sandbox files", () => {
 
   it("writes array batch files through the files namespace", async () => {
     const content = new Uint8Array([1, 2, 3]);
-    const writeRequests: Parameters<SandboxTransport["writeFile"]>[0][] = [];
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async writeFile(request) {
+    const writeRequests: Parameters<FileAdapter["write"]>[0][] = [];
+    const fileAdapter = createFakeFileAdapter({
+      async write(request) {
         writeRequests.push(request);
       },
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await sandbox.files.write([
       { content: "a", path: "/tmp/a.txt" },
@@ -159,43 +147,34 @@ describe("Sandbox files", () => {
 
   it("reads byte files through the files namespace", async () => {
     const content = new Uint8Array([1, 2, 3]);
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async readFile() {
-        return {
-          content,
-        };
+    const fileAdapter = createFakeFileAdapter({
+      async read() {
+        return { content };
       },
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await expect(sandbox.files.read("/tmp/output.bin")).resolves.toBe(content);
   });
 
   it("reads text files through the files namespace", async () => {
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async readFile() {
-        return {
-          content: new TextEncoder().encode("hello"),
-        };
+    const fileAdapter = createFakeFileAdapter({
+      async read() {
+        return { content: new TextEncoder().encode("hello") };
       },
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await expect(sandbox.files.readText("/tmp/output.txt")).resolves.toBe("hello");
   });
 
   it("reads batch byte files through the files namespace", async () => {
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async readFile(request) {
-        return {
-          content: new TextEncoder().encode(request.path),
-        };
+    const fileAdapter = createFakeFileAdapter({
+      async read(request) {
+        return { content: new TextEncoder().encode(request.path) };
       },
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await expect(sandbox.files.read(["/tmp/a.txt", "/tmp/b.txt"])).resolves.toEqual({
       "/tmp/a.txt": new TextEncoder().encode("/tmp/a.txt"),
@@ -204,15 +183,12 @@ describe("Sandbox files", () => {
   });
 
   it("reads batch text files through the files namespace", async () => {
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async readFile(request) {
-        return {
-          content: new TextEncoder().encode(request.path),
-        };
+    const fileAdapter = createFakeFileAdapter({
+      async read(request) {
+        return { content: new TextEncoder().encode(request.path) };
       },
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await expect(sandbox.files.readText(["/tmp/a.txt", "/tmp/b.txt"])).resolves.toEqual({
       "/tmp/a.txt": "/tmp/a.txt",
@@ -222,17 +198,14 @@ describe("Sandbox files", () => {
 
   it("forwards options through batch file reads", async () => {
     const signal = new AbortController().signal;
-    const readRequests: Parameters<SandboxTransport["readFile"]>[0][] = [];
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async readFile(request) {
+    const readRequests: Parameters<FileAdapter["read"]>[0][] = [];
+    const fileAdapter = createFakeFileAdapter({
+      async read(request) {
         readRequests.push(request);
-        return {
-          content: new Uint8Array(),
-        };
+        return { content: new Uint8Array() };
       },
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await sandbox.files.read(["/tmp/a.txt", "/tmp/b.txt"], { signal, timeoutMs: 1234 });
 
@@ -267,17 +240,14 @@ describe("Sandbox files", () => {
 
   it("forwards read options through the files namespace", async () => {
     const signal = new AbortController().signal;
-    let readRequest: Parameters<SandboxTransport["readFile"]>[0] | undefined;
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async readFile(request) {
+    let readRequest: Parameters<FileAdapter["read"]>[0] | undefined;
+    const fileAdapter = createFakeFileAdapter({
+      async read(request) {
         readRequest = request;
-        return {
-          content: new Uint8Array(),
-        };
+        return { content: new Uint8Array() };
       },
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await sandbox.files.read("/tmp/output.txt", { signal, timeoutMs: 1234 });
 
@@ -289,76 +259,52 @@ describe("Sandbox files", () => {
     });
   });
 
-  it("proactively routes writes above the unary cap through StreamExec", async () => {
+  it("proactively routes writes above the unary cap through FileAdapter.writeStream (atomic)", async () => {
     const content = new Uint8Array(DEFAULT_FILE_OPERATION_CAP_BYTES + 1);
-    const writeFile = vi.fn<SandboxTransport["writeFile"]>(async () => undefined);
-    let startRequest: Parameters<SandboxTransport["startCommand"]>[0] | undefined;
-    const stdinChunks: Uint8Array[] = [];
+    const write = vi.fn<FileAdapter["write"]>(async () => undefined);
+    const writeStreamCalls: WriteStreamCall[] = [];
+    let sourceBytes = 0;
 
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      writeFile,
-      async startCommand(request) {
-        startRequest = request;
-        const process = createCommandProcess(
-          request.command,
-          true,
-        ) as InternalCommandProcessWithStdin;
-        const stdin = createCommandInputWriter();
-        return {
-          ...process,
-          stdin: {
-            ...stdin,
-            async write(data: CommandInputData) {
-              stdinChunks.push(typeof data === "string" ? new TextEncoder().encode(data) : data);
-            },
-          },
-          async wait() {
-            return createProcessResult(request.command, { exitCode: 0 });
-          },
-        };
+    const fileAdapter = createFakeFileAdapter({
+      write,
+      async writeStream(request) {
+        writeStreamCalls.push({
+          mode: request.mode,
+          path: request.path,
+          sandboxId: request.sandboxId,
+        });
+        if (request.source instanceof Uint8Array) {
+          sourceBytes = request.source.byteLength;
+        }
       },
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await sandbox.files.write("/tmp/large.bin", content);
 
-    expect(writeFile).not.toHaveBeenCalled();
-    expect(startRequest?.command[0]).toBe("/bin/sh");
-    expect(startRequest?.command).toContain("/tmp/large.bin");
-    expect(startRequest?.binaryOutput).toBe(true);
-    const script = String(startRequest?.command[2] ?? "");
-    expect(script).toContain('tmp="$path.tmp.$$"');
-    expect(script).toContain("trap 'rm -f \"$tmp\"' EXIT");
-    expect(script).toContain('mv -f "$tmp" "$path"');
-    expect(script).toContain("trap - EXIT");
-    expect(stdinChunks.reduce((total, chunk) => total + chunk.byteLength, 0)).toBe(
-      content.byteLength,
-    );
+    expect(write).not.toHaveBeenCalled();
+    expect(writeStreamCalls).toHaveLength(1);
+    expect(writeStreamCalls[0]).toMatchObject({
+      mode: "atomic",
+      path: "/tmp/large.bin",
+      sandboxId: "sandbox-for-echo",
+    });
+    expect(sourceBytes).toBe(content.byteLength);
   });
 
-  it("maps StreamExec write non-zero exits to CWSANDBOX_FILE_IO_FAILED", async () => {
+  it("maps FileAdapter.writeStream (atomic) errors to CWSANDBOX_FILE_IO_FAILED", async () => {
     const content = new Uint8Array(DEFAULT_FILE_OPERATION_CAP_BYTES + 1);
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async startCommand(request) {
-        const process = createCommandProcess(
-          request.command,
-          true,
-        ) as InternalCommandProcessWithStdin;
-        return {
-          ...process,
-          status: "running",
-          async wait() {
-            return createProcessResult(request.command, {
-              exitCode: 1,
-              stderr: "disk full",
-            });
-          },
-        };
+    const fileAdapter = createFakeFileAdapter({
+      async writeStream() {
+        throw new CWSandboxFileError("atomic write failed: disk full", {
+          filepath: "/tmp/large.bin",
+          operation: "Write file",
+          reason: CWSANDBOX_FILE_IO_FAILED,
+          sandboxId: "sandbox-for-echo",
+        });
       },
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await expect(sandbox.files.write("/tmp/large.bin", content)).rejects.toMatchObject({
       filepath: "/tmp/large.bin",
@@ -366,64 +312,11 @@ describe("Sandbox files", () => {
     });
   });
 
-  it("cancels StreamExec write fallback when stdin write fails", async () => {
-    const content = new Uint8Array(DEFAULT_FILE_OPERATION_CAP_BYTES + 1);
-    let cancelled = false;
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async startCommand(request) {
-        const process = createCommandProcess(
-          request.command,
-          true,
-        ) as InternalCommandProcessWithStdin;
-        const stdin = createCommandInputWriter();
-        return {
-          ...process,
-          status: "running",
-          stdin: {
-            ...stdin,
-            async write() {
-              throw new Error("write timed out");
-            },
-          },
-          async cancel() {
-            cancelled = true;
-          },
-          async wait() {
-            return createProcessResult(request.command, { exitCode: 0 });
-          },
-        };
-      },
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
-
-    await expect(sandbox.files.write("/tmp/large.bin", content)).rejects.toMatchObject({
-      filepath: "/tmp/large.bin",
-      reason: CWSANDBOX_FILE_IO_FAILED,
-    });
-    expect(cancelled).toBe(true);
-  });
-
-  it("falls back to StreamExec when unary write reports FILE_TOO_LARGE", async () => {
+  it("falls back to FileAdapter.writeStream when unary write reports FILE_TOO_LARGE", async () => {
     const content = new Uint8Array(1024);
-    const startCommand = vi.fn<SandboxTransport["startCommand"]>(async (request) => {
-      if (request.stdin === true) {
-        const process = createCommandProcess(
-          request.command,
-          true,
-        ) as InternalCommandProcessWithStdin;
-        return {
-          ...process,
-          async wait() {
-            return createProcessResult(request.command, { exitCode: 0 });
-          },
-        };
-      }
-      return createCommandProcess(request.command);
-    });
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async writeFile() {
+    const writeStreamCalls: WriteStreamCall[] = [];
+    const fileAdapter = createFakeFileAdapter({
+      async write() {
         throw new CWSandboxTransportError(
           "file payload exceeds configured max-file-operation-bytes",
           {
@@ -433,180 +326,92 @@ describe("Sandbox files", () => {
           },
         );
       },
-      startCommand,
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+      async writeStream(request) {
+        writeStreamCalls.push({
+          mode: request.mode,
+          path: request.path,
+          sandboxId: request.sandboxId,
+        });
+      },
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await sandbox.files.write("/tmp/small.bin", content);
 
-    expect(startCommand.mock.calls.some((call) => call[0].stdin === true)).toBe(true);
+    expect(writeStreamCalls.some((call) => call.mode === "atomic")).toBe(true);
   });
 
-  it("falls back to StreamExec when unary read reports FILE_TOO_LARGE with size", async () => {
+  it("falls back to FileAdapter.readStream when unary read reports FILE_TOO_LARGE with size", async () => {
     const content = new Uint8Array([9, 8, 7]);
-    const startCommand = vi.fn<SandboxTransport["startCommand"]>(async (request) => {
-      const process = createCommandProcess(request.command);
-      return {
-        ...process,
-        async wait() {
-          return createProcessResult(request.command, {
-            exitCode: 0,
-            stdoutBytes: content,
-          });
-        },
-      };
-    });
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async readFile() {
+    const fileAdapter = createFakeFileAdapter({
+      async read() {
         throw new CWSandboxTransportError("file too large", {
-          metadata: {
-            size_bytes: "3",
-          },
+          metadata: { size_bytes: "3" },
           operation: "Read file",
           reason: CWSANDBOX_FILE_TOO_LARGE,
           sandboxId: "sandbox-for-echo",
         });
       },
-      startCommand,
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+      readStream() {
+        return asyncIterableFrom([content]);
+      },
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await expect(sandbox.files.read("/tmp/large.bin")).resolves.toEqual(content);
-    expect(startCommand).toHaveBeenCalledOnce();
-    expect(startCommand.mock.calls[0]?.[0].command[0]).toBe("/bin/sh");
-    expect(startCommand.mock.calls[0]?.[0].binaryOutput).toBe(true);
   });
 
-  it("falls back to StreamExec when unary read is resource exhausted", async () => {
+  it("falls back to FileAdapter.readStream when unary read is resource exhausted", async () => {
     const content = new Uint8Array([1, 2]);
-    const startCommand = vi.fn<SandboxTransport["startCommand"]>(async (request) => {
-      const process = createCommandProcess(request.command);
-      return {
-        ...process,
-        async wait() {
-          return createProcessResult(request.command, {
-            exitCode: 0,
-            stdoutBytes: content,
-          });
-        },
-      };
-    });
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async readFile() {
+    const fileAdapter = createFakeFileAdapter({
+      async read() {
         throw new CWSandboxResourceExhaustedError("resource exhausted", {
           operation: "Read file",
           sandboxId: "sandbox-for-echo",
         });
       },
-      startCommand,
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+      readStream() {
+        return asyncIterableFrom([content]);
+      },
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await expect(sandbox.files.read("/tmp/large.bin")).resolves.toEqual(content);
-    expect(startCommand).toHaveBeenCalledOnce();
   });
 
-  it("falls back to StreamExec when unary read hits the gRPC decompress size cliff", async () => {
+  it("falls back to FileAdapter.readStream when unary read hits the gRPC decompress size cliff", async () => {
     const content = new Uint8Array([4, 5, 6]);
-    const startCommand = vi.fn<SandboxTransport["startCommand"]>(async (request) => {
-      const process = createCommandProcess(request.command);
-      return {
-        ...process,
-        async wait() {
-          return createProcessResult(request.command, {
-            exitCode: 0,
-            stdoutBytes: content,
-          });
-        },
-      };
-    });
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async readFile() {
+    const fileAdapter = createFakeFileAdapter({
+      async read() {
         throw new CWSandboxResourceExhaustedError(
           "Read file failed: Received message that decompresses to a size larger than 4194304",
           { operation: "Read file", sandboxId: "sandbox-for-echo" },
         );
       },
-      startCommand,
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+      readStream() {
+        return asyncIterableFrom([content]);
+      },
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await expect(sandbox.files.read("/tmp/large.bin")).resolves.toEqual(content);
-    expect(startCommand).toHaveBeenCalledOnce();
   });
 
-  it("rejects StreamExec reads when the client buffer truncates stdout", async () => {
-    const startCommand = vi.fn<SandboxTransport["startCommand"]>(async (request) => {
-      const process = createCommandProcess(request.command);
-      return {
-        ...process,
-        async wait() {
-          return createProcessResult(request.command, {
-            exitCode: 0,
-            stdoutBytes: new Uint8Array([1, 2, 3]),
-            stdoutTruncated: true,
-          });
-        },
-      };
-    });
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async readFile() {
+  it("rejects fallback reads that deliver fewer bytes than reported size", async () => {
+    const fileAdapter = createFakeFileAdapter({
+      async read() {
         throw new CWSandboxTransportError("file too large", {
-          metadata: {
-            size_bytes: "3",
-          },
+          metadata: { size_bytes: "10" },
           operation: "Read file",
           reason: CWSANDBOX_FILE_TOO_LARGE,
           sandboxId: "sandbox-for-echo",
         });
       },
-      startCommand,
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
-
-    const truncated = await sandbox.files.read("/tmp/large.bin").then(
-      () => undefined,
-      (error: unknown) => error,
-    );
-    expect(truncated).toBeInstanceOf(CWSandboxFileError);
-    expect(truncated).toMatchObject({
-      filepath: "/tmp/large.bin",
-      reason: CWSANDBOX_FILE_TRUNCATED,
-    });
-  });
-
-  it("rejects StreamExec reads that deliver fewer bytes than reported size", async () => {
-    const startCommand = vi.fn<SandboxTransport["startCommand"]>(async (request) => {
-      const process = createCommandProcess(request.command);
-      return {
-        ...process,
-        async wait() {
-          return createProcessResult(request.command, {
-            exitCode: 0,
-            stdoutBytes: new Uint8Array([1, 2]),
-          });
-        },
-      };
-    });
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async readFile() {
-        throw new CWSandboxTransportError("file too large", {
-          metadata: {
-            size_bytes: "10",
-          },
-          operation: "Read file",
-          reason: CWSANDBOX_FILE_TOO_LARGE,
-          sandboxId: "sandbox-for-echo",
-        });
+      readStream() {
+        return asyncIterableFrom([new Uint8Array([1, 2])]);
       },
-      startCommand,
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await expect(sandbox.files.read("/tmp/large.bin")).rejects.toMatchObject({
       filepath: "/tmp/large.bin",
@@ -619,62 +424,12 @@ describe("Sandbox files", () => {
     });
   });
 
-  it("maps StreamExec read exit codes to AIP-193 file reasons", async () => {
-    for (const [exitCode, reason] of [
-      [2, CWSANDBOX_FILE_NOT_FOUND],
-      [3, CWSANDBOX_FILE_IS_DIRECTORY],
-      [1, CWSANDBOX_FILE_IO_FAILED],
-    ] as const) {
-      const startCommand = vi.fn<SandboxTransport["startCommand"]>(async (request) => {
-        const process = createCommandProcess(request.command);
-        return {
-          ...process,
-          async wait() {
-            return createProcessResult(request.command, {
-              exitCode,
-              stderr: `exit ${exitCode}`,
-            });
-          },
-        };
-      });
-      const transport: SandboxTransport = {
-        ...createFakeTransport(),
-        async readFile() {
-          throw new CWSandboxTransportError("file too large", {
-            metadata: { size_bytes: "3" },
-            operation: "Read file",
-            reason: CWSANDBOX_FILE_TOO_LARGE,
-            sandboxId: "sandbox-for-echo",
-          });
-        },
-        startCommand,
-      };
-      const sandbox = await createClient(transport).run(["echo", "hello"]);
-
-      const error = await sandbox.files.read("/tmp/large.bin").then(
-        () => undefined,
-        (value: unknown) => value,
-      );
-      expect(error).toBeInstanceOf(CWSandboxFileError);
-      expect(error).toMatchObject({
-        filepath: "/tmp/large.bin",
-        reason,
-      });
-    }
-  });
-
-  it("refuses writes above the auto-fallback ceiling without StreamExec", async () => {
+  it("refuses writes above the auto-fallback ceiling without FileAdapter", async () => {
     const content = new Uint8Array(MAX_AUTO_FALLBACK_BYTES + 1);
-    const writeFile = vi.fn<SandboxTransport["writeFile"]>(async () => undefined);
-    const startCommand = vi.fn<SandboxTransport["startCommand"]>(async (request) =>
-      createCommandProcess(request.command, true),
-    );
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      writeFile,
-      startCommand,
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+    const write = vi.fn<FileAdapter["write"]>(async () => undefined);
+    const writeStream = vi.fn<FileAdapter["writeStream"]>(async () => undefined);
+    const fileAdapter = createFakeFileAdapter({ write, writeStream });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     const error = await sandbox.files.write("/tmp/huge.bin", content).then(
       () => undefined,
@@ -686,12 +441,13 @@ describe("Sandbox files", () => {
       message: expect.stringContaining("auto-fallback ceiling"),
       reason: CWSANDBOX_FILE_TOO_LARGE,
     });
-    expect(writeFile).not.toHaveBeenCalled();
-    expect(startCommand).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+    expect(writeStream).not.toHaveBeenCalled();
   });
 
-  it("records observed unary cap and routes later writes through StreamExec", async () => {
-    const writeFile = vi.fn<SandboxTransport["writeFile"]>(async () => {
+  it("records observed unary cap and routes later writes through FileAdapter.writeStream", async () => {
+    const writeStreamCalls: WriteStreamCall[] = [];
+    const write = vi.fn<FileAdapter["write"]>(async (_request) => {
       throw new CWSandboxTransportError("file too large", {
         metadata: {
           max_size_bytes: "1024",
@@ -702,41 +458,32 @@ describe("Sandbox files", () => {
         sandboxId: "sandbox-for-echo",
       });
     });
-    const startCommand = vi.fn<SandboxTransport["startCommand"]>(async (request) => {
-      const process = createCommandProcess(
-        request.command,
-        true,
-      ) as InternalCommandProcessWithStdin;
-      return {
-        ...process,
-        async wait() {
-          return createProcessResult(request.command, { exitCode: 0 });
-        },
-      };
+    const fileAdapter = createFakeFileAdapter({
+      write,
+      async writeStream(request) {
+        writeStreamCalls.push({
+          mode: request.mode,
+          path: request.path,
+          sandboxId: request.sandboxId,
+        });
+      },
     });
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      writeFile,
-      startCommand,
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await sandbox.files.write("/tmp/learn.bin", new Uint8Array(512));
-    expect(writeFile).toHaveBeenCalledOnce();
-    expect(startCommand).toHaveBeenCalledOnce();
+    expect(write).toHaveBeenCalledOnce();
+    expect(writeStreamCalls).toHaveLength(1);
 
-    writeFile.mockClear();
-    startCommand.mockClear();
+    write.mockClear();
+    writeStreamCalls.length = 0;
 
     await sandbox.files.write("/tmp/after-learn.bin", new Uint8Array(2048));
-    expect(writeFile).not.toHaveBeenCalled();
-    expect(startCommand).toHaveBeenCalledOnce();
+    expect(write).not.toHaveBeenCalled();
+    expect(writeStreamCalls).toHaveLength(1);
   });
 
   it("does not auto-fallback reads when FILE_TOO_LARGE size exceeds the ceiling", async () => {
-    const startCommand = vi.fn<SandboxTransport["startCommand"]>(async (request) =>
-      createCommandProcess(request.command),
-    );
+    const readStream = vi.fn<FileAdapter["readStream"]>(() => asyncIterableFrom([]));
     const error = new CWSandboxTransportError("file too large", {
       metadata: {
         size_bytes: String(MAX_AUTO_FALLBACK_BYTES + 1),
@@ -745,46 +492,40 @@ describe("Sandbox files", () => {
       reason: CWSANDBOX_FILE_TOO_LARGE,
       sandboxId: "sandbox-for-echo",
     });
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async readFile() {
+    const fileAdapter = createFakeFileAdapter({
+      async read() {
         throw error;
       },
-      startCommand,
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+      readStream,
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await expect(sandbox.files.read("/tmp/huge.bin")).rejects.toBe(error);
-    expect(startCommand).not.toHaveBeenCalled();
+    expect(readStream).not.toHaveBeenCalled();
   });
 
-  it("forwards AbortSignal into StreamExec fallback writes", async () => {
+  it("forwards AbortSignal into FileAdapter.writeStream fallback", async () => {
     const content = new Uint8Array(DEFAULT_FILE_OPERATION_CAP_BYTES + 1);
     const signal = AbortSignal.abort();
-    const startCommand = vi.fn<SandboxTransport["startCommand"]>(async (request) => {
+    const writeStream = vi.fn<FileAdapter["writeStream"]>(async (request) => {
       expect(request.signal?.aborted).toBe(true);
-      const process = createCommandProcess(
-        request.command,
-        true,
-      ) as InternalCommandProcessWithStdin;
-      return {
-        ...process,
-        async wait(options) {
-          options?.signal?.throwIfAborted();
-          return createProcessResult(request.command, { exitCode: 0 });
-        },
-      };
+      request.signal?.throwIfAborted();
     });
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      writeFile: vi.fn<SandboxTransport["writeFile"]>(async () => undefined),
-      startCommand,
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+    const fileAdapter = createFakeFileAdapter({
+      write: vi.fn<FileAdapter["write"]>(async () => undefined),
+      writeStream,
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await expect(sandbox.files.write("/tmp/large.bin", content, { signal })).rejects.toThrow(
       /aborted|AbortError|This operation was aborted/i,
     );
-    expect(startCommand).toHaveBeenCalledOnce();
+    expect(writeStream).toHaveBeenCalledOnce();
   });
 });
+
+async function* asyncIterableFrom<T>(values: readonly T[]): AsyncIterable<T> {
+  for (const value of values) {
+    yield value;
+  }
+}

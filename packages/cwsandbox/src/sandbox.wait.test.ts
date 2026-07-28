@@ -11,12 +11,12 @@ import {
   CWSandboxTransportError,
   CWSandboxUnavailableError,
   CWSandboxValidationError,
-  type SandboxTransport,
   type WaitOptions,
 } from "./index.js";
 import type { SandboxRuntime } from "./runtime/context.js";
 import { waitForSandbox, type WaitForSandboxOptions } from "./runtime/wait.js";
-import { createClient, createFakeTransport } from "./test/helpers.js";
+import { createClient, createFakeFileAdapter, createFakeTransport } from "./test/helpers.js";
+import type { SandboxTransport } from "./transport.js";
 
 /** Test-only: pass internal initialIntervalMs through public wait(). */
 function fastWait(options: WaitForSandboxOptions = {}): WaitOptions {
@@ -289,9 +289,8 @@ describe("Sandbox status and wait", () => {
       },
     };
     const runtime: SandboxRuntime = {
-      observedFileOpCapBytes: undefined,
+      fileAdapter: createFakeFileAdapter(),
       sandboxId: "sandbox-clamp",
-      streamingFallbackNotified: false,
       transport,
     };
 
@@ -326,9 +325,8 @@ describe("Sandbox status and wait", () => {
       },
     };
     const runtime: SandboxRuntime = {
-      observedFileOpCapBytes: undefined,
+      fileAdapter: createFakeFileAdapter(),
       sandboxId: "sandbox-overrun",
-      streamingFallbackNotified: false,
       transport,
     };
 
@@ -358,9 +356,8 @@ describe("Sandbox status and wait", () => {
       },
     };
     const runtime: SandboxRuntime = {
-      observedFileOpCapBytes: undefined,
+      fileAdapter: createFakeFileAdapter(),
       sandboxId: "sandbox-budget",
-      streamingFallbackNotified: false,
       transport,
     };
 

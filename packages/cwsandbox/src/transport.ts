@@ -2,8 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
-import type { InternalCommandProcess } from "./internal/start-command-options.js";
-import type { ProcessResult, TerminalSession } from "./public/commands.js";
+import type {
+  CommandProcess,
+  CommandProcessWithStdin,
+  ProcessResult,
+  TerminalSession,
+} from "./public/commands.js";
 import type { LogEntryStream, LogRawStream, LogStream } from "./public/logs.js";
 import type {
   GetSandboxResult,
@@ -15,14 +19,11 @@ import type {
   DeleteSandboxRequest,
   ExecRequest,
   GetSandboxRequest,
-  ReadFileRequest,
-  ReadFileResult,
   StartSandboxRequest,
   StartCommandRequest,
   StartShellRequest,
   StreamLogsRequest,
   StopSandboxRequest,
-  WriteFileRequest,
 } from "./transport/types.js";
 
 export interface SandboxTransport {
@@ -31,11 +32,12 @@ export interface SandboxTransport {
   list(options: ListSandboxesOptions): Promise<ListSandboxesResult>;
   delete(request: DeleteSandboxRequest): Promise<void>;
   exec(request: ExecRequest): Promise<ProcessResult>;
-  /** Returns an internal process that may expose `stdoutBinary` for file I/O. */
-  startCommand(request: StartCommandRequest): Promise<InternalCommandProcess>;
+  startCommand(request: StartCommandRequest & { readonly stdin?: false }): Promise<CommandProcess>;
+  startCommand(
+    request: StartCommandRequest & { readonly stdin: true },
+  ): Promise<CommandProcessWithStdin>;
+  startCommand(request: StartCommandRequest): Promise<CommandProcess | CommandProcessWithStdin>;
   startShell(request: StartShellRequest): Promise<TerminalSession>;
   streamLogs(request: StreamLogsRequest): Promise<LogEntryStream | LogRawStream | LogStream>;
   stop(request: StopSandboxRequest): Promise<void>;
-  writeFile(request: WriteFileRequest): Promise<void>;
-  readFile(request: ReadFileRequest): Promise<ReadFileResult>;
 }

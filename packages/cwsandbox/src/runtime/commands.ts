@@ -4,14 +4,11 @@
 
 import { CWSandboxExecutionError } from "../errors.js";
 import { normalizeCommand } from "../internal/commands.js";
-import type {
-  InternalCommandProcess,
-  InternalCommandProcessWithStdin,
-  InternalStartCommandOptions,
-} from "../internal/start-command-options.js";
 import { validateExecOptions, validateStartCommandOptions } from "../internal/validation/index.js";
 import type {
   CommandInput,
+  CommandProcess,
+  CommandProcessWithStdin,
   ExecOptions,
   ProcessResult,
   SandboxCommands,
@@ -21,12 +18,10 @@ import type {
 import type { SandboxRuntime } from "./context.js";
 
 export function createSandboxCommands(runtime: SandboxRuntime): SandboxCommands {
-  // Narrow to public SandboxCommands.start (no binary flags / stdoutBinary).
-  const start = ((command: CommandInput, options?: StartCommandOptions) =>
-    startCommand(runtime, command, options)) as unknown as SandboxCommands["start"];
   return {
     run: (command, execOptions) => execCommand(runtime, command, execOptions),
-    start,
+    start: ((command: CommandInput, options?: StartCommandOptions) =>
+      startCommand(runtime, command, options)) as SandboxCommands["start"],
   };
 }
 
@@ -52,18 +47,18 @@ export async function execCommand(
 export function startCommand(
   runtime: SandboxRuntime,
   command: CommandInput,
-  options: StartCommandOptionsWithStdin & InternalStartCommandOptions,
-): Promise<InternalCommandProcessWithStdin>;
+  options: StartCommandOptionsWithStdin,
+): Promise<CommandProcessWithStdin>;
 export function startCommand(
   runtime: SandboxRuntime,
   command: CommandInput,
-  options?: InternalStartCommandOptions,
-): Promise<InternalCommandProcess>;
+  options?: StartCommandOptions,
+): Promise<CommandProcess>;
 export async function startCommand(
   runtime: SandboxRuntime,
   command: CommandInput,
-  options: InternalStartCommandOptions = {},
-): Promise<InternalCommandProcess | InternalCommandProcessWithStdin> {
+  options: StartCommandOptions = {},
+): Promise<CommandProcess | CommandProcessWithStdin> {
   validateStartCommandOptions(options);
 
   return runtime.transport.startCommand({

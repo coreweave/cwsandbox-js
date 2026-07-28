@@ -11,6 +11,7 @@ import {
   validateRequestOptions,
   validateSandboxRunOptions,
 } from "./internal/validation/index.js";
+import type { SandboxClient as SandboxClientInterface } from "./public/client.js";
 import type { CommandInput } from "./public/commands.js";
 import type {
   DeleteOptions,
@@ -18,54 +19,47 @@ import type {
   GetSandboxResult,
   ListSandboxesOptions,
   ListSandboxesResult,
+  Sandbox as PublicSandbox,
   SandboxId,
   SandboxInfo,
   SandboxListOptions,
   SandboxRunOptions,
 } from "./public/sandbox.js";
 import { SandboxList } from "./runtime/sandbox-list.js";
-import { Sandbox } from "./sandbox.js";
+import { Sandbox as SandboxImpl } from "./sandbox.js";
 import type { SandboxTransport } from "./transport.js";
+import type { FileAdapter } from "./transport/file-adapter.js";
 
 export interface SandboxClientOptions {
+  readonly fileAdapter: FileAdapter;
   readonly transport: SandboxTransport;
 }
 
-export type WithSandboxCallback<TResult> = (sandbox: Sandbox) => Promise<TResult> | TResult;
+export type WithSandboxCallback<TResult> = (sandbox: PublicSandbox) => Promise<TResult> | TResult;
 
-export class SandboxClient {
+export class SandboxClient implements SandboxClientInterface {
   private readonly transport: SandboxTransport;
+  private readonly fileAdapter: FileAdapter;
 
   public constructor(options: SandboxClientOptions) {
     this.transport = options.transport;
+    this.fileAdapter = options.fileAdapter;
   }
 
-  /**
-   * Create a long-lived sandbox and wait until it is ready for SDK operations.
-   *
-   * Uses the SDK default keep-alive command for the sandbox main process. Pass
-   * `waitUntilRunning: false` to resolve after the backend accepts the start
-   * request instead of waiting for lifecycle readiness.
-   */
-  public async create(options: SandboxRunOptions = {}): Promise<Sandbox> {
+  public async create(options: SandboxRunOptions = {}): Promise<PublicSandbox> {
     return this.run(DEFAULT_KEEP_ALIVE_COMMAND, options);
   }
 
-  /**
-   * Start a sandbox with a custom main process and wait until it is running.
-   *
-   * The command runs as the sandbox's main process and drives sandbox logs.
-   * Pass `waitUntilRunning: false` to resolve after the backend accepts the
-   * start request.
-   */
-  public async run(command: CommandInput, options: SandboxRunOptions = {}): Promise<Sandbox> {
+  public async run(command: CommandInput, options: SandboxRunOptions = {}): Promise<PublicSandbox> {
     const transport = this.transport;
+    const fileAdapter = this.fileAdapter;
     const normalizedCommand = normalizeCommand(command);
     validateSandboxRunOptions(options);
     const { waitUntilRunning, ...startOptions } = options;
     const result = await transport.start({ ...startOptions, command: normalizedCommand });
 
-    const sandbox = new Sandbox({
+    const sandbox = new SandboxImpl({
+      fileAdapter,
       metadata: result,
       sandboxId: result.sandboxId,
       transport,
@@ -86,10 +80,11 @@ export class SandboxClient {
     return this.transport.get({ ...options, sandboxId });
   }
 
-  public async fromId(sandboxId: SandboxId, options: FromIdOptions = {}): Promise<Sandbox> {
+  public async fromId(sandboxId: SandboxId, options: FromIdOptions = {}): Promise<PublicSandbox> {
     const result = await this.get(sandboxId, options);
 
-    return new Sandbox({
+    return new SandboxImpl({
+      fileAdapter: this.fileAdapter,
       metadata: result,
       sandboxId,
       transport: this.transport,
@@ -101,14 +96,6 @@ export class SandboxClient {
     return this.transport.list(options);
   }
 
-  /**
-   * List matching sandboxes by following `nextPageToken`.
-   *
-   * Returns a lazy `SandboxList`: iterate sandboxes one-by-one, call
-   * `.byPage()` for page batches, or `.collect()` for a full array. Handles
-   * are built from list metadata only. `timeoutMs` is a wall-clock budget
-   * across pages (default 300s), not a per-page timeout.
-   */
   public listSandboxes(options: SandboxListOptions = {}): SandboxList {
     validateListSandboxesOptions(options);
     return new SandboxList(
@@ -118,17 +105,13 @@ export class SandboxClient {
     );
   }
 
-  /**
-   * List every sandbox matching the filters by following `nextPageToken`.
-   *
-   * Alias of `listSandboxes(options).collect()`.
-   */
-  public async listAll(options: SandboxListOptions = {}): Promise<readonly Sandbox[]> {
+  public async listAll(options: SandboxListOptions = {}): Promise<readonly PublicSandbox[]> {
     return this.listSandboxes(options).collect();
   }
 
-  private toSandbox(info: SandboxInfo): Sandbox {
-    return new Sandbox({
+  private toSandbox(info: SandboxInfo): PublicSandbox {
+    return new SandboxImpl({
+      fileAdapter: this.fileAdapter,
       metadata: info,
       sandboxId: info.sandboxId,
       transport: this.transport,
@@ -144,12 +127,6 @@ export class SandboxClient {
     );
   }
 
-  /**
-   * Run short-lived work in a long-lived sandbox and stop it after the callback.
-   *
-   * The callback receives a `running` sandbox by default. Pass a command as the
-   * first argument only when you need a custom sandbox main process.
-   */
   public async withSandbox<TResult>(
     callback: WithSandboxCallback<TResult>,
     options?: SandboxRunOptions,

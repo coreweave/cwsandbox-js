@@ -8,7 +8,6 @@ import {
   CWSandboxExecutionError,
   DEFAULT_KEEP_ALIVE_COMMAND,
   type Command,
-  type CommandInputData,
   type CommandInputWriter,
   type CommandProcess,
   type CommandOutputStream,
@@ -39,6 +38,7 @@ import {
   type ResourceRequestsAndLimits,
   type Sandbox,
   type SandboxAnnotations,
+  type SandboxClient,
   type SandboxExposedPort,
   type SandboxInfo,
   type SandboxList,
@@ -50,7 +50,6 @@ import {
   type SandboxTag,
   type SecretInput,
   type Secrets,
-  SandboxClient,
   type StartSandboxResult,
   type StartCommandOptionsWithStdin,
   type TerminalResult,
@@ -58,7 +57,12 @@ import {
   type WaitOptions,
   type WaitTargetStatus,
 } from "./index.js";
-import type { SandboxTransport } from "./transport.js";
+import {
+  createSandboxClient,
+  createSandboxClientFromEnv,
+  type NodeSandboxClientOptions,
+  type CWSandboxEnvironment,
+} from "./node/index.js";
 import {
   createSandboxClient as createWandbSubpathClient,
   createSandboxClientFromEnv as createWandbSubpathClientFromEnv,
@@ -66,153 +70,8 @@ import {
   type WandbSandboxEnvironment,
 } from "./wandb/index.js";
 
-const transport = {
-  async exec(request) {
-    return {
-      command: request.command,
-      exitCode: 0,
-      failed: false,
-      ok: true,
-      stderr: "",
-      stderrBytes: new Uint8Array(),
-      stderrBytesProduced: 0,
-      stderrTruncated: false,
-      stdout: "",
-      stdoutBytes: new Uint8Array(),
-      stdoutBytesProduced: 0,
-      stdoutTruncated: false,
-    };
-  },
-  async get(request) {
-    return {
-      sandboxId: request.sandboxId,
-      status: "running",
-    };
-  },
-  async start(request) {
-    return {
-      sandboxId: request.command[0],
-      status: "running",
-    };
-  },
-  async startCommand(request) {
-    const process = {
-      cancel: async () => undefined,
-      command: request.command,
-      exitCode: 0,
-      stderr: (async function* () {})(),
-      status: "exited" as const,
-      stdout: (async function* () {})(),
-      stdoutBinary: (async function* () {})(),
-      poll() {
-        return 0;
-      },
-      async wait() {
-        return {
-          command: request.command,
-          exitCode: 0,
-          failed: false,
-          ok: true,
-          stderr: "",
-          stderrBytes: new Uint8Array(),
-          stderrBytesProduced: 0,
-          stderrTruncated: false,
-          stdout: "",
-          stdoutBytes: new Uint8Array(),
-          stdoutBytesProduced: 0,
-          stdoutTruncated: false,
-        };
-      },
-    };
-
-    if (request.stdin === true) {
-      return {
-        ...process,
-        stdin: {
-          closed: false,
-          close: async () => undefined,
-          write: async (_data: CommandInputData) => undefined,
-          writeln: async (_text: string) => undefined,
-        },
-      };
-    }
-
-    return process;
-  },
-  async startShell(request) {
-    return {
-      cancel: async () => undefined,
-      command: request.command,
-      exitCode: 0,
-      output: (async function* () {})(),
-      poll() {
-        return 0;
-      },
-      resize: async () => undefined,
-      status: "exited" as const,
-      stdin: {
-        closed: false,
-        close: async () => undefined,
-        write: async (_data: CommandInputData) => undefined,
-        writeln: async (_text: string) => undefined,
-      },
-      async wait() {
-        return {
-          command: request.command,
-          exitCode: 0,
-        };
-      },
-    };
-  },
-  async streamLogs(request) {
-    const base = {
-      cancel: async () => undefined,
-      close: async () => undefined,
-      closed: true,
-      offset: undefined,
-      sessionId: undefined,
-    };
-
-    if (request.mode === "entries") {
-      return {
-        ...base,
-        [Symbol.asyncIterator]: async function* () {},
-      };
-    }
-
-    if (request.mode === "raw") {
-      return {
-        ...base,
-        [Symbol.asyncIterator]: async function* () {},
-      };
-    }
-
-    return {
-      ...base,
-      [Symbol.asyncIterator]: async function* () {},
-    };
-  },
-  async list() {
-    return {
-      sandboxes: [],
-    };
-  },
-  async delete() {
-    return undefined;
-  },
-  async stop() {
-    return undefined;
-  },
-  async writeFile() {
-    return undefined;
-  },
-  async readFile() {
-    return {
-      content: new Uint8Array(),
-    };
-  },
-} satisfies SandboxTransport;
-
+const nodeOptions: NodeSandboxClientOptions = { apiKey: "test-key" };
+const nodeEnv: CWSandboxEnvironment = { CWSANDBOX_API_KEY: "test-key" };
 const wandbOptions: WandbSandboxClientOptions = {
   apiKey: "wandb-key",
   entity: "team",
@@ -223,9 +82,13 @@ const wandbEnvironment: WandbSandboxEnvironment = {
   WANDB_ENTITY: "team",
   WANDB_PROJECT: "project",
 };
+expectTypeOf(createSandboxClient(nodeOptions)).toEqualTypeOf<SandboxClient>();
+expectTypeOf(createSandboxClientFromEnv(nodeEnv)).toEqualTypeOf<SandboxClient>();
 expectTypeOf(createWandbSubpathClient(wandbOptions)).toEqualTypeOf<SandboxClient>();
 expectTypeOf(createWandbSubpathClientFromEnv(wandbEnvironment)).toEqualTypeOf<SandboxClient>();
-const client = new SandboxClient({ transport });
+
+// SandboxClient / Sandbox are type-only interfaces; factories are the supported creation path.
+declare const client: SandboxClient;
 
 expectTypeOf(DEFAULT_KEEP_ALIVE_COMMAND).toExtend<CommandInput>();
 const sandboxRunOptions: SandboxRunOptions = { waitUntilRunning: false };

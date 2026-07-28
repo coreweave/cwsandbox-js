@@ -2,8 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
+import type {
+  CommandInput,
+  ExecOptions,
+  ProcessResult,
+  SandboxCommands,
+  ShellOptions,
+  TerminalSession,
+} from "./commands.js";
 import type { RequestOptions, Seconds } from "./common.js";
-import type { MountedFiles } from "./files.js";
+import type { MountedFiles, SandboxFiles } from "./files.js";
+import type { SandboxLogs } from "./logs.js";
 import type { NetworkOptions, PortInput } from "./network.js";
 import type { ResourceOptions, ResourceSpec } from "./resources.js";
 import type { Secrets } from "./secrets.js";
@@ -132,4 +141,32 @@ export interface StartSandboxResult extends SandboxMetadata {}
 
 export interface GetSandboxResult extends SandboxMetadata {
   readonly status: SandboxStatus;
+}
+
+/** Public instance interface returned by client factories. */
+export interface Sandbox {
+  readonly commands: SandboxCommands;
+  readonly files: SandboxFiles;
+  readonly logs: SandboxLogs;
+  readonly sandboxId: SandboxId;
+  readonly appliedEgressMode: string | undefined;
+  readonly appliedIngressMode: string | undefined;
+  readonly exposedPorts: readonly SandboxExposedPort[] | undefined;
+  readonly profileId: string | undefined;
+  readonly resourceLimits: SandboxResourceSpec | undefined;
+  readonly resourceRequests: SandboxResourceSpec | undefined;
+  readonly runnerGroupId: string | undefined;
+  readonly runnerId: string | undefined;
+  readonly serviceAddress: string | undefined;
+  readonly startedAt: Date | undefined;
+  readonly status: SandboxStatus | undefined;
+  readonly statusReason: string | undefined;
+  exec(command: CommandInput, options?: ExecOptions): Promise<ProcessResult>;
+  inspect(options?: RequestOptions): Promise<GetSandboxResult>;
+  getStatus(options?: RequestOptions): Promise<SandboxStatus>;
+  shell(options?: ShellOptions): Promise<TerminalSession>;
+  wait(options?: WaitOptions): Promise<Sandbox>;
+  stop(options?: StopOptions): Promise<void>;
+  delete(options?: DeleteOptions): Promise<void>;
+  [Symbol.asyncDispose](): Promise<void>;
 }

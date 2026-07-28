@@ -4,9 +4,10 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import { CWSandboxNotFoundError, CWSandboxTransportError, type SandboxTransport } from "./index.js";
+import { CWSandboxNotFoundError, CWSandboxTransportError } from "./index.js";
 import { CWSANDBOX_ERROR_DOMAIN, CWSANDBOX_SANDBOX_NOT_FOUND } from "./internal/error-info.js";
 import { createClient, createFakeTransport } from "./test/helpers.js";
+import type { SandboxTransport } from "./transport.js";
 
 /**
  * Mirrors Python `_NOT_FOUND_PAIRS`: status NOT_FOUND with no reason, plus

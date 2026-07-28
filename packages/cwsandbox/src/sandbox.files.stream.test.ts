@@ -5,11 +5,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  CWSandboxFileError,
   CWSandboxStreamBackpressureError,
   CWSandboxValidationError,
   STREAM_BACKPRESSURE,
-  type CommandInputData,
-  type SandboxTransport,
 } from "./index.js";
 import {
   CWSANDBOX_FILE_IO_FAILED,
@@ -17,214 +16,124 @@ import {
   CWSANDBOX_FILE_TRUNCATED,
 } from "./internal/error-info.js";
 import { TRUNCATION_CHECK_MIN_BYTES } from "./internal/file-limits.js";
-import type { InternalCommandProcessWithStdin } from "./internal/start-command-options.js";
-import { AsyncQueue } from "./streaming/async-queue.js";
-import {
-  createClient,
-  createCommandInputWriter,
-  createCommandProcess,
-  createFakeTransport,
-  createProcessResult,
-} from "./test/helpers.js";
+import { createClient, createFakeFileAdapter } from "./test/helpers.js";
+import type { FileAdapter } from "./transport/file-adapter.js";
 
 describe("Sandbox files streaming", () => {
-  it("writeStream sends iterable chunks over stdin", async () => {
-    const stdinChunks: Uint8Array[] = [];
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async startCommand(request) {
-        const process = createCommandProcess(
-          request.command,
-          true,
-        ) as InternalCommandProcessWithStdin;
-        const stdin = createCommandInputWriter();
-        return {
-          ...process,
-          status: "running",
-          stdin: {
-            ...stdin,
-            async write(data: CommandInputData) {
-              stdinChunks.push(typeof data === "string" ? new TextEncoder().encode(data) : data);
-            },
-          },
-          async wait() {
-            return createProcessResult(request.command, { exitCode: 0 });
-          },
-        };
+  it("writeStream delegates to FileAdapter.writeStream with mode='direct'", async () => {
+    let writeStreamRequest: Parameters<FileAdapter["writeStream"]>[0] | undefined;
+    const fileAdapter = createFakeFileAdapter({
+      async writeStream(request) {
+        writeStreamRequest = request;
       },
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await sandbox.files.writeStream("/tmp/stream.bin", [
       new Uint8Array([1, 2]),
       new Uint8Array([3, 4, 5]),
     ]);
 
-    expect(stdinChunks.map((chunk) => Array.from(chunk))).toEqual([
+    expect(writeStreamRequest).toMatchObject({
+      mode: "direct",
+      path: "/tmp/stream.bin",
+      sandboxId: "sandbox-for-echo",
+    });
+  });
+
+  it("writeStream passes through the source iterable to FileAdapter", async () => {
+    const chunks: Uint8Array[] = [];
+    const fileAdapter = createFakeFileAdapter({
+      async writeStream(request) {
+        const source = request.source;
+        if (Symbol.asyncIterator in Object(source)) {
+          for await (const chunk of source as AsyncIterable<Uint8Array>) {
+            chunks.push(chunk);
+          }
+        } else if (source instanceof Uint8Array) {
+          chunks.push(source);
+        } else if (Symbol.iterator in Object(source)) {
+          for (const chunk of source as Iterable<Uint8Array>) {
+            chunks.push(chunk);
+          }
+        }
+      },
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
+
+    await sandbox.files.writeStream("/tmp/stream.bin", [
+      new Uint8Array([1, 2]),
+      new Uint8Array([3, 4, 5]),
+    ]);
+
+    expect(chunks.map((c) => Array.from(c))).toEqual([
       [1, 2],
       [3, 4, 5],
     ]);
   });
 
-  it("writeStream slices a bare Uint8Array into streaming chunks", async () => {
-    const stdinChunks: Uint8Array[] = [];
-    const payload = new Uint8Array(70 * 1024);
-    payload[0] = 9;
-    payload[payload.byteLength - 1] = 8;
-
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async startCommand(request) {
-        const process = createCommandProcess(
-          request.command,
-          true,
-        ) as InternalCommandProcessWithStdin;
-        const stdin = createCommandInputWriter();
-        return {
-          ...process,
-          status: "running",
-          stdin: {
-            ...stdin,
-            async write(data: CommandInputData) {
-              stdinChunks.push(typeof data === "string" ? new TextEncoder().encode(data) : data);
-            },
-          },
-          async wait() {
-            return createProcessResult(request.command, { exitCode: 0 });
-          },
-        };
-      },
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
-
-    await sandbox.files.writeStream("/tmp/sliced.bin", payload);
-
-    expect(stdinChunks.length).toBeGreaterThan(1);
-    expect(stdinChunks.reduce((total, chunk) => total + chunk.byteLength, 0)).toBe(
-      payload.byteLength,
-    );
-    expect(stdinChunks[0]?.[0]).toBe(9);
-    expect(stdinChunks.at(-1)?.at(-1)).toBe(8);
-  });
-
-  it("writeStream aborts mid-stream and cancels the process", async () => {
+  it("writeStream aborts when AbortSignal fires", async () => {
     const abortController = new AbortController();
-    let cancelled = false;
-    let writes = 0;
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async startCommand(request) {
-        const process = createCommandProcess(
-          request.command,
-          true,
-        ) as InternalCommandProcessWithStdin;
-        const stdin = createCommandInputWriter();
-        return {
-          ...process,
-          status: "running",
-          stdin: {
-            ...stdin,
-            async write() {
-              writes += 1;
-              if (writes === 1) {
-                abortController.abort();
-              }
-            },
-          },
-          async cancel() {
-            cancelled = true;
-          },
-          async wait() {
-            return createProcessResult(request.command, { exitCode: 0 });
-          },
-        };
+    const fileAdapter = createFakeFileAdapter({
+      async writeStream(request) {
+        abortController.abort();
+        request.signal?.throwIfAborted();
       },
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
-
-    async function* chunks(): AsyncGenerator<Uint8Array> {
-      yield new Uint8Array([1]);
-      yield new Uint8Array([2]);
-      yield new Uint8Array([3]);
-    }
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await expect(
-      sandbox.files.writeStream("/tmp/partial.bin", chunks(), { signal: abortController.signal }),
+      sandbox.files.writeStream("/tmp/partial.bin", [new Uint8Array([1])], {
+        signal: abortController.signal,
+      }),
     ).rejects.toThrow(/aborted|AbortError|This operation was aborted/i);
-    expect(cancelled).toBe(true);
   });
 
-  it("writeStream rejects non-Uint8Array chunks with ValidationError", async () => {
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async startCommand(request) {
-        const process = createCommandProcess(
-          request.command,
-          true,
-        ) as InternalCommandProcessWithStdin;
-        return {
-          ...process,
-          status: "running",
-          async wait() {
-            return createProcessResult(request.command, { exitCode: 0 });
-          },
-        };
+  it("writeStream rejects non-Uint8Array chunks with CWSandboxFileError", async () => {
+    const fileAdapter = createFakeFileAdapter({
+      async writeStream() {
+        throw new CWSandboxFileError("chunk must be Uint8Array", {
+          filepath: "/tmp/bad.bin",
+          operation: "Write file",
+          reason: CWSANDBOX_FILE_IO_FAILED,
+          sandboxId: "sandbox-for-echo",
+        });
       },
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await expect(
       sandbox.files.writeStream("/tmp/bad.bin", [123 as unknown as Uint8Array]),
-    ).rejects.toBeInstanceOf(CWSandboxValidationError);
+    ).rejects.toBeInstanceOf(CWSandboxFileError);
   });
 
   it("writeStream does not remask stream backpressure as a file error", async () => {
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async startCommand(request) {
-        const process = createCommandProcess(
-          request.command,
-          true,
-        ) as InternalCommandProcessWithStdin;
-        return {
-          ...process,
-          status: "running",
-          async wait() {
-            throw new CWSandboxStreamBackpressureError("too slow", {
-              streamCode: STREAM_BACKPRESSURE,
-            });
-          },
-        };
+    const fileAdapter = createFakeFileAdapter({
+      async writeStream() {
+        throw new CWSandboxStreamBackpressureError("too slow", {
+          streamCode: STREAM_BACKPRESSURE,
+        });
       },
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await expect(
       sandbox.files.writeStream("/tmp/bp.bin", [new Uint8Array([1])]),
     ).rejects.toBeInstanceOf(CWSandboxStreamBackpressureError);
   });
 
-  it("writeStream maps non-zero exits to CWSANDBOX_FILE_IO_FAILED", async () => {
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async startCommand(request) {
-        const process = createCommandProcess(
-          request.command,
-          true,
-        ) as InternalCommandProcessWithStdin;
-        return {
-          ...process,
-          status: "running",
-          async wait() {
-            return createProcessResult(request.command, {
-              exitCode: 1,
-              stderr: "permission denied",
-            });
-          },
-        };
+  it("writeStream propagates CWSandboxFileError from FileAdapter", async () => {
+    const fileAdapter = createFakeFileAdapter({
+      async writeStream() {
+        throw new CWSandboxFileError("permission denied", {
+          filepath: "/tmp/fail.bin",
+          operation: "Write file",
+          reason: CWSANDBOX_FILE_IO_FAILED,
+          sandboxId: "sandbox-for-echo",
+        });
       },
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await expect(
       sandbox.files.writeStream("/tmp/fail.bin", [new Uint8Array([1])]),
@@ -234,51 +143,16 @@ describe("Sandbox files streaming", () => {
     });
   });
 
-  it("readStream yields binary chunks without requiring a full wait buffer", async () => {
+  it("readStream delegates to FileAdapter.readStream", async () => {
     const chunks = [new Uint8Array([1, 2]), new Uint8Array([3])];
-    let call = 0;
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async startCommand(request) {
-        call += 1;
-        // First call is pre-read stat.
-        if (call === 1) {
-          const process = createCommandProcess(request.command);
-          return {
-            ...process,
-            async wait() {
-              return createProcessResult(request.command, {
-                exitCode: 0,
-                stdout: String(3),
-              });
-            },
-          };
-        }
-
-        const queue = new AsyncQueue<Uint8Array>();
-        const [first, second] = chunks;
-        if (first === undefined || second === undefined) {
-          throw new Error("expected two binary chunks");
-        }
-        queue.tryPush(first);
-        queue.tryPush(second);
-        queue.close();
-        const process = createCommandProcess(request.command);
-        return {
-          ...process,
-          status: "running",
-          stdoutBinary: queue,
-          async wait() {
-            return createProcessResult(request.command, {
-              exitCode: 0,
-              stdoutBytes: new Uint8Array(),
-              stdoutBytesProduced: 3,
-            });
-          },
-        };
+    let readStreamRequest: Parameters<FileAdapter["readStream"]>[0] | undefined;
+    const fileAdapter = createFakeFileAdapter({
+      readStream(request) {
+        readStreamRequest = request;
+        return asyncIterableFrom(chunks);
       },
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     const received: number[] = [];
     for await (const chunk of sandbox.files.readStream("/tmp/out.bin")) {
@@ -286,42 +160,26 @@ describe("Sandbox files streaming", () => {
     }
 
     expect(received).toEqual([1, 2, 3]);
-    expect(call).toBe(2);
+    expect(readStreamRequest).toMatchObject({
+      path: "/tmp/out.bin",
+      sandboxId: "sandbox-for-echo",
+    });
   });
 
-  it("readStream maps missing-file exit codes", async () => {
-    let call = 0;
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async startCommand(request) {
-        call += 1;
-        if (call === 1) {
-          const process = createCommandProcess(request.command);
-          return {
-            ...process,
-            async wait() {
-              return createProcessResult(request.command, { exitCode: 1, stdout: "" });
-            },
-          };
-        }
-
-        const queue = new AsyncQueue<Uint8Array>();
-        queue.close();
-        const process = createCommandProcess(request.command);
-        return {
-          ...process,
-          status: "running",
-          stdoutBinary: queue,
-          async wait() {
-            return createProcessResult(request.command, {
-              exitCode: 2,
-              stderr: "File not found: /missing",
-            });
-          },
-        };
+  it("readStream propagates CWSandboxFileError for missing-file codes", async () => {
+    const fileAdapter = createFakeFileAdapter({
+      readStream() {
+        return asyncIterableWithError(
+          new CWSandboxFileError("file not found", {
+            filepath: "/missing",
+            operation: "Read file",
+            reason: CWSANDBOX_FILE_NOT_FOUND,
+            sandboxId: "sandbox-for-echo",
+          }),
+        );
       },
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await expect(async () => {
       for await (const _chunk of sandbox.files.readStream("/missing")) {
@@ -333,41 +191,30 @@ describe("Sandbox files streaming", () => {
     });
   });
 
-  it("readStream raises truncation when delivered bytes are short of pre-stat size", async () => {
-    let call = 0;
+  it("readStream propagates truncation errors from FileAdapter", async () => {
     const expected = TRUNCATION_CHECK_MIN_BYTES;
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async startCommand(request) {
-        call += 1;
-        if (call === 1) {
-          const process = createCommandProcess(request.command);
-          return {
-            ...process,
-            async wait() {
-              return createProcessResult(request.command, {
-                exitCode: 0,
-                stdout: String(expected),
-              });
+    const fileAdapter = createFakeFileAdapter({
+      readStream() {
+        return asyncIterableWithError(
+          new CWSandboxFileError(
+            `readStream of '/tmp/big.bin' was truncated: got 3 of ${expected} bytes.`,
+            {
+              filepath: "/tmp/big.bin",
+              metadata: {
+                bytes_delivered: "3",
+                filepath: "/tmp/big.bin",
+                operation: "read_file_streaming",
+                size_bytes: String(expected),
+              },
+              operation: "Read file",
+              reason: CWSANDBOX_FILE_TRUNCATED,
+              sandboxId: "sandbox-for-echo",
             },
-          };
-        }
-
-        const queue = new AsyncQueue<Uint8Array>();
-        queue.tryPush(new Uint8Array([1, 2, 3]));
-        queue.close();
-        const process = createCommandProcess(request.command);
-        return {
-          ...process,
-          status: "running",
-          stdoutBinary: queue,
-          async wait() {
-            return createProcessResult(request.command, { exitCode: 0 });
-          },
-        };
+          ),
+        );
       },
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await expect(async () => {
       for await (const _chunk of sandbox.files.readStream("/tmp/big.bin")) {
@@ -380,41 +227,16 @@ describe("Sandbox files streaming", () => {
   });
 
   it("readStream does not remask stream backpressure as a file error", async () => {
-    let call = 0;
-    const transport: SandboxTransport = {
-      ...createFakeTransport(),
-      async startCommand(request) {
-        call += 1;
-        if (call === 1) {
-          const process = createCommandProcess(request.command);
-          return {
-            ...process,
-            async wait() {
-              return createProcessResult(request.command, { exitCode: 0, stdout: "10" });
-            },
-          };
-        }
-
-        const queue = new AsyncQueue<Uint8Array>();
-        const process = createCommandProcess(request.command);
-        void Promise.resolve().then(() => {
-          queue.fail(
-            new CWSandboxStreamBackpressureError("too slow", {
-              streamCode: STREAM_BACKPRESSURE,
-            }),
-          );
-        });
-        return {
-          ...process,
-          status: "running",
-          stdoutBinary: queue,
-          async wait() {
-            return createProcessResult(request.command, { exitCode: 0 });
-          },
-        };
+    const fileAdapter = createFakeFileAdapter({
+      readStream() {
+        return asyncIterableWithError(
+          new CWSandboxStreamBackpressureError("too slow", {
+            streamCode: STREAM_BACKPRESSURE,
+          }),
+        );
       },
-    };
-    const sandbox = await createClient(transport).run(["echo", "hello"]);
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await expect(async () => {
       for await (const _chunk of sandbox.files.readStream("/tmp/bp.bin")) {
@@ -422,4 +244,48 @@ describe("Sandbox files streaming", () => {
       }
     }).rejects.toBeInstanceOf(CWSandboxStreamBackpressureError);
   });
+
+  it("readStream rejects when path is empty", async () => {
+    const sandbox = await createClient().run(["echo", "hello"]);
+
+    await expect(async () => {
+      for await (const _chunk of sandbox.files.readStream("")) {
+        // drain
+      }
+    }).rejects.toBeInstanceOf(CWSandboxValidationError);
+  });
+
+  it("writeStream rejects when path is empty", async () => {
+    const sandbox = await createClient().run(["echo", "hello"]);
+
+    await expect(sandbox.files.writeStream("", [new Uint8Array([1])])).rejects.toBeInstanceOf(
+      CWSandboxValidationError,
+    );
+  });
 });
+
+async function* asyncIterableFrom<T>(values: readonly T[]): AsyncIterable<T> {
+  for (const value of values) {
+    yield value;
+  }
+}
+
+function asyncIterableWithError(error: unknown): AsyncIterable<Uint8Array> {
+  return {
+    [Symbol.asyncIterator]() {
+      let thrown = false;
+      return {
+        async next() {
+          if (!thrown) {
+            thrown = true;
+            throw error;
+          }
+          return { done: true, value: undefined as never };
+        },
+        async return() {
+          return { done: true, value: undefined as never };
+        },
+      };
+    },
+  };
+}

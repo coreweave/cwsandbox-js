@@ -65,12 +65,11 @@ Both version headers use this package's version for now.
 
 ## Entrypoints
 
-The root package is transport-neutral and contains public types, errors, and the injectable client:
+The root package is transport-neutral and contains public types, errors, and client interfaces:
 
 ```ts
 import { DEFAULT_KEEP_ALIVE_COMMAND } from "@coreweave/cwsandbox";
-import { SandboxClient } from "@coreweave/cwsandbox";
-import type { SandboxTransport } from "@coreweave/cwsandbox";
+import type { SandboxClient } from "@coreweave/cwsandbox";
 ```
 
 Node gRPC helpers live under the Node entrypoint:
@@ -840,61 +839,13 @@ when the failure came from the Node gRPC transport.
 
 ## Testing Without Credentials
 
-You can unit test application code by injecting a fake `SandboxTransport`:
+Transport replacement is not a supported public API. To unit test application code, use the
+Node factory with a mock API key and intercept network calls, or structure tests so that
+application logic under test receives a `SandboxClient` interface value that you supply
+from a test helper.
 
-```ts
-import { SandboxClient, type Command, type SandboxTransport } from "@coreweave/cwsandbox";
-
-const resultFor = (command: Command) => ({
-  command,
-  exitCode: 0,
-  failed: false,
-  ok: true,
-  stderr: "",
-  stderrBytes: new Uint8Array(),
-  stderrBytesProduced: 0,
-  stderrTruncated: false,
-  stdout: "ok\n",
-  stdoutBytes: new TextEncoder().encode("ok\n"),
-  stdoutBytesProduced: 3,
-  stdoutTruncated: false,
-});
-
-const transport: SandboxTransport = {
-  async start(request) {
-    return { sandboxId: `test-${request.command[0]}`, status: "running" };
-  },
-  async get(request) {
-    return { sandboxId: request.sandboxId, status: "running" };
-  },
-  async list() {
-    return { sandboxes: [] };
-  },
-  async delete() {},
-  async stop() {},
-  async exec(request) {
-    return resultFor(request.command);
-  },
-  async startCommand() {
-    throw new Error("Streaming is not used in this test.");
-  },
-  async startShell() {
-    throw new Error("Shell sessions are not used in this test.");
-  },
-  async streamLogs() {
-    throw new Error("Logs are not used in this test.");
-  },
-  async writeFile() {},
-  async readFile() {
-    return { content: new Uint8Array() };
-  },
-};
-
-const client = new SandboxClient({ transport });
-```
-
-The fake transport only needs to implement the operations your application calls. For a fuller
-contract reference, see `src/transport.contract.test.ts`.
+For an example of how the package itself tests with fake implementations, see
+`src/transport.contract.test.ts` in the source tree.
 
 ## Environment
 

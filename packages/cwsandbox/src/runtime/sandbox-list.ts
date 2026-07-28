@@ -5,10 +5,10 @@
 import type {
   ListSandboxesOptions,
   ListSandboxesResult,
+  Sandbox,
   SandboxInfo,
   SandboxListOptions,
 } from "../public/sandbox.js";
-import type { Sandbox } from "../sandbox.js";
 import { iterateListPages, listAllFromPages } from "./list-all.js";
 
 type ListPage = (options: ListSandboxesOptions) => Promise<ListSandboxesResult>;

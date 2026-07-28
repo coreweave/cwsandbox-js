@@ -12,12 +12,12 @@ import {
   CWSandboxValidationError,
   DEFAULT_KEEP_ALIVE_COMMAND,
   DEFAULT_LIST_ALL_TIMEOUT_MS,
-  Sandbox,
   type ResourceOptions,
   type SandboxRunOptions,
-  type SandboxTransport,
 } from "./index.js";
+import { Sandbox } from "./sandbox.js";
 import { createClient, createFakeTransport, createTrackingTransport } from "./test/helpers.js";
+import type { SandboxTransport } from "./transport.js";
 
 describe("SandboxClient", () => {
   describe("lifecycle", () => {

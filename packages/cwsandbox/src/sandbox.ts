@@ -24,6 +24,7 @@ import type { SandboxLogs } from "./public/logs.js";
 import type {
   DeleteOptions,
   GetSandboxResult,
+  Sandbox as PublicSandbox,
   SandboxId,
   SandboxMetadata,
   SandboxResourceSpec,
@@ -34,22 +35,26 @@ import type {
 } from "./public/sandbox.js";
 import { createSandboxCommands, execCommand } from "./runtime/commands.js";
 import type { SandboxRuntime } from "./runtime/context.js";
+import { FileTransfer } from "./runtime/file-transfer.js";
 import { createSandboxFiles } from "./runtime/files.js";
 import { createSandboxLogs } from "./runtime/logs.js";
 import { startShell } from "./runtime/shell.js";
 import { waitForSandbox, type WaitForSandboxOptions } from "./runtime/wait.js";
 import type { SandboxTransport } from "./transport.js";
+import type { FileAdapter } from "./transport/file-adapter.js";
 
 const TERMINAL_STATUSES = new Set<SandboxStatus>(["completed", "failed", "terminated"]);
 const STOP_OPERATION = "Stop sandbox";
 
 interface SandboxOptions {
+  readonly fileAdapter: FileAdapter;
   readonly metadata?: SandboxMetadata;
   readonly sandboxId: SandboxId;
   readonly transport: SandboxTransport;
 }
 
-export class Sandbox {
+/** Private implementation; construct via client factories only. */
+export class Sandbox implements PublicSandbox {
   public readonly commands: SandboxCommands;
   public readonly files: SandboxFiles;
   public readonly logs: SandboxLogs;
@@ -66,14 +71,14 @@ export class Sandbox {
       ...cloneMetadata(options.metadata),
       sandboxId: this.sandboxId,
     };
+    const fileTransfer = new FileTransfer(this.sandboxId, options.fileAdapter);
     this.runtime = {
-      observedFileOpCapBytes: undefined,
+      fileAdapter: options.fileAdapter,
       sandboxId: this.sandboxId,
-      streamingFallbackNotified: false,
       transport: options.transport,
     };
     this.commands = createSandboxCommands(this.runtime);
-    this.files = createSandboxFiles(this.runtime);
+    this.files = createSandboxFiles(this.runtime, fileTransfer);
     this.logs = createSandboxLogs(this.runtime);
   }
 
@@ -150,7 +155,7 @@ export class Sandbox {
     return startShell(this.runtime, options);
   }
 
-  public async wait(options: WaitOptions = {}): Promise<Sandbox> {
+  public async wait(options: WaitOptions = {}): Promise<PublicSandbox> {
     // Cast preserves test-only WaitForSandboxOptions fields (e.g. initialIntervalMs)
     // when callers pass a widened object through the public WaitOptions signature.
     await waitForSandbox(this.runtime, options as WaitForSandboxOptions, (metadata) => {
