@@ -82,6 +82,16 @@ pnpm --filter @coreweave/cwsandbox-computesdk test
 CWSANDBOX_API_KEY=... pnpm --filter @coreweave/cwsandbox-computesdk smoke
 ```
 
+Live smoke (billable, not part of `pnpm check`) covers:
+
+- create with resource knobs
+- short unary `runCommand`
+- `cwd` / `env`
+- long-timeout streamed exec (`timeout > 240s` → SDK `commands.start`)
+- hostile filesystem write/read + `readdir`
+- `getInfo` status `running`
+- destroy
+
 ## License
 
 This package is licensed under the Apache-2.0 license.

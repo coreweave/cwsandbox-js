@@ -3,38 +3,91 @@
 // SPDX-PackageName: cwsandbox
 
 /**
- * Thin live smoke for the ComputeSDK adapter.
+ * End-to-end smoke test against the live CoreWeave Sandbox API via ComputeSDK.
  *
- * Requires CWSANDBOX_API_KEY. Not part of `pnpm check`.
+ * Requires CWSANDBOX_API_KEY and creates a real (billable) sandbox; it is
+ * always destroyed on exit. Not part of `pnpm check`.
+ *
+ * Run with: pnpm --filter @coreweave/cwsandbox-computesdk smoke
  */
 
 import { coreweave } from "./index.js";
 
 async function main(): Promise<void> {
   const compute = coreweave({});
+  console.log("creating sandbox (1 cpu / 2Gi, lifetime 900s)...");
+  const t0 = Date.now();
   const sandbox = await compute.sandbox.create({
-    image: "ubuntu:24.04",
+    cpu: 1,
+    memoryMiB: 2048,
+    maxLifetimeSeconds: 900,
+    name: "adapter-smoke",
   });
-
-  console.log(`created ${sandbox.sandboxId}`);
+  console.log(`created ${sandbox.sandboxId} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 
   try {
-    const result = await sandbox.runCommand("echo smoke-ok && uname -s");
-    if (result.exitCode !== 0) {
-      throw new Error(`command failed: ${result.stderr || result.stdout}`);
+    // 1. Short/unary path
+    let r = await sandbox.runCommand("echo hello-from-coreweave && uname -r && nproc");
+    console.log(`[unary] exit=${r.exitCode} ${r.durationMs}ms stdout=${JSON.stringify(r.stdout)}`);
+    if (r.exitCode !== 0 || !r.stdout.includes("hello-from-coreweave")) {
+      throw new Error("unary exec failed");
     }
-    console.log(result.stdout.trimEnd());
 
-    await sandbox.filesystem.writeFile("/tmp/cwsandbox-computesdk-smoke.txt", "hello");
-    const text = await sandbox.filesystem.readFile("/tmp/cwsandbox-computesdk-smoke.txt");
-    if (text !== "hello") {
-      throw new Error(`unexpected file contents: ${text}`);
+    // 2. cwd + env options
+    r = await sandbox.runCommand('pwd && echo "V=$SMOKE_VAR"', {
+      cwd: "/tmp",
+      env: { SMOKE_VAR: "ok" },
+    });
+    console.log(`[opts]  exit=${r.exitCode} stdout=${JSON.stringify(r.stdout)}`);
+    if (!r.stdout.includes("/tmp") || !r.stdout.includes("V=ok")) {
+      throw new Error("cwd/env failed");
     }
-    console.log("filesystem ok");
+
+    // 3. Long-timeout path (timeout > 240s forces commands.start); command runs ~9s
+    r = await sandbox.runCommand(
+      'echo start; for i in 1 2 3; do sleep 3; echo "tick $i"; done; echo "to-stderr" >&2; exit 7',
+      { timeout: 400_000 },
+    );
+    console.log(
+      `[long] exit=${r.exitCode} ${r.durationMs}ms stdout=${JSON.stringify(r.stdout)} stderr=${JSON.stringify(r.stderr)}`,
+    );
+    if (r.exitCode !== 7 || !r.stdout.includes("tick 3") || !r.stderr.includes("to-stderr")) {
+      throw new Error("long-timeout exec failed");
+    }
+
+    // 4. Filesystem roundtrip (mkdir first — native write does not create parents)
+    await sandbox.filesystem.mkdir("/tmp/smoke");
+    await sandbox.filesystem.writeFile(
+      "/tmp/smoke/hello.txt",
+      "roundtrip ✓ with 'quotes' and $vars",
+    );
+    const content = await sandbox.filesystem.readFile("/tmp/smoke/hello.txt");
+    console.log(`[fs] readback=${JSON.stringify(content)}`);
+    if (!content.includes("roundtrip ✓")) {
+      throw new Error("filesystem roundtrip failed");
+    }
+    const entries = await sandbox.filesystem.readdir("/tmp/smoke");
+    console.log(`[fs] readdir=${JSON.stringify(entries)}`);
+    if (!entries.some((entry) => entry.name === "hello.txt")) {
+      throw new Error("filesystem readdir missing hello.txt");
+    }
+
+    // 5. getInfo
+    const info = await sandbox.getInfo();
+    console.log(`[info] status=${info.status} runner=${info.metadata?.["runnerId"] ?? ""}`);
+    if (info.status !== "running" || info.id !== sandbox.sandboxId) {
+      throw new Error(`getInfo unexpected: status=${info.status} id=${info.id}`);
+    }
+
+    console.log("ALL SMOKE TESTS PASSED");
   } finally {
+    const td = Date.now();
     await sandbox.destroy();
-    console.log("destroyed");
+    console.log(`destroyed in ${((Date.now() - td) / 1000).toFixed(1)}s`);
   }
 }
 
-await main();
+main().catch((err: unknown) => {
+  console.error("SMOKE FAILED:", err);
+  process.exit(1);
+});
