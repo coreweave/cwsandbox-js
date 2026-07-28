@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   check:
-    name: Lint, format, and test
+    name: Lint, format, and typecheck
     runs-on: ubuntu-latest
 
     steps:
@@ -55,20 +55,11 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-      - name: Unit tests
-        run: pnpm test
-
       - name: Type tests
         run: pnpm test:types
 
       - name: README tests
         run: pnpm test:readme
-
-      - name: Package tests
-        run: pnpm test:package
-
-      - name: Pack tests
-        run: pnpm test:pack
 
       - name: Weave example typecheck
         run: pnpm example:weave:typecheck
@@ -81,3 +72,50 @@ jobs:
 
       - name: TanStack example typecheck
         run: pnpm example:tanstack:typecheck
+
+  runtime-tests:
+    name: Runtime tests (Node ${{ matrix.node-version }})
+    needs: check
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 24, 26]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Get pnpm store path
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: ${{ runner.os }}-node-${{ matrix.node-version }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-node-${{ matrix.node-version }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Package tests
+        run: pnpm test:package
+
+      - name: Pack tests
+        run: pnpm test:pack

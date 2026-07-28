@@ -17,7 +17,9 @@ For platform concepts and product guides, see the
 
 ## Install And Prerequisites
 
-This package targets Node.js `>=22` and ESM projects.
+This package supports Node.js `>=22` and ESM projects. CI specifically validates
+Node.js 22 and 24 (LTS) plus Node.js 26 (Current). The matrix adds each new
+Current release, retains active LTS releases, and removes versions at Node EOL.
 
 ```bash
 npm install @coreweave/cwsandbox@beta
