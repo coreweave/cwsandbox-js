@@ -99,7 +99,11 @@ function createMockDuplex(): {
       return {
         next(): Promise<IteratorResult<ExecStreamResponse>> {
           if (pending.length > 0) {
-            return Promise.resolve({ done: false, value: pending.shift()! });
+            const value = pending.shift();
+            if (value === undefined) {
+              return Promise.resolve({ done: true, value: undefined });
+            }
+            return Promise.resolve({ done: false, value });
           }
           if (closed) {
             return Promise.resolve({ done: true, value: undefined });

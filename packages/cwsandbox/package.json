@@ -56,7 +56,7 @@
     "proto:update": "buf generate buf.build/coreweave/sandbox --template buf.gen.yaml --path coreweave/sandbox/v1beta2/gateway.proto --path coreweave/sandbox/v1beta2/secrets.proto --path coreweave/sandbox/v1beta2/streaming.proto && tsx scripts/postprocess-generated.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --config vitest.config.ts",
-    "test:types": "vitest --typecheck.only --config vitest.config.ts"
+    "test:types": "vitest run --typecheck.only --config vitest.config.ts"
   },
   "dependencies": {
     "@grpc/grpc-js": "^1.14.4",
