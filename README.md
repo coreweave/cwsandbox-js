@@ -34,11 +34,12 @@ pnpm check
 
 Useful commands:
 
-- `pnpm build` — build `@coreweave/cwsandbox`
-- `pnpm test` — unit tests for the core package
+- `pnpm build` — build all workspace packages with a `build` script (Turbo)
+- `pnpm typecheck` / `pnpm test` — typecheck/test across the workspace graph
+- `pnpm quality` / `pnpm fix` — Oxlint + Oxfmt (check / fix)
 - `pnpm smoke` — live e2e smoke (`CWSANDBOX_API_KEY` required; not part of `pnpm check`)
 - `pnpm --dir examples/sdk quick-start` — core SDK recipe (see [`examples/README.md`](./examples/README.md))
-- `pnpm example:weave` / `pnpm example:tanstack` — integration examples
+- `pnpm --dir examples/weave start` / `pnpm --dir examples/tanstack start` — integration examples (`turbo run start --filter=...` also works)
 
 ## Examples
 

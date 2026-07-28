@@ -18,10 +18,10 @@ This repository is the TypeScript SDK monorepo for CoreWeave Sandbox.
 ## Commands
 
 - Install dependencies: `pnpm install`
-- Check everything: `pnpm check`
-- Fix lint/format issues: `pnpm fix`
-- Format only: `pnpm format:fix`
-- Test only: `pnpm test`
+- Check everything: `pnpm check` (Turbo task graph; offline and credential-free)
+- Fix lint/format issues: `pnpm fix` (alias of `pnpm quality:fix`)
+- Quality check only: `pnpm quality`
+- Build / typecheck / test: `pnpm build`, `pnpm typecheck`, `pnpm test` (whole workspace graph)
 - Live e2e smoke: `pnpm smoke` (requires `CWSANDBOX_API_KEY`; not part of `pnpm check`)
 
 ## TypeScript Standards

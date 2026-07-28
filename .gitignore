@@ -18,6 +18,7 @@ dist/
 .DS_Store
 .idea/
 .vscode/
+.turbo/
 coverage/
 .vitest/
 *.log
