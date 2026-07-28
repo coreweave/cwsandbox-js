@@ -81,6 +81,12 @@ describe("packed package consumers", () => {
         const install = spawnSync("npm", ["install", tarballPath], {
           cwd: fixtureDir,
           encoding: "utf8",
+          env: {
+            ...process.env,
+            // Keep npm cache inside the fixture so CI/sandbox runs do not depend
+            // on a writable ~/.npm directory.
+            npm_config_cache: join(fixtureDir, ".npm-cache"),
+          },
         });
         if (install.status !== 0) {
           throw new Error(install.stdout + install.stderr);

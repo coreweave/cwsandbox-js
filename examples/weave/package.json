@@ -7,7 +7,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc --project tsconfig.json",
-    "start": "pnpm build && node --import=weave/instrument dist/index.js",
+    "start": "node --import=weave/instrument dist/index.js",
     "typecheck": "tsc --noEmit --project tsconfig.json"
   },
   "dependencies": {

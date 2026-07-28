@@ -1,0 +1,49 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
+    "typecheck": {
+      "dependsOn": ["build", "^build"],
+      "outputs": []
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "test:types": {
+      "dependsOn": ["build", "^build"],
+      "outputs": []
+    },
+    "start": {
+      "dependsOn": ["build", "^build"],
+      "cache": false,
+      "persistent": true
+    },
+    "proto:update": {
+      "cache": false
+    },
+    "//#lint": {},
+    "//#lint:fix": {
+      "cache": false
+    },
+    "//#format": {},
+    "//#format:fix": {
+      "dependsOn": ["//#lint:fix"],
+      "cache": false
+    },
+    "//#test:readme": {
+      "outputs": []
+    },
+    "//#test:package": {
+      "dependsOn": ["@coreweave/cwsandbox#build"],
+      "outputs": []
+    },
+    "//#test:pack": {
+      "dependsOn": ["@coreweave/cwsandbox#build", "//#test:package"],
+      "outputs": []
+    }
+  }
+}
