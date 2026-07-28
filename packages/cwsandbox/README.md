@@ -212,8 +212,9 @@ Default wait-until-running (`wait()` / `create`/`run` with `waitUntilRunning: tr
 treats `paused` as ready (same as `running`). If the sandbox reaches `completed`
 during startup, wait resolves successfully. `failed` and `terminated` raise
 `CWSandboxFailedError` and `CWSandboxTerminatedError`. A `terminating` status is
-polled through until a real terminal outcome. Explicit `targetStatus` values
-(`paused`, `completed`, `terminal`) stay exact-match.
+polled through until a real terminal outcome. Explicit `targetStatus` values:
+`paused` and `completed` stay exact-match; `terminal` still means any terminal
+status (`completed` / `failed` / `terminated`).
 
 Status polling uses an internal backoff (about 200ms toward 2s). Transient Get
 failures (`unavailable`, request deadline, `resource_exhausted`) are retried within
