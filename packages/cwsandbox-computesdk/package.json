@@ -1,0 +1,64 @@
+{
+  "name": "@coreweave/cwsandbox-computesdk",
+  "version": "0.1.0-beta.0",
+  "description": "CoreWeave Sandbox provider for ComputeSDK.",
+  "keywords": [
+    "computesdk",
+    "coreweave",
+    "cwsandbox",
+    "provider",
+    "sandbox"
+  ],
+  "homepage": "https://github.com/coreweave/cwsandbox-js/tree/main/packages/cwsandbox-computesdk#readme",
+  "bugs": {
+    "url": "https://github.com/coreweave/cwsandbox-js/issues"
+  },
+  "license": "Apache-2.0",
+  "author": "CoreWeave, Inc.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/coreweave/cwsandbox-js.git",
+    "directory": "packages/cwsandbox-computesdk"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json",
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc --noEmit --project tsconfig.json",
+    "smoke": "tsx src/smoke.ts"
+  },
+  "dependencies": {
+    "@coreweave/cwsandbox": "workspace:*"
+  },
+  "devDependencies": {
+    "@computesdk/provider": "^2.1.4",
+    "@types/node": "^22.20.1",
+    "tsx": "^4.23.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
+  },
+  "peerDependencies": {
+    "@computesdk/provider": "^2.1.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

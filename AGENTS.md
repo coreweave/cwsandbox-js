@@ -12,6 +12,7 @@ This repository is the TypeScript SDK monorepo for CoreWeave Sandbox.
 
 - Core SDK: `packages/cwsandbox` (`@coreweave/cwsandbox`)
 - TanStack adapter: `packages/cwsandbox-tanstack` (`@coreweave/cwsandbox-tanstack`, private until fast-follow publish)
+- ComputeSDK provider: `packages/cwsandbox-computesdk` (`@coreweave/cwsandbox-computesdk`, public package; npm publish deferred)
 - Examples: `examples/sdk` (core recipes), `examples/weave`, `examples/tanstack` — see `examples/README.md` and `examples/AGENTS.md`
 - Live e2e: `e2e/`
 
