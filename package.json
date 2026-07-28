@@ -16,7 +16,7 @@
     "example:tanstack": "pnpm --filter @coreweave/cwsandbox-tanstack build && pnpm --dir examples/tanstack start",
     "example:tanstack:typecheck": "pnpm --filter @coreweave/cwsandbox-tanstack build && pnpm --dir examples/tanstack typecheck",
     "example:weave": "pnpm --dir examples/weave start",
-    "example:weave:typecheck": "pnpm --dir examples/weave typecheck",
+    "example:weave:typecheck": "pnpm build && pnpm --dir examples/weave typecheck",
     "package:tanstack:build": "pnpm --filter @coreweave/cwsandbox-tanstack build",
     "package:tanstack:test": "pnpm --filter @coreweave/cwsandbox-tanstack test",
     "package:tanstack:typecheck": "pnpm --filter @coreweave/cwsandbox-tanstack typecheck",
