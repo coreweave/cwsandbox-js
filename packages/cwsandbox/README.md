@@ -208,6 +208,14 @@ console.log(sandbox.status); // completed | failed | terminated
 `wait()` still defaults to a 60s timeout (including `targetStatus: "terminal"`).
 `stop()`’s shared wait is unbounded unless a waiter passes `timeoutMs`.
 
+Default wait-until-running (`wait()` / `create`/`run` with `waitUntilRunning: true`)
+treats `paused` as ready (same as `running`). If the sandbox reaches `completed`
+during startup, wait resolves successfully. `failed` and `terminated` raise
+`CWSandboxFailedError` and `CWSandboxTerminatedError`. A `terminating` status is
+polled through until a real terminal outcome. Explicit `targetStatus` values:
+`paused` and `completed` stay exact-match; `terminal` still means any terminal
+status (`completed` / `failed` / `terminated`).
+
 Status polling uses an internal backoff (about 200ms toward 2s). Transient Get
 failures (`unavailable`, request deadline, `resource_exhausted`) are retried within
 an internal ~30s budget; the wait’s absolute `timeoutMs` deadline also clamps that
