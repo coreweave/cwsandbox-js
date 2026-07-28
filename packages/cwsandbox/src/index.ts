@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
-export { SandboxClient, type SandboxClientOptions, type WithSandboxCallback } from "./client.js";
+export type { SandboxClient, WithSandboxCallback } from "./public/client.js";
 export { DEFAULT_KEEP_ALIVE_COMMAND, DEFAULT_LIST_ALL_TIMEOUT_MS } from "./defaults.js";
 export {
   CWSandboxAuthenticationError,
@@ -40,9 +40,7 @@ export {
   STREAM_BACKPRESSURE,
   STREAM_TRUNCATED,
 } from "./internal/error-info.js";
-export { Sandbox } from "./sandbox.js";
 export { SandboxList } from "./runtime/sandbox-list.js";
-export type { SandboxTransport } from "./transport.js";
 export type {
   Command,
   CommandInput,
@@ -99,6 +97,7 @@ export type {
   GetSandboxResult,
   ListSandboxesOptions,
   ListSandboxesResult,
+  Sandbox,
   SandboxAnnotations,
   SandboxExposedPort,
   SandboxId,
@@ -115,16 +114,3 @@ export type {
   WaitTargetStatus,
 } from "./public/sandbox.js";
 export type { SecretInput, Secrets } from "./public/secrets.js";
-export type {
-  DeleteSandboxRequest,
-  ExecRequest,
-  GetSandboxRequest,
-  ReadFileRequest,
-  ReadFileResult,
-  StartSandboxRequest,
-  StartCommandRequest,
-  StartShellRequest,
-  StreamLogsRequest,
-  StopSandboxRequest,
-  WriteFileRequest,
-} from "./transport/types.js";

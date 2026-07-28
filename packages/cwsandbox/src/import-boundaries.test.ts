@@ -67,6 +67,21 @@ describe("source import boundaries", () => {
 
     expect(formatViolations(violations)).toEqual([]);
   });
+
+  it("keeps FileTransfer independent from commands and concrete adapters", () => {
+    const fileTransfer = join(srcRoot, "runtime", "file-transfer.ts");
+    const forbidden = imports.filter((entry) => {
+      if (entry.file !== fileTransfer || entry.resolvedPath === undefined) {
+        return false;
+      }
+      return (
+        entry.resolvedPath === join(srcRoot, "runtime", "commands.ts") ||
+        isWithin(entry.resolvedPath, nodeGrpcRoot)
+      );
+    });
+
+    expect(formatViolations(forbidden)).toEqual([]);
+  });
 });
 
 function sourceImports(): readonly ImportReference[] {

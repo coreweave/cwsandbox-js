@@ -6,48 +6,57 @@ import { describe, expect, it } from "vitest";
 
 import { SandboxClient } from "./client.js";
 import type {
-  DeleteSandboxRequest,
-  ExecRequest,
-  GetSandboxRequest,
   ListSandboxesOptions,
   LogEntryStream,
   LogRawStream,
   LogStream,
   ProcessResult,
-  ReadFileRequest,
-  StartCommandRequest,
-  StartShellRequest,
-  StartSandboxRequest,
-  StopSandboxRequest,
-  StreamLogsRequest,
-  WriteFileRequest,
 } from "./index.js";
 import {
   createCommandProcess,
+  createFakeFileAdapter,
   createLogStream,
   createProcessResult,
   createTerminalSession,
 } from "./test/helpers.js";
 import type { SandboxTransport } from "./transport.js";
+import type {
+  ReadFileRequest,
+  ReadFileResult,
+  WriteFileRequest,
+} from "./transport/file-adapter.js";
+import type {
+  DeleteSandboxRequest,
+  ExecRequest,
+  GetSandboxRequest,
+  StartCommandRequest,
+  StartShellRequest,
+  StartSandboxRequest,
+  StopSandboxRequest,
+  StreamLogsRequest,
+} from "./transport/types.js";
+
+interface AdapterCalls {
+  readonly readFile: ReadFileRequest[];
+  readonly writeFile: WriteFileRequest[];
+}
 
 interface TransportCalls {
   readonly delete: DeleteSandboxRequest[];
   readonly exec: ExecRequest[];
   readonly get: GetSandboxRequest[];
   readonly list: ListSandboxesOptions[];
-  readonly readFile: ReadFileRequest[];
   readonly start: StartSandboxRequest[];
   readonly startCommand: StartCommandRequest[];
   readonly startShell: StartShellRequest[];
   readonly stop: StopSandboxRequest[];
   readonly streamLogs: StreamLogsRequest[];
-  readonly writeFile: WriteFileRequest[];
 }
 
 describe("SandboxTransport contract", () => {
   it("normalizes client requests before calling the transport", async () => {
-    const { calls, transport } = createContractTransport();
-    const client = new SandboxClient({ transport });
+    const { calls, transport, fileAdapter } = createContractTransport();
+    const client = new SandboxClient({ fileAdapter, transport });
 
     const sandbox = await client.run(["echo", "hello"], {
       tags: ["contract-test"],
@@ -80,8 +89,8 @@ describe("SandboxTransport contract", () => {
   });
 
   it("attaches sandbox ids and normalized payloads for sandbox operations", async () => {
-    const { calls, transport } = createContractTransport();
-    const client = new SandboxClient({ transport });
+    const { calls, adapterCalls, transport, fileAdapter } = createContractTransport();
+    const client = new SandboxClient({ fileAdapter, transport });
     const sandbox = await client.run(["python"], { waitUntilRunning: false });
 
     await sandbox.exec(["pwd"], { cwd: "/tmp", timeoutMs: 100 });
@@ -113,13 +122,13 @@ describe("SandboxTransport contract", () => {
       sandboxId: expectedSandboxId,
       timeoutMs: 250,
     });
-    expect(expectSingle(calls.writeFile)).toMatchObject({
+    expect(expectSingle(adapterCalls.writeFile)).toMatchObject({
       path: "/tmp/hello.txt",
       sandboxId: expectedSandboxId,
       timeoutMs: 300,
     });
-    expect(new TextDecoder().decode(expectSingle(calls.writeFile).content)).toBe("hello");
-    expect(expectSingle(calls.readFile)).toMatchObject({
+    expect(new TextDecoder().decode(expectSingle(adapterCalls.writeFile).content)).toBe("hello");
+    expect(expectSingle(adapterCalls.readFile)).toMatchObject({
       path: "/tmp/hello.txt",
       sandboxId: expectedSandboxId,
       timeoutMs: 400,
@@ -142,7 +151,9 @@ describe("SandboxTransport contract", () => {
 });
 
 function createContractTransport(): {
+  readonly adapterCalls: AdapterCalls;
   readonly calls: TransportCalls;
+  readonly fileAdapter: ReturnType<typeof createFakeFileAdapter>;
   readonly transport: SandboxTransport;
 } {
   const calls: TransportCalls = {
@@ -150,19 +161,34 @@ function createContractTransport(): {
     exec: [],
     get: [],
     list: [],
-    readFile: [],
     start: [],
     startCommand: [],
     startShell: [],
     stop: [],
     streamLogs: [],
+  };
+
+  const adapterCalls: AdapterCalls = {
+    readFile: [],
     writeFile: [],
   };
 
   let stopped = false;
 
+  const fileAdapter = createFakeFileAdapter({
+    async write(request) {
+      adapterCalls.writeFile.push(request);
+    },
+    async read(request): Promise<ReadFileResult> {
+      adapterCalls.readFile.push(request);
+      return { content: new Uint8Array() };
+    },
+  });
+
   return {
+    adapterCalls,
     calls,
+    fileAdapter,
     transport: {
       async delete(request) {
         calls.delete.push(request);
@@ -184,12 +210,6 @@ function createContractTransport(): {
           sandboxes: [],
         };
       },
-      async readFile(request) {
-        calls.readFile.push(request);
-        return {
-          content: new Uint8Array(),
-        };
-      },
       async start(request) {
         calls.start.push(request);
         return {
@@ -197,12 +217,14 @@ function createContractTransport(): {
           status: "running",
         };
       },
-      async startCommand(request) {
+      startCommand: ((request: StartCommandRequest) => {
         calls.startCommand.push(request);
-        return request.stdin === true
-          ? createCommandProcess(request.command, true)
-          : createCommandProcess(request.command);
-      },
+        return Promise.resolve(
+          request.stdin === true
+            ? createCommandProcess(request.command, true)
+            : createCommandProcess(request.command),
+        );
+      }) as SandboxTransport["startCommand"],
       async startShell(request) {
         calls.startShell.push(request);
         return createTerminalSession(request.command);
@@ -214,9 +236,6 @@ function createContractTransport(): {
       async streamLogs(request): Promise<LogEntryStream | LogRawStream | LogStream> {
         calls.streamLogs.push(request);
         return createLogStream(request.mode);
-      },
-      async writeFile(request) {
-        calls.writeFile.push(request);
       },
     },
   };

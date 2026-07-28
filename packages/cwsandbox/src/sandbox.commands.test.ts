@@ -4,17 +4,14 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  CWSandboxExecutionError,
-  CWSandboxValidationError,
-  type SandboxTransport,
-} from "./index.js";
+import { CWSandboxExecutionError, CWSandboxValidationError } from "./index.js";
 import {
   createClient,
   createCommandProcess,
   createFakeTransport,
   createProcessResult,
 } from "./test/helpers.js";
+import type { SandboxTransport } from "./transport.js";
 
 describe("Sandbox commands", () => {
   it("runs commands through the commands namespace", async () => {
@@ -111,10 +108,10 @@ describe("Sandbox commands", () => {
     let startCommandRequest: Parameters<SandboxTransport["startCommand"]>[0] | undefined;
     const transport: SandboxTransport = {
       ...createFakeTransport(),
-      async startCommand(request) {
+      startCommand: ((request) => {
         startCommandRequest = request;
-        return createCommandProcess(request.command);
-      },
+        return Promise.resolve(createCommandProcess(request.command));
+      }) as SandboxTransport["startCommand"],
     };
     const sandbox = await createClient(transport).run(["echo", "hello"]);
 
@@ -135,10 +132,10 @@ describe("Sandbox commands", () => {
     let startCommandRequest: Parameters<SandboxTransport["startCommand"]>[0] | undefined;
     const transport: SandboxTransport = {
       ...createFakeTransport(),
-      async startCommand(request) {
+      startCommand: ((request) => {
         startCommandRequest = request;
-        return createCommandProcess(request.command, true);
-      },
+        return Promise.resolve(createCommandProcess(request.command, true));
+      }) as SandboxTransport["startCommand"],
     };
     const sandbox = await createClient(transport).run(["echo", "hello"]);
 

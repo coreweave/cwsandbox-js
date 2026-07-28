@@ -65,12 +65,11 @@ Both version headers use this package's version for now.
 
 ## Entrypoints
 
-The root package is transport-neutral and contains public types, errors, and the injectable client:
+The root package is transport-neutral and contains public types, errors, and client interfaces:
 
 ```ts
 import { DEFAULT_KEEP_ALIVE_COMMAND } from "@coreweave/cwsandbox";
-import { SandboxClient } from "@coreweave/cwsandbox";
-import type { SandboxTransport } from "@coreweave/cwsandbox";
+import type { SandboxClient } from "@coreweave/cwsandbox";
 ```
 
 Node gRPC helpers live under the Node entrypoint:
@@ -141,7 +140,10 @@ pnpm example:tanstack:typecheck
 
 ## API Map
 
-- `SandboxClient` creates, reconnects, lists, and deletes sandboxes through an injected transport.
+- Construct clients only through the Node/W&B factories (`createSandboxClient`,
+  `createSandboxClientFromEnv`). Direct construction and transport replacement are not
+  supported public APIs in this beta.
+- `SandboxClient` creates, reconnects, lists, and deletes sandboxes.
 - `createSandboxClientFromEnv()` in `@coreweave/cwsandbox/node` wires the Node gRPC transport from environment variables.
 - `client.withSandbox(callback, options)` runs short-lived work in a ready sandbox with automatic cleanup.
 - `client.create(options)` starts a long-lived ready sandbox you manage explicitly.
@@ -840,61 +842,15 @@ when the failure came from the Node gRPC transport.
 
 ## Testing Without Credentials
 
-You can unit test application code by injecting a fake `SandboxTransport`:
+Factories are the only supported creation path. Transport replacement and constructing
+`SandboxClient` / `Sandbox` implementations directly are not supported public APIs.
 
-```ts
-import { SandboxClient, type Command, type SandboxTransport } from "@coreweave/cwsandbox";
+To unit test application code, prefer supplying a `SandboxClient` interface fake to the
+code under test (not a transport). Alternatively, use the Node factory with a mock API
+key and intercept network calls.
 
-const resultFor = (command: Command) => ({
-  command,
-  exitCode: 0,
-  failed: false,
-  ok: true,
-  stderr: "",
-  stderrBytes: new Uint8Array(),
-  stderrBytesProduced: 0,
-  stderrTruncated: false,
-  stdout: "ok\n",
-  stdoutBytes: new TextEncoder().encode("ok\n"),
-  stdoutBytesProduced: 3,
-  stdoutTruncated: false,
-});
-
-const transport: SandboxTransport = {
-  async start(request) {
-    return { sandboxId: `test-${request.command[0]}`, status: "running" };
-  },
-  async get(request) {
-    return { sandboxId: request.sandboxId, status: "running" };
-  },
-  async list() {
-    return { sandboxes: [] };
-  },
-  async delete() {},
-  async stop() {},
-  async exec(request) {
-    return resultFor(request.command);
-  },
-  async startCommand() {
-    throw new Error("Streaming is not used in this test.");
-  },
-  async startShell() {
-    throw new Error("Shell sessions are not used in this test.");
-  },
-  async streamLogs() {
-    throw new Error("Logs are not used in this test.");
-  },
-  async writeFile() {},
-  async readFile() {
-    return { content: new Uint8Array() };
-  },
-};
-
-const client = new SandboxClient({ transport });
-```
-
-The fake transport only needs to implement the operations your application calls. For a fuller
-contract reference, see `src/transport.contract.test.ts`.
+For an example of how the package itself tests with fake implementations, see
+`src/transport.contract.test.ts` in the source tree.
 
 ## Environment
 

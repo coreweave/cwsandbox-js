@@ -7,19 +7,19 @@ import type {
   Command,
   CommandInputData,
   CommandInputWriter,
+  CommandProcess,
+  CommandProcessWithStdin,
   LogEntryStream,
   LogRawStream,
   LogStream,
   LogStreamMode,
   ProcessResult,
   SandboxStatus,
-  SandboxTransport,
   TerminalSession,
 } from "../index.js";
-import type {
-  InternalCommandProcess,
-  InternalCommandProcessWithStdin,
-} from "../internal/start-command-options.js";
+import type { SandboxTransport } from "../transport.js";
+import type { FileAdapter } from "../transport/file-adapter.js";
+import type { StartCommandRequest } from "../transport/types.js";
 
 const textEncoder = new TextEncoder();
 
@@ -65,15 +65,12 @@ export function createCommandInputWriter(): CommandInputWriter {
   };
 }
 
-export function createCommandProcess(command: Command): InternalCommandProcess;
-export function createCommandProcess(
-  command: Command,
-  stdin: true,
-): InternalCommandProcessWithStdin;
+export function createCommandProcess(command: Command): CommandProcess;
+export function createCommandProcess(command: Command, stdin: true): CommandProcessWithStdin;
 export function createCommandProcess(
   command: Command,
   stdin = false,
-): InternalCommandProcess | InternalCommandProcessWithStdin {
+): CommandProcess | CommandProcessWithStdin {
   const process = {
     cancel: async () => undefined,
     command,
@@ -81,7 +78,6 @@ export function createCommandProcess(
     stderr: emptyStream(),
     status: "exited" as const,
     stdout: streamFrom([command.join(" ")]),
-    stdoutBinary: emptyBinaryStream(),
     poll() {
       return 0;
     },
@@ -156,6 +152,24 @@ export function createTerminalSession(command: Command): TerminalSession {
   };
 }
 
+export function createFakeFileAdapter(overrides: Partial<FileAdapter> = {}): FileAdapter {
+  return {
+    async read() {
+      return { content: new Uint8Array() };
+    },
+    async write() {
+      return undefined;
+    },
+    readStream() {
+      return emptyBinaryIterable();
+    },
+    async writeStream() {
+      return undefined;
+    },
+    ...overrides,
+  };
+}
+
 export function createFakeTransport(
   statuses: readonly SandboxStatus[] = ["running"],
 ): SandboxTransport {
@@ -198,11 +212,12 @@ export function createFakeTransport(
     async exec(request) {
       return createProcessResult(request.command);
     },
-    async startCommand(request) {
-      return request.stdin === true
-        ? createCommandProcess(request.command, true)
-        : createCommandProcess(request.command);
-    },
+    startCommand: ((request: StartCommandRequest) =>
+      Promise.resolve(
+        request.stdin === true
+          ? createCommandProcess(request.command, true)
+          : createCommandProcess(request.command),
+      )) as SandboxTransport["startCommand"],
     async startShell(request) {
       return createTerminalSession(request.command);
     },
@@ -213,20 +228,12 @@ export function createFakeTransport(
       stopped = true;
       return undefined;
     },
-    async writeFile() {
-      return undefined;
-    },
-    async readFile() {
-      return {
-        content: new Uint8Array(),
-      };
-    },
   };
 }
 
 async function* emptyStream(): AsyncIterable<string> {}
 
-async function* emptyBinaryStream(): AsyncIterable<Uint8Array> {}
+async function* emptyBinaryIterable(): AsyncIterable<Uint8Array> {}
 
 async function* byteStreamFrom(values: readonly Uint8Array[]): AsyncIterable<Uint8Array> {
   for (const value of values) {
@@ -259,8 +266,9 @@ export function createTrackingTransport(): {
   };
 }
 
-export function createClient(transport: SandboxTransport = createFakeTransport()): SandboxClient {
-  return new SandboxClient({
-    transport,
-  });
+export function createClient(
+  transport: SandboxTransport = createFakeTransport(),
+  fileAdapter: FileAdapter = createFakeFileAdapter(),
+): SandboxClient {
+  return new SandboxClient({ fileAdapter, transport });
 }

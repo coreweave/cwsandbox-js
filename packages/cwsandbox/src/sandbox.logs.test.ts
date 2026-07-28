@@ -4,8 +4,9 @@
 
 import { describe, expect, it } from "vitest";
 
-import { CWSandboxValidationError, type LogStream, type SandboxTransport } from "./index.js";
+import { CWSandboxValidationError, type LogStream } from "./index.js";
 import { createClient, createFakeTransport, createLogStream } from "./test/helpers.js";
+import type { SandboxTransport } from "./transport.js";
 
 describe("Sandbox logs", () => {
   it("forwards log stream options to the transport", async () => {

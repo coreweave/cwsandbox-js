@@ -4,19 +4,15 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  CWSandboxNotFoundError,
-  CWSandboxValidationError,
-  Sandbox,
-  type SandboxTransport,
-  type WaitOptions,
-} from "./index.js";
+import { CWSandboxNotFoundError, CWSandboxValidationError, type WaitOptions } from "./index.js";
+import { Sandbox } from "./sandbox.js";
 import {
   createClient,
   createFakeTransport,
   createTerminalSession,
   createTrackingTransport,
 } from "./test/helpers.js";
+import type { SandboxTransport } from "./transport.js";
 
 describe("Sandbox", () => {
   it("stops sandboxes through the configured transport", async () => {

@@ -3,8 +3,12 @@
 // SPDX-PackageName: cwsandbox
 
 import { CWSandboxTransportError } from "../../errors.js";
-import type { InternalCommandProcess } from "../../internal/start-command-options.js";
-import type { ProcessResult, TerminalSession } from "../../public/commands.js";
+import type {
+  CommandProcess,
+  CommandProcessWithStdin,
+  ProcessResult,
+  TerminalSession,
+} from "../../public/commands.js";
 import type { LogEntryStream, LogRawStream, LogStream } from "../../public/logs.js";
 import type {
   GetSandboxResult,
@@ -17,14 +21,11 @@ import type {
   DeleteSandboxRequest,
   ExecRequest,
   GetSandboxRequest,
-  ReadFileRequest,
-  ReadFileResult,
   StartCommandRequest,
   StartShellRequest,
   StartSandboxRequest,
   StopSandboxRequest,
   StreamLogsRequest,
-  WriteFileRequest,
 } from "../../transport/types.js";
 import { createGrpcClients, type GrpcClients, type GrpcMetadata } from "./channel.js";
 import { startGrpcCommand } from "./command-stream.js";
@@ -49,13 +50,15 @@ export interface GrpcSandboxTransportOptions {
 }
 
 export class GrpcSandboxTransport implements SandboxTransport {
+  /** Exposed so the factory can create a FileAdapter from the same channel. */
+  public readonly clients: GrpcClients;
   private readonly client: GrpcClients["client"];
   private readonly streamingClient: GrpcClients["streamingClient"];
 
   public constructor(options: GrpcSandboxTransportOptions) {
-    const clients = createGrpcClients(options);
-    this.client = clients.client;
-    this.streamingClient = clients.streamingClient;
+    this.clients = createGrpcClients(options);
+    this.client = this.clients.client;
+    this.streamingClient = this.clients.streamingClient;
   }
 
   public async start(request: StartSandboxRequest): Promise<StartSandboxResult> {
@@ -124,7 +127,15 @@ export class GrpcSandboxTransport implements SandboxTransport {
     return toSdkProcessResult(request.command, response.result ?? emptyExecResponse());
   }
 
-  public async startCommand(request: StartCommandRequest): Promise<InternalCommandProcess> {
+  public async startCommand(
+    request: StartCommandRequest & { readonly stdin?: false },
+  ): Promise<CommandProcess>;
+  public async startCommand(
+    request: StartCommandRequest & { readonly stdin: true },
+  ): Promise<CommandProcessWithStdin>;
+  public async startCommand(
+    request: StartCommandRequest,
+  ): Promise<CommandProcess | CommandProcessWithStdin> {
     return startGrpcCommand(this.streamingClient, request);
   }
 
@@ -160,55 +171,6 @@ export class GrpcSandboxTransport implements SandboxTransport {
       operation: "Stop sandbox",
       sandboxId: request.sandboxId,
     });
-  }
-
-  public async writeFile(request: WriteFileRequest): Promise<void> {
-    const response = await withGrpcErrorMapping(
-      "Write file",
-      () =>
-        this.client.addFile(
-          {
-            fileContents: request.content,
-            filepath: request.path,
-            maxTimeoutSeconds: timeoutMsToSeconds(request.timeoutMs),
-            sandboxId: request.sandboxId,
-          },
-          toRpcOptions(request),
-        ).response,
-      { filepath: request.path, sandboxId: request.sandboxId },
-    );
-
-    assertGrpcSuccess(response, {
-      fallbackMessage: "Failed to write file.",
-      operation: "Write file",
-      sandboxId: request.sandboxId,
-    });
-  }
-
-  public async readFile(request: ReadFileRequest): Promise<ReadFileResult> {
-    const response = await withGrpcErrorMapping(
-      "Read file",
-      () =>
-        this.client.retrieveFile(
-          {
-            filepath: request.path,
-            maxTimeoutSeconds: timeoutMsToSeconds(request.timeoutMs),
-            sandboxId: request.sandboxId,
-          },
-          toRpcOptions(request),
-        ).response,
-      { filepath: request.path, sandboxId: request.sandboxId },
-    );
-
-    assertGrpcSuccess(response, {
-      fallbackMessage: "Failed to read file.",
-      operation: "Read file",
-      sandboxId: request.sandboxId,
-    });
-
-    return {
-      content: response.fileContents,
-    };
   }
 }
 

@@ -34,18 +34,8 @@ export interface ExecRequest extends Omit<ExecOptions, "check"> {
 }
 
 export interface StartCommandRequest extends StartCommandOptions {
-  /**
-   * Internal file plumbing (not public `commands.start` options).
-   * Skip UTF-8 decode into text stdout; see `InternalStartCommandOptions`.
-   */
-  readonly binaryOutput?: boolean;
   readonly command: Command;
   readonly sandboxId: SandboxId;
-  /**
-   * Internal file plumbing (not public `commands.start` options).
-   * With `binaryOutput`, stream via `stdoutBinary` instead of wait-buffering.
-   */
-  readonly streamStdoutOnly?: boolean;
 }
 
 export interface StartShellRequest extends Omit<ShellOptions, "command"> {
@@ -64,19 +54,4 @@ export interface StopSandboxRequest extends Omit<StopOptions, "missingOk"> {
 
 export interface DeleteSandboxRequest extends RequestOptions {
   readonly sandboxId: SandboxId;
-}
-
-export interface WriteFileRequest extends RequestOptions {
-  readonly content: Uint8Array;
-  readonly path: string;
-  readonly sandboxId: SandboxId;
-}
-
-export interface ReadFileRequest extends RequestOptions {
-  readonly path: string;
-  readonly sandboxId: SandboxId;
-}
-
-export interface ReadFileResult {
-  readonly content: Uint8Array;
 }

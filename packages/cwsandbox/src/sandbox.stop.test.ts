@@ -9,9 +9,9 @@ import {
   CWSandboxTerminalStateUnavailableError,
   CWSandboxTimeoutError,
   type SandboxStatus,
-  type SandboxTransport,
 } from "./index.js";
 import { createClient, createFakeTransport } from "./test/helpers.js";
+import type { SandboxTransport } from "./transport.js";
 
 describe("Sandbox.stop terminal wait", () => {
   it("waits through terminating until a terminal status", async () => {

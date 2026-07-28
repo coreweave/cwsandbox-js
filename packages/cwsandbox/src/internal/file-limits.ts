@@ -38,8 +38,8 @@ export const STREAMING_WRITE_CHUNK_SIZE = 64 * 1024;
 export const STREAMING_READ_STDERR_CAP_BYTES = 16 * 1024;
 
 /**
- * Max frames buffered on internal `stdoutBinary` between gRPC dispatch and the
- * `files.readStream` consumer. Matches Python `STREAMING_OUTPUT_QUEUE_SIZE`.
+ * Max frames buffered on the file read-stream queue between gRPC dispatch and
+ * the `files.readStream` consumer. Matches Python `STREAMING_OUTPUT_QUEUE_SIZE`.
  */
 export const STREAMING_OUTPUT_QUEUE_SIZE = 4096;
 
