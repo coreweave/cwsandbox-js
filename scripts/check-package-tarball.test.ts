@@ -267,7 +267,11 @@ function packPackage(packDir: string): string {
     );
   }
 
-  const tarballPath = join(packDir, tarballs[0]!);
+  const tarballName = tarballs[0];
+  if (tarballName === undefined) {
+    throw new Error(`Expected one tarball in ${packDir}, found none.`);
+  }
+  const tarballPath = join(packDir, tarballName);
   if (!existsSync(tarballPath)) {
     throw new Error(`pnpm pack did not produce ${tarballPath}.`);
   }
