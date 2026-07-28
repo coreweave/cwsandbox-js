@@ -22,7 +22,6 @@ export async function startGrpcCommand(
     command: request.command,
     sandboxId: request.sandboxId,
     stdin: request.stdin === true,
-    ...(request.bufferedMaxKiB !== undefined ? { bufferedMaxKiB: request.bufferedMaxKiB } : {}),
     ...(request.cwd !== undefined ? { cwd: request.cwd } : {}),
     ...(request.signal !== undefined ? { signal: request.signal } : {}),
     ...(request.timeoutMs !== undefined ? { timeoutMs: request.timeoutMs } : {}),

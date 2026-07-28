@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
-import { CWSandboxFileError } from "../errors.js";
+import { CWSandboxFileError, CWSandboxValidationError } from "../errors.js";
 import { CWSANDBOX_FILE_TOO_LARGE, CWSANDBOX_FILE_TRUNCATED } from "../internal/error-info.js";
 import {
   isFileTooLargeReason,
@@ -117,7 +117,7 @@ export class FileTransfer {
       mode: "direct",
       path,
       sandboxId: this.sandboxId,
-      source,
+      source: validatedChunkSource(source),
     });
   }
 
@@ -201,4 +201,35 @@ export class FileTransfer {
     );
     this.streamingFallbackNotified = true;
   }
+}
+
+function validatedChunkSource(source: FileChunkSource): FileChunkSource {
+  if (source instanceof Uint8Array) {
+    return source;
+  }
+
+  if (isAsyncIterable(source)) {
+    return (async function* (): AsyncGenerator<Uint8Array> {
+      for await (const chunk of source) {
+        yield requireUint8ArrayChunk(chunk);
+      }
+    })();
+  }
+
+  return (function* (): Generator<Uint8Array> {
+    for (const chunk of source) {
+      yield requireUint8ArrayChunk(chunk);
+    }
+  })();
+}
+
+function requireUint8ArrayChunk(chunk: unknown): Uint8Array {
+  if (chunk instanceof Uint8Array) {
+    return chunk;
+  }
+  throw new CWSandboxValidationError("writeStream chunk must be a Uint8Array.");
+}
+
+function isAsyncIterable(value: object): value is AsyncIterable<Uint8Array> {
+  return Symbol.asyncIterator in value;
 }

@@ -7,6 +7,7 @@ import {
   CWSandboxStreamBackpressureError,
   CWSandboxStreamTruncatedError,
   CWSandboxTransportError,
+  CWSandboxValidationError,
 } from "../../errors.js";
 import {
   CWSANDBOX_FILE_IO_FAILED,
@@ -216,6 +217,8 @@ async function* grpcReadStreamIterator(
     }
   })();
 
+  let settled = false;
+  let failure: unknown;
   try {
     request.signal?.throwIfAborted();
     for await (const chunk of outputQueue) {
@@ -224,6 +227,7 @@ async function* grpcReadStreamIterator(
     }
 
     await collect;
+    settled = true;
 
     if (exitCode !== 0) {
       throw mapReadStreamExit(request.sandboxId, request.path, exitCode ?? -1, stderr);
@@ -231,18 +235,24 @@ async function* grpcReadStreamIterator(
 
     verifyNoTruncation(request.sandboxId, request.path, delivered, expectedSize);
   } catch (error) {
-    if (
-      error instanceof CWSandboxFileError ||
-      error instanceof CWSandboxStreamBackpressureError ||
-      error instanceof CWSandboxStreamTruncatedError
-    ) {
-      throw error;
-    }
-
-    session.cancel(error);
+    failure = error;
     throw error;
   } finally {
     request.signal?.removeEventListener("abort", onAbort);
+    if (!settled) {
+      // Early abandon: close quietly so a blocked push unblocks. Real errors fail the queue.
+      if (failure !== undefined) {
+        outputQueue.fail(failure);
+      } else {
+        outputQueue.close();
+      }
+      session.cancel(failure);
+      try {
+        await collect;
+      } catch {
+        // Do not mask the consumer error (or quiet abandon) with cleanup failures.
+      }
+    }
   }
 }
 
@@ -327,10 +337,16 @@ async function grpcWriteStream(
     }
   } catch (error) {
     session.cancel(error);
+    try {
+      await collect;
+    } catch {
+      // Do not mask the original write failure with collector cleanup errors.
+    }
     if (
       error instanceof CWSandboxFileError ||
       error instanceof CWSandboxStreamBackpressureError ||
-      error instanceof CWSandboxStreamTruncatedError
+      error instanceof CWSandboxStreamTruncatedError ||
+      error instanceof CWSandboxValidationError
     ) {
       throw error;
     }
@@ -411,7 +427,7 @@ function coerceChunk(chunk: unknown): Uint8Array {
   if (chunk instanceof Uint8Array) {
     return chunk;
   }
-  throw new Error("writeStream chunk must be a Uint8Array.");
+  throw new CWSandboxValidationError("writeStream chunk must be a Uint8Array.");
 }
 
 function isAsyncIterable(value: object): value is AsyncIterable<Uint8Array> {

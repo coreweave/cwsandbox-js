@@ -73,12 +73,11 @@ export class Sandbox implements PublicSandbox {
     };
     const fileTransfer = new FileTransfer(this.sandboxId, options.fileAdapter);
     this.runtime = {
-      fileAdapter: options.fileAdapter,
       sandboxId: this.sandboxId,
       transport: options.transport,
     };
     this.commands = createSandboxCommands(this.runtime);
-    this.files = createSandboxFiles(this.runtime, fileTransfer);
+    this.files = createSandboxFiles(fileTransfer);
     this.logs = createSandboxLogs(this.runtime);
   }
 

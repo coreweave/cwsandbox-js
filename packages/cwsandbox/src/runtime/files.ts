@@ -19,15 +19,11 @@ import type {
   FileWrites,
   SandboxFiles,
 } from "../public/files.js";
-import type { SandboxRuntime } from "./context.js";
 import type { FileTransfer } from "./file-transfer.js";
 
 const textDecoder = new TextDecoder();
 
-export function createSandboxFiles(
-  runtime: SandboxRuntime,
-  fileTransfer: FileTransfer,
-): SandboxFiles {
+export function createSandboxFiles(fileTransfer: FileTransfer): SandboxFiles {
   return {
     read: readFile.bind(undefined, fileTransfer) as SandboxFiles["read"],
     readStream: (path, options) => readStreamingFile(fileTransfer, path, options),

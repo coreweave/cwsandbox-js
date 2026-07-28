@@ -58,8 +58,6 @@ export interface StartExecSessionOptions extends RequestOptions {
   readonly sandboxId: string;
   readonly stdin?: boolean;
   readonly cwd?: string;
-  readonly env?: Readonly<Record<string, string>>;
-  readonly bufferedMaxKiB?: number;
 }
 
 export async function startExecSession(

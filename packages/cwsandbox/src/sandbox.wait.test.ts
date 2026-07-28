@@ -15,7 +15,7 @@ import {
 } from "./index.js";
 import type { SandboxRuntime } from "./runtime/context.js";
 import { waitForSandbox, type WaitForSandboxOptions } from "./runtime/wait.js";
-import { createClient, createFakeFileAdapter, createFakeTransport } from "./test/helpers.js";
+import { createClient, createFakeTransport } from "./test/helpers.js";
 import type { SandboxTransport } from "./transport.js";
 
 /** Test-only: pass internal initialIntervalMs through public wait(). */
@@ -289,7 +289,6 @@ describe("Sandbox status and wait", () => {
       },
     };
     const runtime: SandboxRuntime = {
-      fileAdapter: createFakeFileAdapter(),
       sandboxId: "sandbox-clamp",
       transport,
     };
@@ -325,7 +324,6 @@ describe("Sandbox status and wait", () => {
       },
     };
     const runtime: SandboxRuntime = {
-      fileAdapter: createFakeFileAdapter(),
       sandboxId: "sandbox-overrun",
       transport,
     };
@@ -356,7 +354,6 @@ describe("Sandbox status and wait", () => {
       },
     };
     const runtime: SandboxRuntime = {
-      fileAdapter: createFakeFileAdapter(),
       sandboxId: "sandbox-budget",
       transport,
     };

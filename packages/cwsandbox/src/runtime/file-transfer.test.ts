@@ -4,7 +4,11 @@
 
 import { describe, expect, it } from "vitest";
 
-import { CWSandboxFileError, CWSandboxTransportError } from "../errors.js";
+import {
+  CWSandboxFileError,
+  CWSandboxTransportError,
+  CWSandboxValidationError,
+} from "../errors.js";
 import { CWSANDBOX_FILE_TOO_LARGE } from "../internal/error-info.js";
 import { DEFAULT_FILE_OPERATION_CAP_BYTES } from "../internal/file-limits.js";
 import type { FileAdapter, WriteStreamRequest } from "../transport/file-adapter.js";
@@ -75,6 +79,26 @@ describe("FileTransfer", () => {
     await transfer.writeStream("/tmp/a.bin", new Uint8Array([9]), {});
 
     expect(streamRequests[0]?.mode).toBe("direct");
+  });
+
+  it("rejects non-Uint8Array writeStream chunks with CWSandboxValidationError", async () => {
+    const seen: unknown[] = [];
+    const adapter = createFakeAdapter({
+      writeStream: async (request) => {
+        const source = request.source;
+        if (Symbol.iterator in Object(source) && !(source instanceof Uint8Array)) {
+          for (const chunk of source as Iterable<Uint8Array>) {
+            seen.push(chunk);
+          }
+        }
+      },
+    });
+    const transfer = new FileTransfer("sbx", adapter);
+
+    await expect(
+      transfer.writeStream("/tmp/bad.bin", [123 as unknown as Uint8Array], {}),
+    ).rejects.toBeInstanceOf(CWSandboxValidationError);
+    expect(seen).toEqual([]);
   });
 
   it("rejects truncated fallback reads", async () => {

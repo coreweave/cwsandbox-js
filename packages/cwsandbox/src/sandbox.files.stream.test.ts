@@ -89,22 +89,24 @@ describe("Sandbox files streaming", () => {
     ).rejects.toThrow(/aborted|AbortError|This operation was aborted/i);
   });
 
-  it("writeStream rejects non-Uint8Array chunks with CWSandboxFileError", async () => {
+  it("writeStream rejects non-Uint8Array chunks with CWSandboxValidationError", async () => {
+    const chunks: unknown[] = [];
     const fileAdapter = createFakeFileAdapter({
-      async writeStream() {
-        throw new CWSandboxFileError("chunk must be Uint8Array", {
-          filepath: "/tmp/bad.bin",
-          operation: "Write file",
-          reason: CWSANDBOX_FILE_IO_FAILED,
-          sandboxId: "sandbox-for-echo",
-        });
+      async writeStream(request) {
+        const source = request.source;
+        if (Symbol.iterator in Object(source) && !(source instanceof Uint8Array)) {
+          for (const chunk of source as Iterable<Uint8Array>) {
+            chunks.push(chunk);
+          }
+        }
       },
     });
     const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
 
     await expect(
       sandbox.files.writeStream("/tmp/bad.bin", [123 as unknown as Uint8Array]),
-    ).rejects.toBeInstanceOf(CWSandboxFileError);
+    ).rejects.toBeInstanceOf(CWSandboxValidationError);
+    expect(chunks).toEqual([]);
   });
 
   it("writeStream does not remask stream backpressure as a file error", async () => {

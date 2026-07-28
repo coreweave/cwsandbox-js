@@ -4,10 +4,8 @@
 
 import type { SandboxId } from "../public/sandbox.js";
 import type { SandboxTransport } from "../transport.js";
-import type { FileAdapter } from "../transport/file-adapter.js";
 
 export interface SandboxRuntime {
   readonly sandboxId: SandboxId;
   readonly transport: SandboxTransport;
-  readonly fileAdapter: FileAdapter;
 }

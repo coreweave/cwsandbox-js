@@ -140,7 +140,10 @@ pnpm example:tanstack:typecheck
 
 ## API Map
 
-- `SandboxClient` creates, reconnects, lists, and deletes sandboxes through an injected transport.
+- Construct clients only through the Node/W&B factories (`createSandboxClient`,
+  `createSandboxClientFromEnv`). Direct construction and transport replacement are not
+  supported public APIs in this beta.
+- `SandboxClient` creates, reconnects, lists, and deletes sandboxes.
 - `createSandboxClientFromEnv()` in `@coreweave/cwsandbox/node` wires the Node gRPC transport from environment variables.
 - `client.withSandbox(callback, options)` runs short-lived work in a ready sandbox with automatic cleanup.
 - `client.create(options)` starts a long-lived ready sandbox you manage explicitly.
@@ -839,10 +842,12 @@ when the failure came from the Node gRPC transport.
 
 ## Testing Without Credentials
 
-Transport replacement is not a supported public API. To unit test application code, use the
-Node factory with a mock API key and intercept network calls, or structure tests so that
-application logic under test receives a `SandboxClient` interface value that you supply
-from a test helper.
+Factories are the only supported creation path. Transport replacement and constructing
+`SandboxClient` / `Sandbox` implementations directly are not supported public APIs.
+
+To unit test application code, prefer supplying a `SandboxClient` interface fake to the
+code under test (not a transport). Alternatively, use the Node factory with a mock API
+key and intercept network calls.
 
 For an example of how the package itself tests with fake implementations, see
 `src/transport.contract.test.ts` in the source tree.
