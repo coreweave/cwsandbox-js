@@ -33,6 +33,22 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.0.14(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1))
 
+  examples/sdk:
+    dependencies:
+      '@coreweave/cwsandbox':
+        specifier: workspace:*
+        version: link:../../packages/cwsandbox
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.1
+        version: 22.20.1
+      tsx:
+        specifier: ^4.23.1
+        version: 4.23.1
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+
   examples/tanstack:
     dependencies:
       '@coreweave/cwsandbox-tanstack':

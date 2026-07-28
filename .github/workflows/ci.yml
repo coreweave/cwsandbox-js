@@ -61,6 +61,9 @@ jobs:
       - name: README tests
         run: pnpm test:readme
 
+      - name: SDK examples typecheck
+        run: pnpm build && pnpm --dir examples/sdk typecheck
+
       - name: Weave example typecheck
         run: pnpm example:weave:typecheck
 

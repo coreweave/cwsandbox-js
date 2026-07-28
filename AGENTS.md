@@ -12,7 +12,7 @@ This repository is the TypeScript SDK monorepo for CoreWeave Sandbox.
 
 - Core SDK: `packages/cwsandbox` (`@coreweave/cwsandbox`)
 - TanStack adapter: `packages/cwsandbox-tanstack` (`@coreweave/cwsandbox-tanstack`, private until fast-follow publish)
-- Examples: `examples/*`
+- Examples: `examples/sdk` (core recipes), `examples/weave`, `examples/tanstack` — see `examples/README.md` and `examples/AGENTS.md`
 - Live e2e: `e2e/`
 
 ## Commands
@@ -48,7 +48,8 @@ This repository is the TypeScript SDK monorepo for CoreWeave Sandbox.
 ## Documentation and Examples
 
 - When adding, renaming, or changing public SDK options/methods, update `packages/cwsandbox/README.md` examples in the same change.
+- Prefer adding or updating a runnable recipe under `examples/sdk/` for new workflows; keep scripts self-contained (no shared example `lib/`).
 - Keep README TypeScript examples copy-pasteable and backend-valid.
-- Run `pnpm test:readme` for README-only example changes, or `pnpm check` for normal changes.
+- Run `pnpm test:readme` for README-only example changes, or `pnpm check` for normal changes (`pnpm check` includes `examples/sdk` typecheck).
 - `pnpm test:readme` typechecks README `ts`/`typescript` code fences, so keep snippets valid even when they are illustrative.
 - Root `README.md` is a short monorepo hub only.
