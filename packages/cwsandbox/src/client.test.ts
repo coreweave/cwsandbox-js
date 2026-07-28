@@ -284,11 +284,18 @@ describe("SandboxClient", () => {
         "sandbox-b",
         "sandbox-c",
       ]);
-      expect(listRequests).toEqual([
-        { pageSize: 10, tags: ["tag-a"], timeoutMs: 5_000 },
-        { pageSize: 10, pageToken: "page-2", tags: ["tag-a"], timeoutMs: expect.any(Number) },
-        { pageSize: 10, pageToken: "page-3", tags: ["tag-a"], timeoutMs: expect.any(Number) },
-      ]);
+      expect(listRequests).toHaveLength(3);
+      expect(listRequests[0]).toMatchObject({ pageSize: 10, tags: ["tag-a"] });
+      expect(listRequests[1]).toMatchObject({
+        pageSize: 10,
+        pageToken: "page-2",
+        tags: ["tag-a"],
+      });
+      expect(listRequests[2]).toMatchObject({
+        pageSize: 10,
+        pageToken: "page-3",
+        tags: ["tag-a"],
+      });
     });
 
     it("yields sandboxes one by one via listSandboxes", async () => {
@@ -362,6 +369,7 @@ describe("SandboxClient", () => {
     });
 
     it("applies the default listAll timeout budget when timeoutMs is omitted", async () => {
+      vi.useFakeTimers();
       let listRequest: Parameters<SandboxTransport["list"]>[0] | undefined;
       const transport: SandboxTransport = {
         ...createFakeTransport(),
@@ -371,9 +379,12 @@ describe("SandboxClient", () => {
         },
       };
 
-      await createClient(transport).listAll({ tags: ["tag-a"] });
-
-      expect(listRequest?.timeoutMs).toBe(DEFAULT_LIST_ALL_TIMEOUT_MS);
+      try {
+        await createClient(transport).listAll({ tags: ["tag-a"] });
+        expect(listRequest?.timeoutMs).toBe(DEFAULT_LIST_ALL_TIMEOUT_MS);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it("treats timeoutMs as a wall-clock budget across pages", async () => {
