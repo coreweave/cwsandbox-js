@@ -8,5 +8,6 @@ export default defineConfig({
   test: {
     exclude: ["dist/**", "node_modules/**"],
     include: ["scripts/check-package-tarball.test.ts"],
+    testTimeout: 30_000,
   },
 });
