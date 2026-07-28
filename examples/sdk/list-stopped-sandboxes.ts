@@ -25,9 +25,11 @@ async function createSandboxes(count: number): Promise<void> {
 
   await Promise.all(
     Array.from({ length: count }, async (_, i) => {
-      const sandbox = await client.run(["true"], {
+      // Fire-and-wait-for-terminal: short-lived mains can finish before a
+      // running-status poll, so do not waitUntilRunning.
+      const sandbox = await client.run(["echo", `hello-${i}`], {
         tags: [TAG, `instance-${i}`],
-        waitUntilRunning: true,
+        waitUntilRunning: false,
       });
       await sandbox.wait({ targetStatus: "terminal", timeoutMs: 120_000 });
       console.log(`  ${sandbox.sandboxId} -> ${sandbox.status}`);

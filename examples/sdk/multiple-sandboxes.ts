@@ -3,9 +3,10 @@
 // SPDX-PackageName: cwsandbox
 
 /**
- * Multiple sandboxes in parallel (JS has no Session yet — use the client).
+ * Multiple sandboxes in parallel (JS has no Session yet — use withSandbox).
  *
- * Demonstrates creating two sandboxes, running commands concurrently, then cleanup.
+ * Demonstrates creating two sandboxes, running commands concurrently, then
+ * per-sandbox cleanup so a failed peer cannot leak a billable sandbox.
  */
 
 import { createSandboxClientFromEnv } from "@coreweave/cwsandbox/node";
@@ -14,22 +15,25 @@ async function main(): Promise<void> {
   const client = createSandboxClientFromEnv();
   const tag = "example-multiple-sandboxes";
 
-  const [sb1, sb2] = await Promise.all([
-    client.create({ tags: [tag, "sb1"] }),
-    client.create({ tags: [tag, "sb2"] }),
+  const [r1, r2] = await Promise.all([
+    client.withSandbox(
+      async (sb1) => {
+        const result = await sb1.commands.run(["sh", "-c", "echo sandbox1 && uname -s"]);
+        return { sandboxId: sb1.sandboxId, result };
+      },
+      { tags: [tag, "sb1"] },
+    ),
+    client.withSandbox(
+      async (sb2) => {
+        const result = await sb2.commands.run(["sh", "-c", "echo sandbox2 && uname -s"]);
+        return { sandboxId: sb2.sandboxId, result };
+      },
+      { tags: [tag, "sb2"] },
+    ),
   ]);
 
-  try {
-    const [r1, r2] = await Promise.all([
-      sb1.commands.run(["sh", "-c", "echo sandbox1 && uname -s"]),
-      sb2.commands.run(["sh", "-c", "echo sandbox2 && uname -s"]),
-    ]);
-
-    console.log(`sb1 (${sb1.sandboxId}): ${r1.stdout.trim().replaceAll("\n", " | ")}`);
-    console.log(`sb2 (${sb2.sandboxId}): ${r2.stdout.trim().replaceAll("\n", " | ")}`);
-  } finally {
-    await Promise.all([sb1.stop({ missingOk: true }), sb2.stop({ missingOk: true })]);
-  }
+  console.log(`sb1 (${r1.sandboxId}): ${r1.result.stdout.trim().replaceAll("\n", " | ")}`);
+  console.log(`sb2 (${r2.sandboxId}): ${r2.result.stdout.trim().replaceAll("\n", " | ")}`);
 }
 
 await main();
