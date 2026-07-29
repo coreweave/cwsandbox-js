@@ -26,6 +26,7 @@ This repository is the TypeScript SDK monorepo for CoreWeave Sandbox.
 
 ## TypeScript Standards
 
+- Workspace TypeScript is 7.x (native `tsc`); typecheck with `pnpm typecheck` / `tsc --noEmit`.
 - Keep `strict` TypeScript clean; do not use `any`.
 - Prefer `unknown` for opaque external data.
 - Use `readonly` for public option and result properties.
