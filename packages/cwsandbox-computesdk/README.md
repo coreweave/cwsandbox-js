@@ -32,15 +32,21 @@ import { coreweave } from "@coreweave/cwsandbox-computesdk";
 const compute = coreweave({
   // apiKey defaults to process.env.CWSANDBOX_API_KEY
   // baseUrl defaults to https://api.cwsandbox.com
+  // ownerTag scopes list/destroy; auto-generated if omitted
 });
 
 const sandbox = await compute.sandbox.create({
   cpu: 8,
   memoryMiB: 16384,
   image: "ubuntu:24.04",
+  name: "demo", // stored as annotation, not a tag
+  timeout: 300_000, // maps to maxLifetimeSeconds (server TTL)
 });
 
-const result = await sandbox.runCommand("echo hello && uname -r");
+const result = await sandbox.runCommand("echo hello && uname -r", {
+  cwd: "/tmp",
+  env: { HELLO: "world" },
+});
 console.log(result.stdout);
 
 await sandbox.destroy();
@@ -55,25 +61,35 @@ await sandbox.destroy();
 | `image`                          | `ubuntu:24.04`              | OCI image for new sandboxes                                             |
 | `cpu` / `memory`                 | `2` / `4Gi`                 | Kubernetes quantities (defaults; per-create `cpu`/`memoryMiB` override) |
 | `maxLifetimeSeconds`             | `3600`                      | server-enforced hard TTL                                                |
+| `ownerTag`                       | auto 6-char `[a-z0-9]`      | paired with `computesdk` tag for list scoping; stable per config object |
 | `runnerIds` / `profileNames`     | —                           | scheduling constraints                                                  |
-| `client` / `createClient`        | —                           | inject a `SandboxClient` (tests / advanced)                             |
+| `client` / `createClient`        | —                           | inject a `SandboxClient` (tests / advanced); client factory is memoized |
+
+Create options of note:
+
+- `name` → sandbox annotation `name` (not a tag)
+- `timeout` (ms) → `maxLifetimeSeconds` only (not create `timeoutMs`)
+- Tags always include `computesdk` + `ownerTag`
 
 ## Capability mapping
 
 Supported:
 
-- Create, getById, list, and destroy
-- Blocking command execution and long-timeout streamed exec via the CoreWeave SDK
-- Native file read/write via the CoreWeave SDK
-- Shell-backed mkdir, readdir, exists, and remove
+- Create, getById, list (filtered to `computesdk` + `ownerTag`), and destroy
+- Blocking command execution (`/usr/bin/env` + `/bin/sh -c`) and long-timeout
+  streamed exec (`timeout > 240s` → SDK `commands.start`) with native `cwd`
+- Native file read/write; `writeFile` creates parent directories first
+- Shell-backed mkdir, portable `ls -la` readdir, exists, and remove
 - Resource mapping from ComputeSDK `cpu` / `memoryMiB`
+- `getInfo`: not-found → `stopped`; other inspect errors rethrown
 
 Explicitly unsupported for now:
 
 - `getUrl` (port exposure helper)
-- ComputeSDK `onStdout` / `onStderr` callbacks (ComputeSDK routes these through
-  daemond + `getUrl`; blocked until `getUrl` exists)
+- ComputeSDK `onStdout` / `onStderr` streaming (requires `getUrl` / daemond;
+  callbacks alone do not select the streamed exec path)
 - Templates and snapshots
+- Returning remaining lifetime on discover (`timeout` on getInfo uses create-time TTL)
 
 ## Development
 
@@ -84,14 +100,15 @@ CWSANDBOX_API_KEY=... pnpm --filter @coreweave/cwsandbox-computesdk smoke
 
 Live smoke (billable, not part of `pnpm check`) covers:
 
-- create with resource knobs
+- create with resource knobs + name annotation
 - short unary `runCommand`
 - `cwd` / `env`
 - long-timeout streamed exec (`timeout > 240s` → SDK `commands.start`)
-- hostile filesystem write/read + `readdir`
+- nested filesystem write/read + `readdir` (parent mkdir via adapter)
 - `getInfo` status `running`
 - destroy
 
 ## License
 
-This package is licensed under the Apache-2.0 license.
+This package is licensed under the Apache-2.0 license. See `LICENSE-Apache-2.0.txt`
+and `NOTICE`.

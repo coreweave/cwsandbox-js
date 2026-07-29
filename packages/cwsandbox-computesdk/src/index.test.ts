@@ -8,14 +8,17 @@ import {
   type CommandInputData,
   type CommandInputWriter,
   type CommandProcessWithStdin,
+  type ExecOptions,
   type ProcessResult,
   type Sandbox,
   type SandboxClient,
   type SandboxCommands,
   type SandboxFiles,
+  type SandboxListOptions,
   type SandboxLogs,
   type SandboxRunOptions,
   type SandboxStatus,
+  type StartCommandOptions,
 } from "@coreweave/cwsandbox";
 import { describe, expect, it } from "vitest";
 
@@ -24,9 +27,9 @@ import { coreweave } from "./index.js";
 const encoder = new TextEncoder();
 
 describe("coreweave ComputeSDK provider", () => {
-  it("creates sandboxes with resource and env mapping", async () => {
+  it("creates sandboxes with resource, owner tag, and name annotation mapping", async () => {
     const tracking = createTrackingClient();
-    const provider = coreweave({ client: tracking.client });
+    const provider = coreweave({ client: tracking.client, ownerTag: "matt" });
 
     const sandbox = await provider.sandbox.create({
       cpu: 8,
@@ -42,14 +45,41 @@ describe("coreweave ComputeSDK provider", () => {
       containerImage: "ubuntu:24.04",
       environmentVariables: { API_TOKEN: "secret" },
       resources: { cpu: "8", memory: "16384Mi" },
-      tags: ["computesdk", "demo"],
+      tags: ["computesdk", "matt"],
+      annotations: { name: "demo" },
       waitUntilRunning: true,
     });
+    expect(tracking.createOptions[0]?.timeoutMs).toBeUndefined();
   });
 
-  it("runs commands with cwd/env and returns duration", async () => {
+  it("auto-generates a 6-char owner tag when omitted", async () => {
     const tracking = createTrackingClient();
     const provider = coreweave({ client: tracking.client });
+
+    await provider.sandbox.create({});
+    await provider.sandbox.create({});
+
+    const firstTags = tracking.createOptions[0]?.tags;
+    const secondTags = tracking.createOptions[1]?.tags;
+    expect(firstTags).toEqual(["computesdk", expect.stringMatching(/^[a-z0-9]{6}$/)]);
+    expect(secondTags).toEqual(firstTags);
+  });
+
+  it("maps CreateSandboxOptions.timeout to maxLifetimeSeconds", async () => {
+    const tracking = createTrackingClient();
+    const provider = coreweave({ client: tracking.client, ownerTag: "t1" });
+
+    await provider.sandbox.create({ timeout: 300_000 });
+
+    expect(tracking.createOptions[0]).toMatchObject({
+      maxLifetimeSeconds: 300,
+    });
+    expect(tracking.createOptions[0]?.timeoutMs).toBeUndefined();
+  });
+
+  it("runs commands with /usr/bin/env, /bin/sh -c, and native cwd", async () => {
+    const tracking = createTrackingClient();
+    const provider = coreweave({ client: tracking.client, ownerTag: "t1" });
     const sandbox = await provider.sandbox.create({});
 
     const result = await sandbox.runCommand("printf ok", {
@@ -64,15 +94,18 @@ describe("coreweave ComputeSDK provider", () => {
     });
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
     expect(tracking.execCommands[0]).toEqual([
-      "/bin/bash",
+      "/usr/bin/env",
+      "FROM_PROCESS=yes",
+      "/bin/sh",
       "-c",
-      "export FROM_PROCESS='yes'\ncd '/workspace/app'\nprintf ok",
+      "printf ok",
     ]);
+    expect(tracking.execOptions[0]).toMatchObject({ cwd: "/workspace/app" });
   });
 
-  it("uses commands.start for long-timeout commands", async () => {
+  it("uses commands.start for long-timeout commands only", async () => {
     const tracking = createTrackingClient();
-    const provider = coreweave({ client: tracking.client });
+    const provider = coreweave({ client: tracking.client, ownerTag: "t1" });
     const sandbox = await provider.sandbox.create({});
 
     const result = await sandbox.runCommand("printf stream", {
@@ -84,23 +117,98 @@ describe("coreweave ComputeSDK provider", () => {
     expect(result.stdout).toBe("stream");
   });
 
-  it("reads and writes files through the SDK filesystem", async () => {
+  it("does not select provider streaming for onStdout alone", async () => {
     const tracking = createTrackingClient();
-    const provider = coreweave({ client: tracking.client });
+    const provider = coreweave({ client: tracking.client, ownerTag: "t1" });
     const sandbox = await provider.sandbox.create({});
 
-    await sandbox.filesystem.writeFile("/workspace/app/input.txt", "hello");
-    const text = await sandbox.filesystem.readFile("/workspace/app/output.txt");
+    // ComputeSDK owns callback streaming (daemond + getUrl). Our adapter must not
+    // treat onStdout as a signal to use commands.start.
+    await expect(sandbox.runCommand("printf ok", { onStdout: () => undefined })).rejects.toThrow();
+    expect(tracking.startCommands).toHaveLength(0);
+    expect(tracking.execCommands.length).toBeGreaterThan(0);
+  });
 
-    expect(text).toBe("file contents");
+  it("memoizes createClient across create/list/destroy", async () => {
+    const tracking = createTrackingClient();
+    let createClientCalls = 0;
+    const provider = coreweave({
+      ownerTag: "t1",
+      createClient: () => {
+        createClientCalls += 1;
+        return tracking.client;
+      },
+    });
+
+    const sandbox = await provider.sandbox.create({});
+    await provider.sandbox.list();
+    await sandbox.destroy();
+    await provider.sandbox.create({});
+
+    expect(createClientCalls).toBe(1);
+  });
+
+  it("lists only adapter+owner tagged sandboxes", async () => {
+    const tracking = createTrackingClient();
+    const provider = coreweave({ client: tracking.client, ownerTag: "matt" });
+
+    await provider.sandbox.list();
+
+    expect(tracking.listAllOptions[0]).toEqual({ tags: ["computesdk", "matt"] });
+  });
+
+  it("creates parent directories before nested writes", async () => {
+    const tracking = createTrackingClient();
+    const provider = coreweave({ client: tracking.client, ownerTag: "t1" });
+    const sandbox = await provider.sandbox.create({});
+
+    await sandbox.filesystem.writeFile("/tmp/a/b/c.txt", "hello");
+
+    expect(tracking.execCommands[0]).toEqual(["/bin/sh", "-c", "mkdir -p '/tmp/a/b'"]);
     expect(tracking.writeRequests[0]).toEqual({
-      path: "/workspace/app/input.txt",
+      path: "/tmp/a/b/c.txt",
       content: "hello",
     });
   });
 
+  it("reads directories with portable ls -la", async () => {
+    const tracking = createTrackingClient({
+      runStdout:
+        "total 8\ndrwxr-xr-x 2 root root 4096 Jan 1 00:00 .\ndrwxr-xr-x 3 root root 4096 Jan 1 00:00 ..\n-rw-r--r-- 1 root root   11 Jan 1 00:00 hello.txt\ndrwxr-xr-x 2 root root 4096 Jan 1 00:00 nested\n",
+    });
+    const provider = coreweave({ client: tracking.client, ownerTag: "t1" });
+    const sandbox = await provider.sandbox.create({});
+
+    const entries = await sandbox.filesystem.readdir("/tmp/smoke");
+
+    expect(tracking.execCommands[0]).toEqual(["/bin/sh", "-c", "ls -la '/tmp/smoke'"]);
+    expect(entries).toEqual([
+      { name: "hello.txt", type: "file", size: 11 },
+      { name: "nested", type: "directory", size: 4096 },
+    ]);
+  });
+
+  it("maps inspect not-found to stopped and rethrows other getInfo errors", async () => {
+    const notFound = createTrackingClient({
+      inspectError: new CWSandboxNotFoundError("gone"),
+    });
+    const providerNotFound = coreweave({ client: notFound.client, ownerTag: "t1" });
+    const sandboxNotFound = await providerNotFound.sandbox.create({});
+    await expect(sandboxNotFound.getInfo()).resolves.toMatchObject({
+      id: "sandbox-1",
+      status: "stopped",
+    });
+
+    const other = createTrackingClient({
+      inspectError: new Error("rate limited"),
+    });
+    const providerOther = coreweave({ client: other.client, ownerTag: "t1" });
+    const sandboxOther = await providerOther.sandbox.create({});
+    await expect(sandboxOther.getInfo()).rejects.toThrow(/rate limited/);
+  });
+
   it("returns null for missing sandboxes on getById", async () => {
-    const provider = coreweave({ client: createTrackingClient().client });
+    const provider = coreweave({ client: createTrackingClient().client, ownerTag: "t1" });
 
     await expect(provider.sandbox.getById("sandbox-1")).resolves.toMatchObject({
       sandboxId: "sandbox-1",
@@ -110,7 +218,7 @@ describe("coreweave ComputeSDK provider", () => {
 
   it("destroys sandboxes through the client", async () => {
     const tracking = createTrackingClient();
-    const provider = coreweave({ client: tracking.client });
+    const provider = coreweave({ client: tracking.client, ownerTag: "t1" });
     const sandbox = await provider.sandbox.create({});
 
     await sandbox.destroy();
@@ -120,10 +228,17 @@ describe("coreweave ComputeSDK provider", () => {
   });
 
   it("fails clearly for getUrl", async () => {
-    const provider = coreweave({ client: createTrackingClient().client });
+    const provider = coreweave({ client: createTrackingClient().client, ownerTag: "t1" });
     const sandbox = await provider.sandbox.create({});
 
     await expect(sandbox.getUrl({ port: 8080 })).rejects.toThrow(/getUrl is not implemented/);
+  });
+
+  it("rejects invalid ownerTag", async () => {
+    const tracking = createTrackingClient();
+    const provider = coreweave({ client: tracking.client, ownerTag: "bad tag" });
+
+    await expect(provider.sandbox.create({})).rejects.toThrow(/Invalid ownerTag/);
   });
 });
 
@@ -132,19 +247,28 @@ interface WriteRequest {
   readonly path: string;
 }
 
+interface TrackingClientOptions {
+  readonly inspectError?: Error;
+  readonly runStdout?: string;
+}
+
 interface TrackingClient {
   readonly client: SandboxClient;
   readonly createOptions: SandboxRunOptions[];
   readonly deletedSandboxIds: string[];
   readonly execCommands: Command[];
+  readonly execOptions: Array<ExecOptions | undefined>;
+  readonly listAllOptions: Array<SandboxListOptions | undefined>;
   readonly startCommands: Command[];
   readonly writeRequests: WriteRequest[];
 }
 
-function createTrackingClient(): TrackingClient {
+function createTrackingClient(options: TrackingClientOptions = {}): TrackingClient {
   const createOptions: SandboxRunOptions[] = [];
   const deletedSandboxIds: string[] = [];
   const execCommands: Command[] = [];
+  const execOptions: Array<ExecOptions | undefined> = [];
+  const listAllOptions: Array<SandboxListOptions | undefined> = [];
   const startCommands: Command[] = [];
   const writeRequests: WriteRequest[] = [];
   let sandboxCounter = 0;
@@ -153,30 +277,34 @@ function createTrackingClient(): TrackingClient {
     const files: SandboxFiles = {
       read: (async () => new Uint8Array()) as unknown as SandboxFiles["read"],
       readStream: () => emptyBinaryIterable(),
-      readText: (async (path: string) => {
-        if (path === "/workspace/app/output.txt") {
+      readText: (async (filePath: string) => {
+        if (filePath === "/workspace/app/output.txt") {
           return "file contents";
         }
         return "";
       }) as unknown as SandboxFiles["readText"],
-      write: (async (path: string, content: string | Uint8Array) => {
+      write: (async (filePath: string, content: string | Uint8Array) => {
         writeRequests.push({
           content: typeof content === "string" ? content : new TextDecoder().decode(content),
-          path,
+          path: filePath,
         });
       }) as unknown as SandboxFiles["write"],
       writeStream: async () => undefined,
     };
 
     const commands: SandboxCommands = {
-      run: async (command) => {
+      run: async (command, runOptions?: ExecOptions) => {
         const normalized = normalizeCommand(command);
         execCommands.push(normalized);
-        return createProcessResult(normalized, { stdout: "ok" });
+        execOptions.push(runOptions);
+        return createProcessResult(normalized, {
+          stdout: options.runStdout ?? "ok",
+        });
       },
-      start: (async (command) => {
+      start: (async (command, startOptions?: StartCommandOptions) => {
         const normalized = normalizeCommand(command);
         startCommands.push(normalized);
+        execOptions.push(startOptions);
         return createCommandProcess(normalized, { stdout: "stream" });
       }) as SandboxCommands["start"],
     };
@@ -207,7 +335,12 @@ function createTrackingClient(): TrackingClient {
       exposedPorts: undefined,
       files,
       getStatus: async () => status,
-      inspect: async () => ({ sandboxId, status }),
+      inspect: async () => {
+        if (options.inspectError !== undefined) {
+          throw options.inspectError;
+        }
+        return { sandboxId, status };
+      },
       logs,
       profileId: undefined,
       resourceLimits: undefined,
@@ -232,14 +365,14 @@ function createTrackingClient(): TrackingClient {
   }
 
   const client: SandboxClient = {
-    async create(options = {}) {
+    async create(createOpts = {}) {
       sandboxCounter++;
-      createOptions.push(options);
+      createOptions.push(createOpts);
       return createFakeSandbox(`sandbox-${sandboxCounter}`);
     },
-    async run(_, options = {}) {
+    async run(_, createOpts = {}) {
       sandboxCounter++;
-      createOptions.push(options);
+      createOptions.push(createOpts);
       return createFakeSandbox(`sandbox-${sandboxCounter}`);
     },
     async get(sandboxId) {
@@ -260,7 +393,8 @@ function createTrackingClient(): TrackingClient {
     listSandboxes() {
       throw new Error("listSandboxes not used in these tests.");
     },
-    async listAll() {
+    async listAll(listOpts) {
+      listAllOptions.push(listOpts);
       return [createFakeSandbox("sandbox-listed")];
     },
     async delete(sandboxId) {
@@ -276,6 +410,8 @@ function createTrackingClient(): TrackingClient {
     createOptions,
     deletedSandboxIds,
     execCommands,
+    execOptions,
+    listAllOptions,
     startCommands,
     writeRequests,
   };

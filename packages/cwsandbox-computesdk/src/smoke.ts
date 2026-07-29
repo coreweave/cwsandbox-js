@@ -55,18 +55,17 @@ async function main(): Promise<void> {
       throw new Error("long-timeout exec failed");
     }
 
-    // 4. Filesystem roundtrip (mkdir first — native write does not create parents)
-    await sandbox.filesystem.mkdir("/tmp/smoke");
+    // 4. Filesystem roundtrip (writeFile creates parent dirs)
     await sandbox.filesystem.writeFile(
-      "/tmp/smoke/hello.txt",
+      "/tmp/smoke/nested/hello.txt",
       "roundtrip ✓ with 'quotes' and $vars",
     );
-    const content = await sandbox.filesystem.readFile("/tmp/smoke/hello.txt");
+    const content = await sandbox.filesystem.readFile("/tmp/smoke/nested/hello.txt");
     console.log(`[fs] readback=${JSON.stringify(content)}`);
     if (!content.includes("roundtrip ✓")) {
       throw new Error("filesystem roundtrip failed");
     }
-    const entries = await sandbox.filesystem.readdir("/tmp/smoke");
+    const entries = await sandbox.filesystem.readdir("/tmp/smoke/nested");
     console.log(`[fs] readdir=${JSON.stringify(entries)}`);
     if (!entries.some((entry) => entry.name === "hello.txt")) {
       throw new Error("filesystem readdir missing hello.txt");
