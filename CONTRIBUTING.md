@@ -18,7 +18,7 @@ pnpm check
 Useful commands:
 
 - `pnpm build` — build all workspace packages with a `build` script (Turbo)
-- `pnpm typecheck` / `pnpm test` — typecheck/test across the workspace graph
+- `pnpm typecheck` / `pnpm test` — typecheck/test across the workspace graph (TypeScript 7.x native `tsc`)
 - `pnpm quality` / `pnpm fix` — Oxlint + Oxfmt (check / fix)
 - `pnpm smoke` — live e2e smoke (`CWSANDBOX_API_KEY` required; not part of `pnpm check`)
 
