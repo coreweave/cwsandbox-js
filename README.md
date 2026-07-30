@@ -16,14 +16,15 @@ For contribution guidelines and CLA requirements, see
 
 ## Packages
 
-| Package                                                          | Status                                          | Description                             |
-| ---------------------------------------------------------------- | ----------------------------------------------- | --------------------------------------- |
-| [`@coreweave/cwsandbox`](./packages/cwsandbox)                   | `0.1.0-beta.0` (publish-ready)                  | Core TypeScript SDK (`/node`, `/wandb`) |
-| [`@coreweave/cwsandbox-tanstack`](./packages/cwsandbox-tanstack) | same version, private until fast-follow publish | TanStack AI sandbox adapter             |
-| Vercel AI adapter                                                | planned                                         | npm name deferred until scaffold        |
+| Package                                                              | Status                                              | Description                             |
+| -------------------------------------------------------------------- | --------------------------------------------------- | --------------------------------------- |
+| [`@coreweave/cwsandbox`](./packages/cwsandbox)                       | `0.1.0-beta.0` (publish-ready)                      | Core TypeScript SDK (`/node`, `/wandb`) |
+| [`@coreweave/cwsandbox-tanstack`](./packages/cwsandbox-tanstack)     | same version, private until fast-follow publish     | TanStack AI sandbox adapter             |
+| [`@coreweave/cwsandbox-computesdk`](./packages/cwsandbox-computesdk) | same version, public package (npm publish deferred) | ComputeSDK sandbox provider             |
+| Vercel AI adapter                                                    | planned                                             | npm name deferred until scaffold        |
 
 Versions are **lockstep**: core and adapters share the same version string when
-published. First npm cut is core only; TanStack follows at the matching version.
+published. First npm cut is core only; adapters follow at the matching version.
 
 ## Develop
 

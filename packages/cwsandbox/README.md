@@ -109,6 +109,9 @@ they can carry their own peer dependencies and compatibility tests.
 - `@coreweave/cwsandbox-tanstack` adapts this SDK to TanStack AI's
   `SandboxProvider` contract for `defineSandbox(...)` / `withSandbox(...)`
   workflows (same lockstep version; private until its fast-follow publish).
+- `@coreweave/cwsandbox-computesdk` adapts this SDK to ComputeSDK's
+  `defineProvider` contract via the `coreweave(...)` factory (same lockstep
+  version; public package metadata, npm publish deferred).
 
 ## Examples
 

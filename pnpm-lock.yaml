@@ -124,6 +124,28 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.0.14(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1))
 
+  packages/cwsandbox-computesdk:
+    dependencies:
+      '@coreweave/cwsandbox':
+        specifier: workspace:*
+        version: link:../cwsandbox
+    devDependencies:
+      '@computesdk/provider':
+        specifier: ^2.1.4
+        version: 2.1.4
+      '@types/node':
+        specifier: ^22.20.1
+        version: 22.20.1
+      tsx:
+        specifier: ^4.23.1
+        version: 4.23.1
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.0.14(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1))
+
   packages/cwsandbox-tanstack:
     dependencies:
       '@coreweave/cwsandbox':
@@ -185,6 +207,12 @@ packages:
     resolution: {integrity: sha512-BwBKTX/WXkhAhqWJGrEKnqU03/4tK1O0OozSlwUMBCOEo8pLL3xu3M24RT3+umExEeM0wjlANO6axqGWMqtt4Q==}
     engines: {node: '>=12'}
     hasBin: true
+
+  '@computesdk/cmd@0.4.1':
+    resolution: {integrity: sha512-hhcYrwMnOpRSwWma3gkUeAVsDFG56nURwSaQx8vCepv0IuUv39bK4mMkgszolnUQrVjBDdW7b3lV+l5B2S8fRA==}
+
+  '@computesdk/provider@2.1.4':
+    resolution: {integrity: sha512-abTZS8kpif4QpLZ7Jzo6hmlje2b3YB4VRC8hVkrb/tKXwt0QcU7Nao7tM1phRru0HxVrfHycb/vZtdJSlNFGeA==}
 
   '@emnapi/core@1.10.0':
     resolution: {integrity: sha512-yq6OkJ4p82CAfPl0u9mQebQHKPJkY7WrIuk205cTYnYe+k2Z8YBh11FrbRG/H6ihirqcacOgl2BIO8oyMQLeXw==}
@@ -1404,6 +1432,9 @@ packages:
     resolution: {integrity: sha512-FQN4MRfuJeHf7cBbBMJFXhKSDq+2kAArBlmRBvcvFE5BB1HZKXtSFASDhdlz9zOYwxh8lDdnvmMOe/+5cdoEdg==}
     engines: {node: '>= 0.8'}
 
+  computesdk@4.1.4:
+    resolution: {integrity: sha512-PRBMwJ2yRTMvVc+8mC8wM2EKI96kco1Dk9/kSAOsABlv7YP+h9v5qbqVIQQ6xKr46KL81MLpIOKf0dVZbIEafg==}
+
   content-disposition@1.1.0:
     resolution: {integrity: sha512-5jRCH9Z/+DRP7rkvY83B+yGIGX96OYdJmzngqnw2SBSxqCFPd0w2km3s5iawpGX8krnwSGmF0FW5Nhr0Hfai3g==}
     engines: {node: '>=18'}
@@ -1434,6 +1465,11 @@ packages:
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
     engines: {node: '>= 8'}
+
+  daemond@0.1.4:
+    resolution: {integrity: sha512-xiLScBiwYGGPmxfcAb24aH+FkmR/ZSd+PxOvigGpKda6OsDjE2Gj6/4oAX2N3hMWoL4atti1hYyF9dLV3FFM0A==}
+    engines: {node: '>=18.0.0'}
+    os: [linux, darwin]
 
   debug@4.4.3:
     resolution: {integrity: sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA==}
@@ -2286,6 +2322,14 @@ snapshots:
       '@bufbuild/buf-win32-arm64': 1.72.0
       '@bufbuild/buf-win32-x64': 1.72.0
 
+  '@computesdk/cmd@0.4.1': {}
+
+  '@computesdk/provider@2.1.4':
+    dependencies:
+      '@computesdk/cmd': 0.4.1
+      computesdk: 4.1.4
+      daemond: 0.1.4
+
   '@emnapi/core@1.10.0':
     dependencies:
       '@emnapi/wasi-threads': 1.2.1
@@ -3111,6 +3155,11 @@ snapshots:
     dependencies:
       delayed-stream: 1.0.0
 
+  computesdk@4.1.4:
+    dependencies:
+      '@computesdk/cmd': 0.4.1
+      daemond: 0.1.4
+
   content-disposition@1.1.0: {}
 
   content-type@1.0.5: {}
@@ -3133,6 +3182,8 @@ snapshots:
       path-key: 3.1.1
       shebang-command: 2.0.0
       which: 2.0.2
+
+  daemond@0.1.4: {}
 
   debug@4.4.3:
     dependencies:
