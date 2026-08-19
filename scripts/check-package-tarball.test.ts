@@ -13,11 +13,16 @@ import { describe, expect, it } from "vitest";
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const packageRoot = join(repoRoot, "packages", "cwsandbox");
 const packageManifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as {
+  version?: string;
   devDependencies?: {
     typescript?: string;
     "@types/node"?: string;
   };
 };
+const packageVersion = packageManifest.version;
+if (packageVersion === undefined || packageVersion === "") {
+  throw new Error("packages/cwsandbox/package.json must declare version for pack consumer tests.");
+}
 
 const requiredPackedPaths = [
   "package/package.json",
@@ -183,8 +188,8 @@ describe("packed package consumers", () => {
             'assert.deepEqual(DEFAULT_KEEP_ALIVE_COMMAND, ["/bin/sh", "-lc", "trap \'exit 0\' TERM INT; sleep infinity & wait"]);',
             'assert.equal(new CWSandboxValidationError("bad").code, "validation_error");',
             'assert.equal(toWandbMetadata({ apiKey: "wandb-token", env: {} })["x-wandb-api-key"], "wandb-token");',
-            'assert.equal(toWandbMetadata({ apiKey: "wandb-token", env: {} })["x-cwsandbox-client-version"], "0.1.0-beta.0");',
-            'assert.equal(toWandbMetadata({ apiKey: "wandb-token", env: {} })["x-wandb-sdk-version"], "0.1.0-beta.0");',
+            `assert.equal(toWandbMetadata({ apiKey: "wandb-token", env: {} })["x-cwsandbox-client-version"], ${JSON.stringify(packageVersion)});`,
+            `assert.equal(toWandbMetadata({ apiKey: "wandb-token", env: {} })["x-wandb-sdk-version"], ${JSON.stringify(packageVersion)});`,
             'assert.equal(toWandbMetadata({ apiKey: "wandb-token", env: {} })["x-sandbox-integration"], "js-sdk");',
             "",
           ].join("\n"),
