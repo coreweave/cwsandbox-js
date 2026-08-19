@@ -3,7 +3,7 @@
 // SPDX-PackageName: cwsandbox
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,6 +13,13 @@ const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const packageRoot = join(repoRoot, "packages", "cwsandbox");
 const outputDir = join(repoRoot, ".package-consumers");
 const packageLink = join("node_modules", "@coreweave", "cwsandbox");
+const packageManifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as {
+  version?: string;
+};
+const packageVersion = packageManifest.version;
+if (packageVersion === undefined || packageVersion === "") {
+  throw new Error("packages/cwsandbox/package.json must declare version for package consumer tests.");
+}
 
 describe("built package consumers", () => {
   it("typechecks an ESM TypeScript consumer through package exports", () => {
@@ -105,8 +112,8 @@ describe("built package consumers", () => {
         'assert.deepEqual(DEFAULT_KEEP_ALIVE_COMMAND, ["/bin/sh", "-lc", "trap \'exit 0\' TERM INT; sleep infinity & wait"]);',
         'assert.equal(new CWSandboxValidationError("bad").code, "validation_error");',
         'assert.equal(toWandbMetadata({ apiKey: "wandb-token", env: {} })["x-wandb-api-key"], "wandb-token");',
-        'assert.equal(toWandbMetadata({ apiKey: "wandb-token", env: {} })["x-cwsandbox-client-version"], "0.1.0-beta.0");',
-        'assert.equal(toWandbMetadata({ apiKey: "wandb-token", env: {} })["x-wandb-sdk-version"], "0.1.0-beta.0");',
+        `assert.equal(toWandbMetadata({ apiKey: "wandb-token", env: {} })["x-cwsandbox-client-version"], ${JSON.stringify(packageVersion)});`,
+        `assert.equal(toWandbMetadata({ apiKey: "wandb-token", env: {} })["x-wandb-sdk-version"], ${JSON.stringify(packageVersion)});`,
         'assert.equal(toWandbMetadata({ apiKey: "wandb-token", env: {} })["x-sandbox-integration"], "js-sdk");',
         "",
       ].join("\n"),
