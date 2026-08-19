@@ -30,7 +30,7 @@ import {
   resourceProbeScript,
   runPython,
   smokeConfig,
-  startOptionsForInternetNetwork,
+  defaultNetworkOptions,
   startOptionsForNoInternetNetwork,
   testTimeoutMs,
   uniqueSmokeTag,
@@ -976,7 +976,7 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     it(
       "creates a sandbox with default network options",
       async () => {
-        await withStartedSandbox(client, startOptionsForInternetNetwork(), (sandbox) => {
+        await withStartedSandbox(client, defaultNetworkOptions(), (sandbox) => {
           console.log(`Started default-network sandbox: ${sandbox.sandboxId}`);
           expect(sandbox.sandboxId).not.toBe("");
         });

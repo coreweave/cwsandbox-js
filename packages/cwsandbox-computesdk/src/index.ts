@@ -36,11 +36,11 @@ const DEFAULT_IMAGE = "ubuntu:24.04";
 const DEFAULT_CPU = "2";
 const DEFAULT_MEMORY = "4Gi";
 const DEFAULT_MAX_LIFETIME_SECONDS = 3600;
-/** Prefer streamed exec when the caller asks for a timeout above this. */
+/** Timeouts above this use commands.start instead of unary commands.run. */
 const STREAM_TIMEOUT_MS = 240_000;
 const OWNER_TAG_PATTERN = /^[A-Za-z0-9._-]*[A-Za-z0-9]$/;
 const OWNER_TAG_MAX_LENGTH = 59;
-/** Hostname assignment can lag `running`; match core e2e wait. */
+/** Hostname assignment can lag `running`. */
 const SERVICE_URL_WAIT_MS = 60_000;
 const SERVICE_URL_POLL_MS = 500;
 
@@ -106,11 +106,7 @@ function generateOwnerTag(): string {
   const bytes = randomBytes(6);
   let out = "";
   for (const byte of bytes) {
-    const char = alphabet[byte % alphabet.length];
-    if (char === undefined) {
-      throw new Error("ownerTag alphabet lookup failed");
-    }
-    out += char;
+    out += alphabet.charAt(byte % alphabet.length);
   }
   return out;
 }

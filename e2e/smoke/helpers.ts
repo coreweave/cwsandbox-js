@@ -149,7 +149,7 @@ export function runPython(
   return sandbox.commands.run(["python", "-c", script], options);
 }
 
-export function startOptionsForInternetNetwork(): SandboxRunOptions {
+export function defaultNetworkOptions(): SandboxRunOptions {
   return {};
 }
 

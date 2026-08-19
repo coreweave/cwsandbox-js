@@ -84,11 +84,11 @@ Supported:
 - Resource mapping from ComputeSDK `cpu` / `memoryMiB`
 - `getInfo`: not-found → `stopped`; other inspect errors rethrown
 - `getUrl({ port })` returns the assigned `serviceUrls` entry for that port
-  (polls inspect up to 60s; assignment can lag `running`)
+  (polls inspect up to 60s; assignment can lag `running`). Create must
+  request HTTPS assignment for that port.
 
 Explicitly unsupported for now:
 
-- `getUrl` when create did not assign a `serviceUrls` entry for that port
 - ComputeSDK `onStdout` / `onStderr` streaming (requires ComputeSDK's daemond
   path; `getUrl` alone does not enable callbacks)
 - Templates and snapshots
