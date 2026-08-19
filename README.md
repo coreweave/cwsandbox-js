@@ -18,7 +18,7 @@ For contribution guidelines and CLA requirements, see
 
 | Package                                                              | Status                                              | Description                             |
 | -------------------------------------------------------------------- | --------------------------------------------------- | --------------------------------------- |
-| [`@coreweave/cwsandbox`](./packages/cwsandbox)                       | `0.1.0-beta.0` (publish-ready)                      | Core TypeScript SDK (`/node`, `/wandb`) |
+| [`@coreweave/cwsandbox`](./packages/cwsandbox)                       | beta (published)                                    | Core TypeScript SDK (`/node`, `/wandb`) |
 | [`@coreweave/cwsandbox-tanstack`](./packages/cwsandbox-tanstack)     | same version, private until fast-follow publish     | TanStack AI sandbox adapter             |
 | [`@coreweave/cwsandbox-computesdk`](./packages/cwsandbox-computesdk) | same version, public package (npm publish deferred) | ComputeSDK sandbox provider             |
 | Vercel AI adapter                                                    | planned                                             | npm name deferred until scaffold        |
