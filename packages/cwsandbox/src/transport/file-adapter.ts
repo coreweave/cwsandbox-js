@@ -26,6 +26,11 @@ export interface WriteFileRequest extends RequestOptions {
 export interface ReadStreamRequest extends RequestOptions {
   readonly path: string;
   readonly sandboxId: SandboxId;
+  /**
+   * Pre-read size from a buffered `files.read` fallback (`FILE_TOO_LARGE`
+   * `size_bytes`). When set, skip the integrity `stat` StreamExec.
+   */
+  readonly expectedSize?: number;
 }
 
 export interface WriteStreamRequest extends RequestOptions {

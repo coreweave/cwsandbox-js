@@ -122,7 +122,11 @@ export class SandboxClient implements SandboxClientInterface {
     validateDeleteOptions(options);
     const { missingOk, ...requestOptions } = options;
     await ignoreMissingSandbox(
-      this.transport.delete({ ...requestOptions, sandboxId }),
+      this.transport.delete({
+        ...requestOptions,
+        sandboxId,
+        ...(missingOk === true ? { allowMissing: true } : {}),
+      }),
       missingOk === true,
     );
   }

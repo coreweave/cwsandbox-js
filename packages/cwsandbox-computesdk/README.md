@@ -62,13 +62,14 @@ await sandbox.destroy();
 | `cpu` / `memory`                 | `2` / `4Gi`                 | Kubernetes quantities (defaults; per-create `cpu`/`memoryMiB` override) |
 | `maxLifetimeSeconds`             | `3600`                      | server-enforced hard TTL                                                |
 | `ownerTag`                       | auto 6-char `[a-z0-9]`      | paired with `computesdk` tag for list scoping; stable per config object |
-| `runnerIds` / `profileNames`     | —                           | scheduling constraints                                                  |
+| `runnerIds`                      | —                           | scheduling constraints                                                  |
 | `client` / `createClient`        | —                           | inject a `SandboxClient` (tests / advanced); client factory is memoized |
 
 Create options of note:
 
 - `name` → sandbox annotation `name` (not a tag)
 - `timeout` (ms) → `maxLifetimeSeconds` only (not create `timeoutMs`)
+- `services` / `network` forwarded to the core SDK (requested at create; URL may appear after running)
 - Tags always include `computesdk` + `ownerTag`
 
 ## Capability mapping
@@ -82,12 +83,14 @@ Supported:
 - Shell-backed mkdir, portable `ls -la` readdir, exists, and remove
 - Resource mapping from ComputeSDK `cpu` / `memoryMiB`
 - `getInfo`: not-found → `stopped`; other inspect errors rethrown
+- `getUrl({ port })` returns the assigned `serviceUrls` entry for that port
+  (polls inspect up to 60s; assignment can lag `running`). Create must
+  request HTTPS assignment for that port.
 
 Explicitly unsupported for now:
 
-- `getUrl` (port exposure helper)
-- ComputeSDK `onStdout` / `onStderr` streaming (requires `getUrl` / daemond;
-  callbacks alone do not select the streamed exec path)
+- ComputeSDK `onStdout` / `onStderr` streaming (requires ComputeSDK's daemond
+  path; `getUrl` alone does not enable callbacks)
 - Templates and snapshots
 - Returning remaining lifetime on discover (`timeout` on getInfo uses create-time TTL)
 
@@ -106,6 +109,7 @@ Live smoke (billable, not part of `pnpm check`) covers:
 - long-timeout streamed exec (`timeout > 240s` → SDK `commands.start`)
 - nested filesystem write/read + `readdir` (parent mkdir via adapter)
 - `getInfo` status `running`
+- `getUrl({ port })` after public HTTPS create (waits up to 60s for assignment)
 - destroy
 
 ## License

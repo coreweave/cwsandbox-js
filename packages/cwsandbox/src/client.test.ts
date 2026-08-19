@@ -13,6 +13,7 @@ import {
   DEFAULT_KEEP_ALIVE_COMMAND,
   DEFAULT_LIST_ALL_TIMEOUT_MS,
   type ResourceOptions,
+  type SandboxListOptions,
   type SandboxRunOptions,
 } from "./index.js";
 import { Sandbox } from "./sandbox.js";
@@ -150,7 +151,6 @@ describe("SandboxClient", () => {
           return {
             runnerId: "runner-id",
             sandboxId: request.sandboxId,
-            serviceAddress: "sandbox.example.com",
             startedAt,
             status: "running",
           };
@@ -162,7 +162,6 @@ describe("SandboxClient", () => {
       expect(result).toEqual({
         runnerId: "runner-id",
         sandboxId: "sandbox-123",
-        serviceAddress: "sandbox.example.com",
         startedAt,
         status: "running",
       });
@@ -194,7 +193,6 @@ describe("SandboxClient", () => {
             nextPageToken: "next-page",
             sandboxes: [
               {
-                serviceAddress: "sandbox.example.com",
                 sandboxId: "sandbox-123",
                 status: "running",
               },
@@ -204,9 +202,9 @@ describe("SandboxClient", () => {
       };
 
       const result = await createClient(transport).list({
-        includeStopped: true,
         pageSize: 10,
         pageToken: "page-1",
+        showTerminated: true,
         status: "running",
         tags: ["tag-a"],
         timeoutMs: 1234,
@@ -216,14 +214,13 @@ describe("SandboxClient", () => {
         nextPageToken: "next-page",
         sandboxes: [
           {
-            serviceAddress: "sandbox.example.com",
             sandboxId: "sandbox-123",
             status: "running",
           },
         ],
       });
       expect(listRequest).toEqual({
-        includeStopped: true,
+        showTerminated: true,
         pageSize: 10,
         pageToken: "page-1",
         status: "running",
@@ -571,6 +568,30 @@ describe("SandboxClient", () => {
       await expect(client.listAll({ pageSize: -1 })).rejects.toThrow(CWSandboxValidationError);
     });
 
+    it("rejects removed v1beta2 list keys before the transport", async () => {
+      let listCalls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async list() {
+          listCalls += 1;
+          throw new Error("transport should not be called");
+        },
+      };
+      const client = createClient(transport);
+
+      await expect(
+        client.listAll({ includeStopped: true } as unknown as SandboxListOptions),
+      ).rejects.toThrow(/includeStopped is not supported in v1/);
+      await expect(
+        client.listAll({ profileIds: ["profile-id"] } as unknown as SandboxListOptions),
+      ).rejects.toThrow(/profileIds is not supported in v1/);
+      await expect(
+        client.listAll({ profileNames: ["default"] } as unknown as SandboxListOptions),
+      ).rejects.toThrow(/profileNames is not supported in v1/);
+
+      expect(listCalls).toBe(0);
+    });
+
     it("throws a typed validation error for empty run commands", async () => {
       const client = createClient();
 
@@ -645,12 +666,6 @@ describe("SandboxClient", () => {
     it("throws a typed validation error for invalid selector values", async () => {
       const client = createClient();
 
-      await expect(client.run(["python"], { profileNames: [""] })).rejects.toThrow(
-        CWSandboxValidationError,
-      );
-      await expect(client.run(["python"], { profileIds: ["profile", "profile"] })).rejects.toThrow(
-        CWSandboxValidationError,
-      );
       await expect(client.run(["python"], { runnerIds: ["runner", "runner"] })).rejects.toThrow(
         CWSandboxValidationError,
       );
@@ -735,49 +750,34 @@ describe("SandboxClient", () => {
       ).rejects.toThrow(CWSandboxValidationError);
     });
 
-    it("throws a typed validation error for invalid network ports", async () => {
+    it("throws a typed validation error for invalid services", async () => {
       const client = createClient();
 
-      await expect(client.run(["python"], { ports: [0] })).rejects.toThrow(
+      await expect(client.run(["python"], { services: [{ port: 0 }] })).rejects.toThrow(
         CWSandboxValidationError,
       );
-      await expect(client.run(["python"], { ports: [65536] })).rejects.toThrow(
+      await expect(client.run(["python"], { services: [{ port: 65536 }] })).rejects.toThrow(
         CWSandboxValidationError,
       );
-      await expect(client.run(["python"], { ports: [1.5] })).rejects.toThrow(
-        CWSandboxValidationError,
-      );
-      await expect(client.run(["python"], { ports: [8000, 8000] })).rejects.toThrow(
-        CWSandboxValidationError,
-      );
-    });
-
-    it("throws a typed validation error for invalid network strings", async () => {
-      const client = createClient();
-
-      await expect(client.run(["python"], { ports: [{ name: "", port: 8000 }] })).rejects.toThrow(
+      await expect(client.run(["python"], { services: [{ port: 1.5 }] })).rejects.toThrow(
         CWSandboxValidationError,
       );
       await expect(
-        client.run(["python"], { ports: [{ port: 8000, protocol: "" }] }),
+        client.run(["python"], { services: [{ port: 8000 }, { port: 8000 }] }),
       ).rejects.toThrow(CWSandboxValidationError);
-      await expect(client.run(["python"], { network: { ingressMode: "" } })).rejects.toThrow(
-        CWSandboxValidationError,
-      );
-      await expect(client.run(["python"], { network: { egressMode: "" } })).rejects.toThrow(
-        CWSandboxValidationError,
-      );
-    });
-
-    it("throws a typed validation error for undeclared exposed ports", async () => {
-      const client = createClient();
-
+      await expect(
+        client.run(["python"], { services: [{ name: "", port: 8000 }] }),
+      ).rejects.toThrow(CWSandboxValidationError);
       await expect(
         client.run(["python"], {
-          network: { exposedPorts: [9000] },
-          ports: [8000],
+          services: [
+            {
+              endpoint: { auth: "open", kind: "https" },
+              port: 8000,
+            },
+          ],
         }),
-      ).rejects.toThrow(CWSandboxValidationError);
+      ).rejects.toThrow(/Service.visibility must be public/);
     });
 
     it("throws a typed validation error for invalid run timeouts", async () => {
@@ -786,6 +786,49 @@ describe("SandboxClient", () => {
       await expect(client.run(["echo", "hello"], { timeoutMs: -1 })).rejects.toThrow(
         CWSandboxValidationError,
       );
+    });
+
+    it("rejects removed v1beta2 run keys before the transport", async () => {
+      let startCalls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async start() {
+          startCalls += 1;
+          throw new Error("transport should not be called");
+        },
+      };
+      const client = createClient(transport);
+      const removed = {
+        ports: [8000],
+        profileIds: ["profile-id"],
+        profileNames: ["default"],
+        s3Mount: { bucket: "b" },
+        maxTimeoutSeconds: 30,
+      };
+
+      for (const [key, value] of Object.entries(removed)) {
+        await expect(
+          client.run(["python"], { [key]: value } as unknown as SandboxRunOptions),
+        ).rejects.toThrow(new RegExp(`${key} is not supported in v1`));
+      }
+
+      await expect(
+        client.run(["python"], {
+          network: { egressMode: "deny" },
+        } as unknown as SandboxRunOptions),
+      ).rejects.toThrow(/egressMode is not supported in v1/);
+      await expect(
+        client.run(["python"], {
+          network: { ingressMode: "public" },
+        } as unknown as SandboxRunOptions),
+      ).rejects.toThrow(/ingressMode is not supported in v1/);
+      await expect(
+        client.run(["python"], {
+          network: { exposedPorts: [8000] },
+        } as unknown as SandboxRunOptions),
+      ).rejects.toThrow(/exposedPorts is not supported in v1/);
+
+      expect(startCalls).toBe(0);
     });
 
     it("throws a typed validation error for invalid max lifetime values", async () => {

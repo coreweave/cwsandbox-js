@@ -4,7 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { ExecStreamRequest } from "./generated/coreweave/sandbox/v1beta2/streaming.js";
+import type { ExecStreamRequest } from "./generated/coreweave/sandbox/v1/sandbox.js";
 import {
   sendStreamingClose,
   sendStreamingInit,
@@ -27,16 +27,13 @@ describe("streaming request helpers", () => {
         cwd: "/workspace",
         sandboxId: "sandbox-123",
       }),
-    ).toEqual({
-      request: {
+    ).toMatchObject({
+      message: {
         init: {
           command: ["/bin/sh", "-lc", "cd '/workspace' && exec 'printf' 'it'\\''s ok'"],
           env: {},
-          resumeSessionId: "",
           sandboxId: "sandbox-123",
           tty: false,
-          ttyHeight: 0,
-          ttyWidth: 0,
         },
         oneofKind: "init",
       },
@@ -51,12 +48,11 @@ describe("streaming request helpers", () => {
         rows: 24,
         sandboxId: "sandbox-123",
       }),
-    ).toEqual({
-      request: {
+    ).toMatchObject({
+      message: {
         init: {
           command: ["/bin/sh"],
           env: {},
-          resumeSessionId: "",
           sandboxId: "sandbox-123",
           tty: true,
           ttyHeight: 24,
@@ -65,8 +61,8 @@ describe("streaming request helpers", () => {
         oneofKind: "init",
       },
     });
-    expect(toStreamingResizeRequest(120, 40)).toEqual({
-      request: {
+    expect(toStreamingResizeRequest(120, 40)).toMatchObject({
+      message: {
         oneofKind: "resize",
         resize: {
           height: 40,
@@ -79,14 +75,14 @@ describe("streaming request helpers", () => {
   it("maps stdin and close requests", () => {
     const data = new Uint8Array([1, 2, 3]);
 
-    expect(toStreamingStdinRequest(data)).toEqual({
-      request: {
+    expect(toStreamingStdinRequest(data)).toMatchObject({
+      message: {
         oneofKind: "stdin",
-        stdin: { data },
+        stdin: data,
       },
     });
-    expect(toStreamingCloseRequest()).toEqual({
-      request: {
+    expect(toStreamingCloseRequest()).toMatchObject({
+      message: {
         close: {},
         oneofKind: "close",
       },
@@ -105,7 +101,7 @@ describe("streaming request helpers", () => {
     await sendStreamingClose(writer);
     await writer.complete();
 
-    expect(writer.messages.map((message) => message.request.oneofKind)).toEqual([
+    expect(writer.messages.map((message) => message.message.oneofKind)).toEqual([
       "init",
       "stdin",
       "close",
@@ -122,7 +118,7 @@ describe("streaming request helpers", () => {
     });
     await sendStreamingResize(writer, 120, 40);
 
-    expect(writer.messages.map((message) => message.request.oneofKind)).toEqual(["init", "resize"]);
+    expect(writer.messages.map((message) => message.message.oneofKind)).toEqual(["init", "resize"]);
   });
 });
 

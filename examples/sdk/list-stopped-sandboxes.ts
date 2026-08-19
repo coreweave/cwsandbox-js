@@ -3,12 +3,12 @@
 // SPDX-PackageName: cwsandbox
 
 /**
- * List sandboxes including stopped (terminal) ones.
+ * List sandboxes including terminal ones (`showTerminated`).
  *
  * Usage:
  *   pnpm --dir examples/sdk list-stopped-sandboxes -- --create
  *   pnpm --dir examples/sdk list-stopped-sandboxes -- --list
- *   pnpm --dir examples/sdk list-stopped-sandboxes -- --list --include-stopped
+ *   pnpm --dir examples/sdk list-stopped-sandboxes -- --list --show-terminated
  */
 
 import { createSandboxClientFromEnv } from "@coreweave/cwsandbox/node";
@@ -25,8 +25,7 @@ async function createSandboxes(count: number): Promise<void> {
 
   await Promise.all(
     Array.from({ length: count }, async (_, i) => {
-      // Fire-and-wait-for-terminal: short-lived mains can finish before a
-      // running-status poll, so do not waitUntilRunning.
+      // Short-lived commands may finish before a running poll, so skip waitUntilRunning.
       const sandbox = await client.run(["echo", `hello-${i}`], {
         tags: [TAG, `instance-${i}`],
         waitUntilRunning: false,
@@ -37,16 +36,16 @@ async function createSandboxes(count: number): Promise<void> {
   );
 
   console.log("\nCreated and waited for terminal status.");
-  console.log("List with --list, or include terminals with --list --include-stopped.");
+  console.log("List with --list, or include terminal sandboxes with --list --show-terminated.");
 }
 
-async function listSandboxes(includeStopped: boolean): Promise<void> {
+async function listSandboxes(showTerminated: boolean): Promise<void> {
   const client = createSandboxClientFromEnv();
-  console.log(`Listing sandboxes with tag '${TAG}' (includeStopped=${includeStopped})...`);
+  console.log(`Listing sandboxes with tag '${TAG}' (showTerminated=${showTerminated})...`);
 
   const sandboxes = await client.listAll({
     tags: [TAG],
-    includeStopped,
+    showTerminated,
   });
 
   console.log(`Found ${sandboxes.length}`);
@@ -61,11 +60,11 @@ async function main(): Promise<void> {
     return;
   }
   if (hasFlag("--list")) {
-    await listSandboxes(hasFlag("--include-stopped"));
+    await listSandboxes(hasFlag("--show-terminated"));
     return;
   }
 
-  console.error("Usage: --create | --list [--include-stopped]");
+  console.error("Usage: --create | --list [--show-terminated]");
   process.exitCode = 1;
 }
 

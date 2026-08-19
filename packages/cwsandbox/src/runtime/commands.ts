@@ -31,13 +31,15 @@ export async function execCommand(
   options: ExecOptions = {},
 ): Promise<ProcessResult> {
   validateExecOptions(options);
-  const { check, ...transportOptions } = options;
+  const { check, cwd, signal, timeoutMs } = options;
   const normalizedCommand = normalizeCommand(command);
 
   const result = await runtime.transport.exec({
-    ...transportOptions,
     command: normalizedCommand,
     sandboxId: runtime.sandboxId,
+    ...(cwd !== undefined ? { cwd } : {}),
+    ...(signal !== undefined ? { signal } : {}),
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
   });
 
   throwIfCheckedFailed(result, check);

@@ -4,6 +4,7 @@
 
 import {
   CWSandboxNotFoundError,
+  CWSandboxTimeoutError,
   type Command,
   type CommandInputData,
   type CommandInputWriter,
@@ -18,15 +19,19 @@ import {
   type SandboxLogs,
   type SandboxRunOptions,
   type SandboxStatus,
+  type ServiceUrl,
   type StartCommandOptions,
 } from "@coreweave/cwsandbox";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { coreweave } from "./index.js";
 
 const encoder = new TextEncoder();
 
 describe("coreweave ComputeSDK provider", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
   it("creates sandboxes with resource, owner tag, and name annotation mapping", async () => {
     const tracking = createTrackingClient();
     const provider = coreweave({ client: tracking.client, ownerTag: "matt" });
@@ -122,9 +127,11 @@ describe("coreweave ComputeSDK provider", () => {
     const provider = coreweave({ client: tracking.client, ownerTag: "t1" });
     const sandbox = await provider.sandbox.create({});
 
-    // ComputeSDK owns callback streaming (daemond + getUrl). Our adapter must not
-    // treat onStdout as a signal to use commands.start.
-    await expect(sandbox.runCommand("printf ok", { onStdout: () => undefined })).rejects.toThrow();
+    // ComputeSDK owns callback streaming via daemond; getUrl alone does not enable
+    // callbacks. Our adapter must not treat onStdout as a signal to use commands.start.
+    await expect(sandbox.runCommand("printf ok", { onStdout: () => undefined })).rejects.toThrow(
+      /not valid JSON/,
+    );
     expect(tracking.startCommands).toHaveLength(0);
     expect(tracking.execCommands.length).toBeGreaterThan(0);
   });
@@ -227,11 +234,120 @@ describe("coreweave ComputeSDK provider", () => {
     expect(tracking.deletedSandboxIds).toEqual(["sandbox-1", "sandbox-2"]);
   });
 
-  it("fails clearly for getUrl", async () => {
+  it("fails clearly for getUrl when assignment never arrives", async () => {
+    vi.useFakeTimers();
     const provider = coreweave({ client: createTrackingClient().client, ownerTag: "t1" });
     const sandbox = await provider.sandbox.create({});
 
-    await expect(sandbox.getUrl({ port: 8080 })).rejects.toThrow(/getUrl is not implemented/);
+    const url = sandbox.getUrl({ port: 8080 });
+    const drive = vi.advanceTimersByTimeAsync(60_000);
+    await expect(url).rejects.toThrow(/no assigned HTTPS URL for port 8080 after 60000ms/);
+    await drive;
+  });
+
+  it("forwards runnerIds from config and create", async () => {
+    const tracking = createTrackingClient();
+    const fromConfig = coreweave({
+      client: tracking.client,
+      ownerTag: "t1",
+      runnerIds: ["runner-a"],
+    });
+
+    await fromConfig.sandbox.create({});
+
+    expect(tracking.createOptions[0]?.runnerIds).toEqual(["runner-a"]);
+
+    const fromCreate = coreweave({ client: tracking.client, ownerTag: "t1" });
+    await fromCreate.sandbox.create({ runnerIds: ["runner-b"] });
+
+    expect(tracking.createOptions[1]?.runnerIds).toEqual(["runner-b"]);
+  });
+
+  it("forwards services and selects getUrl by port", async () => {
+    const tracking = createTrackingClient({
+      serviceUrls: [
+        { name: "http-a", port: 8000, url: "https://a.example" },
+        { name: "http-b", port: 8001, url: "https://b.example" },
+      ],
+    });
+    const provider = coreweave({ client: tracking.client, ownerTag: "t1" });
+    const services = [
+      {
+        endpoint: { auth: "open" as const, kind: "https" as const },
+        name: "http-a",
+        port: 8000,
+        visibility: "public" as const,
+      },
+      {
+        endpoint: { auth: "open" as const, kind: "https" as const },
+        name: "http-b",
+        port: 8001,
+        visibility: "public" as const,
+      },
+    ];
+
+    const sandbox = await provider.sandbox.create({
+      network: { denyEgress: false },
+      services,
+    });
+
+    expect(tracking.createOptions[0]?.services).toEqual(services);
+    expect(tracking.createOptions[0]?.network).toEqual({ denyEgress: false });
+    await expect(sandbox.getUrl({ port: 8001 })).resolves.toBe("https://b.example");
+    await expect(sandbox.getUrl({ port: 8000 })).resolves.toBe("https://a.example");
+  });
+
+  it("polls inspect until the requested port is assigned", async () => {
+    vi.useFakeTimers();
+    const tracking = createTrackingClient({
+      inspectServiceUrls: [undefined, [{ name: "http-b", port: 8001, url: "https://b.example" }]],
+    });
+    const provider = coreweave({ client: tracking.client, ownerTag: "t1" });
+    const sandbox = await provider.sandbox.create({
+      services: [
+        {
+          endpoint: { auth: "open", kind: "https" },
+          name: "http-b",
+          port: 8001,
+          visibility: "public",
+        },
+      ],
+    });
+
+    const url = sandbox.getUrl({ port: 8001 });
+    const drive = vi.advanceTimersByTimeAsync(500);
+    await expect(url).resolves.toBe("https://b.example");
+    await drive;
+    expect(tracking.inspectCalls).toBeGreaterThan(1);
+  });
+
+  it("times out when getUrl port is missing among assigned URLs", async () => {
+    vi.useFakeTimers();
+    const tracking = createTrackingClient({
+      serviceUrls: [
+        { name: "http-a", port: 8000, url: "https://a.example" },
+        { name: "http-b", port: 8001, url: "https://b.example" },
+      ],
+    });
+    const provider = coreweave({ client: tracking.client, ownerTag: "t1" });
+    const sandbox = await provider.sandbox.create({});
+
+    const url = sandbox.getUrl({ port: 9999 });
+    const drive = vi.advanceTimersByTimeAsync(60_000);
+    await expect(url).rejects.toThrow(/no assigned HTTPS URL for port 9999 after 60000ms/);
+    await drive;
+  });
+
+  it("fails getUrl with the inspect timeout when inspect never resolves", async () => {
+    vi.useFakeTimers();
+    const tracking = createTrackingClient({ hungInspect: true });
+    const provider = coreweave({ client: tracking.client, ownerTag: "t1" });
+    const sandbox = await provider.sandbox.create({});
+
+    const url = sandbox.getUrl({ port: 8080 });
+    const drive = vi.advanceTimersByTimeAsync(60_000);
+    await expect(url).rejects.toThrow(CWSandboxTimeoutError);
+    await drive;
   });
 
   it("rejects invalid ownerTag", async () => {
@@ -248,8 +364,11 @@ interface WriteRequest {
 }
 
 interface TrackingClientOptions {
+  readonly hungInspect?: boolean;
   readonly inspectError?: Error;
+  readonly inspectServiceUrls?: ReadonlyArray<readonly ServiceUrl[] | undefined>;
   readonly runStdout?: string;
+  readonly serviceUrls?: readonly ServiceUrl[];
 }
 
 interface TrackingClient {
@@ -258,6 +377,7 @@ interface TrackingClient {
   readonly deletedSandboxIds: string[];
   readonly execCommands: Command[];
   readonly execOptions: Array<ExecOptions | undefined>;
+  readonly inspectCalls: number;
   readonly listAllOptions: Array<SandboxListOptions | undefined>;
   readonly startCommands: Command[];
   readonly writeRequests: WriteRequest[];
@@ -271,6 +391,7 @@ function createTrackingClient(options: TrackingClientOptions = {}): TrackingClie
   const listAllOptions: Array<SandboxListOptions | undefined> = [];
   const startCommands: Command[] = [];
   const writeRequests: WriteRequest[] = [];
+  let inspectCalls = 0;
   let sandboxCounter = 0;
 
   function createFakeSandbox(sandboxId: string, status: SandboxStatus = "running"): Sandbox {
@@ -325,8 +446,6 @@ function createTrackingClient(options: TrackingClientOptions = {}): TrackingClie
     };
 
     const sandbox: Sandbox = {
-      appliedEgressMode: undefined,
-      appliedIngressMode: undefined,
       commands,
       delete: async () => {
         deletedSandboxIds.push(sandboxId);
@@ -335,20 +454,41 @@ function createTrackingClient(options: TrackingClientOptions = {}): TrackingClie
       exposedPorts: undefined,
       files,
       getStatus: async () => status,
-      inspect: async () => {
+      inspect: async (requestOptions?: { timeoutMs?: number }) => {
+        if (options.hungInspect === true) {
+          if (requestOptions?.timeoutMs === undefined) {
+            throw new Error("inspect timeoutMs is required");
+          }
+          await new Promise<never>((_, reject) => {
+            setTimeout(() => {
+              reject(
+                new CWSandboxTimeoutError(`inspect timed out after ${requestOptions.timeoutMs}ms`),
+              );
+            }, requestOptions.timeoutMs);
+          });
+        }
         if (options.inspectError !== undefined) {
           throw options.inspectError;
         }
-        return { sandboxId, status };
+        inspectCalls += 1;
+        const sequence = options.inspectServiceUrls;
+        const serviceUrls =
+          sequence === undefined
+            ? options.serviceUrls
+            : sequence[Math.min(inspectCalls - 1, sequence.length - 1)];
+        return {
+          sandboxId,
+          ...(serviceUrls === undefined ? {} : { serviceUrls }),
+          status,
+        };
       },
       logs,
-      profileId: undefined,
       resourceLimits: undefined,
       resourceRequests: undefined,
       runnerGroupId: undefined,
       runnerId: undefined,
       sandboxId,
-      serviceAddress: undefined,
+      serviceUrls: undefined,
       shell: async () => {
         throw new Error("Shell not used");
       },
@@ -411,6 +551,9 @@ function createTrackingClient(options: TrackingClientOptions = {}): TrackingClie
     deletedSandboxIds,
     execCommands,
     execOptions,
+    get inspectCalls() {
+      return inspectCalls;
+    },
     listAllOptions,
     startCommands,
     writeRequests,

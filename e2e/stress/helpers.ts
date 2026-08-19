@@ -457,7 +457,7 @@ async function listActiveStressSandboxes(client: SandboxClient): Promise<readonl
 
   for (let page = 0; page < 20; page += 1) {
     const result = await client.list({
-      includeStopped: false,
+      showTerminated: false,
       pageSize: 100,
       ...(pageToken === undefined ? {} : { pageToken }),
       tags: [stressConfig.tag],

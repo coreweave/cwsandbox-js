@@ -32,7 +32,7 @@ SDK patterns; use `weave/` / `tanstack/` for integrations with extra dependencie
 | `sdk/delete-sandboxes.ts`       | `async function main()` | delete / missingOk             |
 | `sdk/cleanup-by-tag.ts`         | CLI flags               | tag cleanup                    |
 | `sdk/cleanup-old-sandboxes.ts`  | CLI flags               | age cleanup                    |
-| `sdk/list-stopped-sandboxes.ts` | CLI flags               | includeStopped                 |
+| `sdk/list-stopped-sandboxes.ts` | CLI flags               | showTerminated                 |
 | `sdk/multiple-sandboxes.ts`     | `async function main()` | parallel sandboxes             |
 | `sdk/parallel-batch-job.ts`     | `async function main()` | batch jobs                     |
 | `sdk/interactive-streaming.ts`  | `async function main()` | log follow                     |

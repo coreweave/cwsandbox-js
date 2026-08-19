@@ -16,6 +16,7 @@ import {
 } from "../../errors.js";
 import {
   CWSANDBOX_BACKEND_UNAVAILABLE,
+  CWSANDBOX_COMMAND_TIMEOUT,
   CWSANDBOX_ERROR_DOMAIN,
   CWSANDBOX_FILE_NOT_FOUND,
   CWSANDBOX_FILE_TOO_LARGE,
@@ -217,6 +218,47 @@ describe("mapGrpcError", () => {
     expect(error).toBeInstanceOf(CWSandboxTransportError);
     expect(error).not.toBeInstanceOf(CWSandboxNotFoundError);
     expect(error.reason).toBe(CWSANDBOX_SANDBOX_NOT_FOUND);
+    expect(error.domain).toBe("evil.example.com");
+  });
+
+  it("maps trusted CWSANDBOX_COMMAND_TIMEOUT to timeout errors", () => {
+    const cause = new RpcError(
+      "command timed out",
+      "INTERNAL",
+      statusDetailsMeta({
+        errorInfos: [{ reason: CWSANDBOX_COMMAND_TIMEOUT }],
+      }),
+    );
+
+    const error = mapGrpcError(cause, {
+      operation: "Exec command",
+      sandboxId: "sandbox-123",
+    });
+
+    expect(error).toBeInstanceOf(CWSandboxTimeoutError);
+    expect(error.reason).toBe(CWSANDBOX_COMMAND_TIMEOUT);
+    expect(error.domain).toBe(CWSANDBOX_ERROR_DOMAIN);
+  });
+
+  it("does not remap CWSANDBOX_COMMAND_TIMEOUT under an untrusted domain", () => {
+    const cause = new RpcError(
+      "spoof",
+      "INTERNAL",
+      statusDetailsMeta({
+        errorInfos: [
+          {
+            domain: "evil.example.com",
+            reason: CWSANDBOX_COMMAND_TIMEOUT,
+          },
+        ],
+      }),
+    );
+
+    const error = mapGrpcError(cause, { operation: "Exec command" });
+
+    expect(error).toBeInstanceOf(CWSandboxTransportError);
+    expect(error).not.toBeInstanceOf(CWSandboxTimeoutError);
+    expect(error.reason).toBe(CWSANDBOX_COMMAND_TIMEOUT);
     expect(error.domain).toBe("evil.example.com");
   });
 });

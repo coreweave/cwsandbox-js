@@ -11,6 +11,12 @@ TypeScript SDK for CoreWeave Sandbox.
 > **Beta (`0.1.0-beta.0`):** public API may still change. Ecosystem adapters
 > (TanStack now, Vercel AI planned) version lockstep with this package; the first
 > npm cut is core only.
+>
+> This package speaks Sandbox **v1**. Use `services`, `network.denyEgress` /
+> `network.denyIngress`, `runnerIds`, and `showTerminated`. Profiles, `ports`,
+> and `includeStopped` are not part of this API. Templates (`runFromTemplate`)
+> are the successor for profile-style placement and are not wrapped in this SDK
+> yet.
 
 For platform concepts and product guides, see the
 [CoreWeave Sandbox documentation](https://docs.coreweave.com/products/coreweave-sandbox/client).
@@ -243,7 +249,7 @@ console.log(result.stdout);
 `client.create()`, `client.run(...)`, and `client.withSandbox(...)` wait for the sandbox to reach
 `running` by default, so the returned sandbox is safe for exec, file, and log operations. This is
 sandbox lifecycle readiness, not application readiness: if your main process starts an HTTP server
-or performs setup, wait for that app-specific condition with commands, logs, files, or ports.
+or performs setup, wait for that app-specific condition with commands, logs, files, or services.
 
 Pass `waitUntilRunning: false` when you need a handle immediately after the backend accepts the
 start request:
@@ -257,7 +263,7 @@ Use `run()` when the sandbox main process matters, for example to stream logs fr
 
 ```ts
 const sandbox = await client.run(["python", "-m", "http.server", "8000"], {
-  ports: [8000],
+  services: [{ port: 8000 }],
 });
 ```
 
@@ -274,14 +280,10 @@ if (result.exitCode !== 0) {
 }
 ```
 
-Use `cwd` for a working directory and `bufferedMaxKiB` to request a buffered output cap:
+Use `cwd` for a working directory:
 
 ```ts
 await sandbox.commands.run(["pwd"], { cwd: "/tmp" });
-
-await sandbox.commands.run(["python", "-c", "print('hello')"], {
-  bufferedMaxKiB: 64,
-});
 ```
 
 Use `commands.start()` when you need to stream output while a command is running:
@@ -504,6 +506,9 @@ Notes for streaming:
 
 - Mid-failure or `signal` abort on `writeStream` may leave a **partial remote file**.
 - Early stop / abort on `readStream` best-effort cancels the StreamExec process.
+- `readStream({ timeoutMs })` is one wall-clock across the integrity `stat` and
+  the file transfer. The clock starts when iteration begins. Omit `timeoutMs`
+  for an unbounded transfer (`stat` is still capped internally at 10s).
 - Slow work inside the read loop can trip `CWSandboxStreamBackpressureError`
   (`STREAM_BACKPRESSURE`); drain first, process afterward.
 - Bad iterable chunks (not `Uint8Array`) throw `CWSandboxValidationError`.
@@ -640,68 +645,66 @@ secret store on Gateway is a one-time admin step.
 
 Do not put secret values in `environmentVariables`, annotations, or tags.
 
-### Network And Ports
+### Network And Services
 
-Request egress behavior with `network.egressMode`:
+Internet egress follows the fleet policy default. Deny outbound or inbound
+traffic with boolean flags. `denyIngress` only affects CUSTOM-visibility ports
+and is a no-op when the sandbox has none — it does not hide a public HTTPS
+endpoint:
 
 ```ts
 await client.run(["python"], {
   network: {
-    egressMode: "internet",
+    denyEgress: true,
   },
 });
 
 await client.run(["python"], {
   network: {
-    egressMode: "none",
+    denyIngress: true,
   },
 });
 ```
 
-Declare ports with a numeric shorthand or object form:
+Declare listen-only services, or request a public HTTPS assignment with
+`endpoint: { kind: "https", auth: "open" }` and `visibility: "public"`:
 
 ```ts
 await client.run(["python", "-m", "http.server", "8000"], {
-  ports: [8000],
+  services: [{ port: 8000 }],
 });
 
-await client.run(["python", "-m", "http.server", "8000"], {
-  ports: [{ port: 8000, name: "http", protocol: "TCP" }],
-  network: {
-    ingressMode: "public",
-    exposedPorts: [8000],
-    egressMode: "internet",
-  },
+const sandbox = await client.run(["python", "-m", "http.server", "8000"], {
+  services: [
+    {
+      endpoint: { auth: "open", kind: "https" },
+      name: "http",
+      port: 8000,
+      visibility: "public",
+    },
+  ],
 });
+
+const info = await sandbox.inspect();
+console.log(info.serviceUrls?.[0]?.url);
 ```
 
-Network mode names, profile names, runner IDs, and ingress modes are backend/profile specific.
+A non-empty `serviceUrls` entry means the hostname was assigned. That is not
+the same as the application listening, and not the same as the edge being
+ready.
 
 Sandbox handles expose cached backend metadata. Use `inspect()` when you need a
 fresh one-shot metadata snapshot for traces, tool results, or logs:
 
 ```ts
-const sandbox = await client.run(["python", "-m", "http.server", "8000"], {
-  ports: [{ port: 8000, name: "http", protocol: "TCP" }],
-  network: {
-    ingressMode: "public",
-    exposedPorts: [8000],
-    egressMode: "internet",
-  },
-});
-
 const info = await sandbox.inspect();
 
 const sandboxTrace = {
   sandboxId: info.sandboxId,
   status: info.status,
   startedAt: info.startedAt?.toISOString(),
-  serviceAddress: info.serviceAddress,
-  exposedPorts: info.exposedPorts,
-  appliedIngressMode: info.appliedIngressMode,
-  appliedEgressMode: info.appliedEgressMode,
+  serviceUrls: info.serviceUrls,
   runnerId: info.runnerId,
-  profileId: info.profileId,
   statusReason: info.statusReason,
 };
 
@@ -710,11 +713,12 @@ console.log(sandboxTrace);
 
 ### Placement Selectors
 
-Use profile and runner selectors when you need specific infrastructure:
+Pin a sandbox to specific CKS runners with `runnerIds`. Profile selectors are
+not supported in v1; use a template (`runFromTemplate`, not wrapped here yet)
+when you need that style of placement:
 
 ```ts
 await client.run(["python"], {
-  profileNames: ["default"],
   runnerIds: ["runner-1"],
 });
 ```
@@ -736,7 +740,8 @@ const sandbox = await client.fromId("sandbox-id");
 
 Use `fromId()` when you need to run commands, read files, stream logs, or manage lifecycle through a `Sandbox` instance. Use `get()` when you only need current metadata.
 
-List sandboxes — most callers want every match as usable handles:
+List sandboxes — most callers want every **active** match as usable handles.
+Listing defaults to active-only (`showTerminated` is false):
 
 ```ts
 const sandboxes = await client.listAll({
@@ -790,7 +795,9 @@ await client.delete("sandbox-id", { missingOk: true });
 await sandbox.stop({ missingOk: true });
 ```
 
-Clean up interrupted work by listing with the same tags you used at start:
+Clean up interrupted **active** work by listing with the same tags you used at
+start. Listing defaults to active-only. Do not pass `showTerminated: true`
+here — that flag includes terminal rows, it does not mean “stopped only”:
 
 ```ts
 const sandboxes = await client.listAll({
@@ -902,7 +909,7 @@ Useful root commands:
 - `pnpm smoke:stress -- --heavy` runs the larger manual stress smoke suite.
 - `pnpm smoke:stress -- --cleanup --tag <stress-tag>` deletes sandboxes from an interrupted stress run.
 
-`pnpm check` is offline and credential-free, including README example typechecks. `pnpm smoke` and stress smoke commands skip CoreWeave-auth tests when `CWSANDBOX_API_KEY` is not set, and skip W&B-auth tests when no `WANDB_API_KEY` or W&B `.netrc` credential resolves. The default smoke suite uses `internet` and `none` egress modes for network checks. Stress smoke is intentionally not part of `pnpm check`; it creates live sandboxes and uses bounded workloads to exercise larger logs, streams, stdin, files, pagination, and cleanup paths.
+`pnpm check` is offline and credential-free, including README example typechecks. `pnpm smoke` and stress smoke commands skip CoreWeave-auth tests when `CWSANDBOX_API_KEY` is not set, and skip W&B-auth tests when no `WANDB_API_KEY` or W&B `.netrc` credential resolves. The default smoke suite uses default internet egress and `network.denyEgress` for the no-internet check. Stress smoke is intentionally not part of `pnpm check`; it creates live sandboxes and uses bounded workloads to exercise larger logs, streams, stdin, files, pagination, and cleanup paths.
 
 ## License
 

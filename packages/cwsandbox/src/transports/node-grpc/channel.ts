@@ -7,8 +7,7 @@ import { GrpcTransport } from "@protobuf-ts/grpc-transport";
 
 import { CWSandboxConfigurationError } from "../../errors.js";
 import { DEFAULT_GRPC_MAX_MESSAGE_LENGTH_BYTES } from "../../internal/file-limits.js";
-import { GatewayServiceClient } from "./generated/coreweave/sandbox/v1beta2/gateway.client.js";
-import { GatewayStreamingServiceClient } from "./generated/coreweave/sandbox/v1beta2/streaming.client.js";
+import { SandboxServiceClient } from "./generated/coreweave/sandbox/v1/sandbox.client.js";
 
 /** Match Python `_default_channel_options` (default grpc-js limit is only 4 MiB). */
 const GRPC_CLIENT_OPTIONS: ClientOptions = {
@@ -25,8 +24,7 @@ export interface GrpcClientOptions {
 }
 
 export interface GrpcClients {
-  readonly client: GatewayServiceClient;
-  readonly streamingClient: GatewayStreamingServiceClient;
+  readonly client: SandboxServiceClient;
 }
 
 export function createGrpcClients(options: GrpcClientOptions): GrpcClients {
@@ -41,8 +39,7 @@ export function createGrpcClients(options: GrpcClientOptions): GrpcClients {
   });
 
   return {
-    client: new GatewayServiceClient(transport),
-    streamingClient: new GatewayStreamingServiceClient(transport),
+    client: new SandboxServiceClient(transport),
   };
 }
 

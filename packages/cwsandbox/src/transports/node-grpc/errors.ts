@@ -15,6 +15,7 @@ import {
   type CWSandboxTransportErrorOptions,
 } from "../../errors.js";
 import {
+  CWSANDBOX_COMMAND_TIMEOUT,
   CWSANDBOX_ERROR_DOMAIN,
   CWSANDBOX_SANDBOX_NOT_FOUND,
   FILE_ERROR_REASONS,
@@ -51,6 +52,9 @@ export function mapGrpcError(error: unknown, context: GrpcErrorContext): CWSandb
       }
       if (UNAVAILABLE_REASONS.has(reason)) {
         return new CWSandboxUnavailableError(message, details);
+      }
+      if (reason === CWSANDBOX_COMMAND_TIMEOUT) {
+        return new CWSandboxTimeoutError(message, details);
       }
     }
 

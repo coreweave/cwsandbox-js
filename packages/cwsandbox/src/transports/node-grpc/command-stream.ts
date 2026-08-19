@@ -10,12 +10,12 @@ import {
 } from "../../streaming/command-process.js";
 import type { StartCommandRequest } from "../../transport/types.js";
 import { startExecSession, mapExecSessionError, type ExecSession } from "./exec-session.js";
-import type { GatewayStreamingServiceClient } from "./generated/coreweave/sandbox/v1beta2/streaming.client.js";
+import type { SandboxServiceClient } from "./generated/coreweave/sandbox/v1/sandbox.client.js";
 
 export { mapExecSessionError as mapExecStreamError };
 
 export async function startGrpcCommand(
-  streamingClient: GatewayStreamingServiceClient,
+  streamingClient: SandboxServiceClient,
   request: StartCommandRequest,
 ): Promise<CommandProcess | CommandProcessWithStdin> {
   const session = await startExecSession(streamingClient, {

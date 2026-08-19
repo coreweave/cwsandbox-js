@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
+import { DEFAULT_GRACEFUL_SHUTDOWN_SECONDS } from "./defaults.js";
 import { CWSandboxTimeoutError } from "./errors.js";
 import { ignoreMissingSandbox } from "./internal/delete.js";
 import { isSandboxNotFound } from "./internal/error-info.js";
@@ -21,6 +22,7 @@ import type {
 import type { RequestOptions } from "./public/common.js";
 import type { SandboxFiles } from "./public/files.js";
 import type { SandboxLogs } from "./public/logs.js";
+import type { ServiceUrl } from "./public/network.js";
 import type {
   DeleteOptions,
   GetSandboxResult,
@@ -70,6 +72,7 @@ export class Sandbox implements PublicSandbox {
     this.metadata = {
       ...cloneMetadata(options.metadata),
       sandboxId: this.sandboxId,
+      ...cloneServiceDerivedFields(options.metadata),
     };
     const fileTransfer = new FileTransfer(this.sandboxId, options.fileAdapter);
     this.runtime = {
@@ -81,20 +84,8 @@ export class Sandbox implements PublicSandbox {
     this.logs = createSandboxLogs(this.runtime);
   }
 
-  public get appliedEgressMode(): string | undefined {
-    return this.metadata.appliedEgressMode;
-  }
-
-  public get appliedIngressMode(): string | undefined {
-    return this.metadata.appliedIngressMode;
-  }
-
   public get exposedPorts(): readonly SandboxExposedPort[] | undefined {
     return this.metadata.exposedPorts?.map((port) => ({ ...port }));
-  }
-
-  public get profileId(): string | undefined {
-    return this.metadata.profileId;
   }
 
   public get resourceLimits(): SandboxResourceSpec | undefined {
@@ -113,8 +104,8 @@ export class Sandbox implements PublicSandbox {
     return this.metadata.runnerId;
   }
 
-  public get serviceAddress(): string | undefined {
-    return this.metadata.serviceAddress;
+  public get serviceUrls(): readonly ServiceUrl[] | undefined {
+    return this.metadata.serviceUrls?.map((service) => ({ ...service }));
   }
 
   public get startedAt(): Date | undefined {
@@ -195,9 +186,9 @@ export class Sandbox implements PublicSandbox {
     if (status !== "terminating") {
       await this.runtime.transport.stop({
         sandboxId: this.sandboxId,
-        ...(options.gracefulShutdownSeconds === undefined
-          ? {}
-          : { gracefulShutdownSeconds: options.gracefulShutdownSeconds }),
+        gracefulShutdownSeconds:
+          options.gracefulShutdownSeconds ?? DEFAULT_GRACEFUL_SHUTDOWN_SECONDS,
+        ...(options.missingOk === true ? { allowMissing: true } : {}),
       });
     }
 
@@ -226,6 +217,7 @@ export class Sandbox implements PublicSandbox {
       this.runtime.transport.delete({
         ...requestOptions,
         sandboxId: this.sandboxId,
+        ...(missingOk === true ? { allowMissing: true } : {}),
       }),
       missingOk === true,
     );
@@ -233,9 +225,10 @@ export class Sandbox implements PublicSandbox {
 
   private updateMetadata(metadata: SandboxMetadata): void {
     this.metadata = {
-      ...this.metadata,
+      ...cloneMetadata(this.metadata),
       ...cloneMetadata(metadata),
       sandboxId: this.sandboxId,
+      ...cloneServiceDerivedFields(metadata),
     };
   }
 }
@@ -314,22 +307,35 @@ function cloneResourceSpec(spec: SandboxResourceSpec | undefined): SandboxResour
   return spec === undefined ? undefined : { ...spec };
 }
 
+function cloneExposedPorts(
+  ports: readonly SandboxExposedPort[] | undefined,
+): readonly SandboxExposedPort[] | undefined {
+  return ports === undefined ? undefined : ports.map((port) => ({ ...port }));
+}
+
+function cloneServiceUrls(
+  urls: readonly ServiceUrl[] | undefined,
+): readonly ServiceUrl[] | undefined {
+  return urls === undefined ? undefined : urls.map((service) => ({ ...service }));
+}
+
+function cloneServiceDerivedFields(
+  metadata: SandboxMetadata | undefined,
+): Pick<SandboxMetadata, "exposedPorts" | "serviceUrls"> {
+  const exposedPorts = cloneExposedPorts(metadata?.exposedPorts);
+  const serviceUrls = cloneServiceUrls(metadata?.serviceUrls);
+  return {
+    ...(exposedPorts === undefined ? {} : { exposedPorts }),
+    ...(serviceUrls === undefined ? {} : { serviceUrls }),
+  };
+}
+
 function cloneMetadata(metadata: SandboxMetadata | undefined): Partial<SandboxMetadata> {
   if (metadata === undefined) {
     return {};
   }
 
   return {
-    ...(metadata.appliedEgressMode === undefined
-      ? {}
-      : { appliedEgressMode: metadata.appliedEgressMode }),
-    ...(metadata.appliedIngressMode === undefined
-      ? {}
-      : { appliedIngressMode: metadata.appliedIngressMode }),
-    ...(metadata.exposedPorts === undefined
-      ? {}
-      : { exposedPorts: metadata.exposedPorts.map((port) => ({ ...port })) }),
-    ...(metadata.profileId === undefined ? {} : { profileId: metadata.profileId }),
     ...(metadata.resourceLimits === undefined
       ? {}
       : { resourceLimits: { ...metadata.resourceLimits } }),
@@ -339,7 +345,6 @@ function cloneMetadata(metadata: SandboxMetadata | undefined): Partial<SandboxMe
     ...(metadata.runnerGroupId === undefined ? {} : { runnerGroupId: metadata.runnerGroupId }),
     ...(metadata.runnerId === undefined ? {} : { runnerId: metadata.runnerId }),
     sandboxId: metadata.sandboxId,
-    ...(metadata.serviceAddress === undefined ? {} : { serviceAddress: metadata.serviceAddress }),
     ...(metadata.startedAt === undefined ? {} : { startedAt: new Date(metadata.startedAt) }),
     ...(metadata.status === undefined ? {} : { status: metadata.status }),
     ...(metadata.statusReason === undefined ? {} : { statusReason: metadata.statusReason }),

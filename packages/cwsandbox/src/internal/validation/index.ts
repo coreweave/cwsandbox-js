@@ -31,6 +31,7 @@ export function validateExecOptions(options: ExecOptions): void {
 
 export function validateStartCommandOptions(options: StartCommandOptions): void {
   validateCommandOptions(options);
+  validateNonNegativeInteger(options.bufferedMaxKiB, "bufferedMaxKiB");
 }
 
 export function validateShellOptions(options: ShellOptions): void {
@@ -41,7 +42,6 @@ export function validateShellOptions(options: ShellOptions): void {
 
 function validateCommandOptions(options: ExecOptions | StartCommandOptions): void {
   validateRequestOptions(options);
-  validateNonNegativeInteger(options.bufferedMaxKiB, "bufferedMaxKiB");
   validateOptionalBoolean(options.check, "check");
   validateOptionalNonBlankString(options.cwd, "cwd");
   if ("stdin" in options) {
@@ -50,15 +50,23 @@ function validateCommandOptions(options: ExecOptions | StartCommandOptions): voi
 }
 
 export function validateSandboxRunOptions(options: SandboxRunOptions): void {
+  rejectRemovedKeys(options, [
+    "maxTimeoutSeconds",
+    "ports",
+    "profileIds",
+    "profileNames",
+    "s3Mount",
+  ]);
+  if (options.network !== undefined) {
+    rejectRemovedKeys(options.network, ["egressMode", "exposedPorts", "ingressMode"]);
+  }
   validateRequestOptions(options);
   validateAnnotations(options.annotations);
   validateNonNegativeFinite(options.maxLifetimeSeconds, "maxLifetimeSeconds");
   validateMountedFiles(options.mountedFiles);
-  validateNetworkOptions(options.ports, options.network);
+  validateNetworkOptions(options.services, options.network);
   validateResources(options.resources);
   validateSecrets(options.secrets, options.environmentVariables);
-  validateUniqueStringList(options.profileIds, "profileIds");
-  validateUniqueStringList(options.profileNames, "profileNames");
   validateUniqueStringList(options.runnerIds, "runnerIds");
   validateTags(options.tags);
   validateOptionalBoolean(options.waitUntilRunning, "waitUntilRunning");
@@ -69,6 +77,11 @@ export function validateWaitOptions(options: WaitOptions): void {
 }
 
 export function validateStopOptions(options: StopOptions): void {
+  if ((options as Record<string, unknown>)["snapshotOnStop"] !== undefined) {
+    throw new CWSandboxValidationError(
+      "snapshotOnStop is not supported until file-system snapshots (FSS) are available",
+    );
+  }
   validateRequestOptions(options);
   validateNonNegativeInteger(options.gracefulShutdownSeconds, "gracefulShutdownSeconds");
   validateOptionalBoolean(options.missingOk, "missingOk");
@@ -80,8 +93,11 @@ export function validateDeleteOptions(options: DeleteOptions): void {
 }
 
 export function validateListSandboxesOptions(options: ListSandboxesOptions): void {
+  rejectRemovedKeys(options, ["includeStopped", "profileIds", "profileNames"]);
   validateRequestOptions(options);
   validateNonNegativeInteger(options.pageSize, "pageSize");
+  validateOptionalBoolean(options.showTerminated, "showTerminated");
+  validateUniqueStringList(options.runnerIds, "runnerIds");
   validateTags(options.tags);
 }
 
@@ -100,6 +116,15 @@ export function validateLogStreamOptions(options: LogStreamOptions): void {
   validateOptionalBoolean(options.timestamps, "timestamps");
   validateSinceTime(options.sinceTime);
   validateLogResume(options);
+}
+
+function rejectRemovedKeys(source: object, keys: readonly string[]): void {
+  const record = source as Record<string, unknown>;
+  for (const key of keys) {
+    if (record[key] !== undefined) {
+      throw new CWSandboxValidationError(`${key} is not supported in v1`);
+    }
+  }
 }
 
 function validateNonNegativeFinite(value: number | undefined, name: string): void {

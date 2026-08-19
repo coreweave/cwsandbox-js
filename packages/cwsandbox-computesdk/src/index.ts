@@ -36,10 +36,13 @@ const DEFAULT_IMAGE = "ubuntu:24.04";
 const DEFAULT_CPU = "2";
 const DEFAULT_MEMORY = "4Gi";
 const DEFAULT_MAX_LIFETIME_SECONDS = 3600;
-/** Prefer streamed exec when the caller asks for a timeout above this. */
+/** Timeouts above this use commands.start instead of unary commands.run. */
 const STREAM_TIMEOUT_MS = 240_000;
 const OWNER_TAG_PATTERN = /^[A-Za-z0-9._-]*[A-Za-z0-9]$/;
 const OWNER_TAG_MAX_LENGTH = 59;
+/** Hostname assignment can lag `running`. */
+const SERVICE_URL_WAIT_MS = 60_000;
+const SERVICE_URL_POLL_MS = 500;
 
 export interface CoreWeaveConfig {
   /** API key; falls back to `CWSANDBOX_API_KEY`. Ignored when `client` is set. */
@@ -61,8 +64,6 @@ export interface CoreWeaveConfig {
   readonly ownerTag?: string;
   /** Restrict scheduling to these runner names. */
   readonly runnerIds?: readonly string[];
-  /** Restrict scheduling to these profile names. */
-  readonly profileNames?: readonly string[];
   /** Injected client (tests / advanced). */
   readonly client?: SandboxClient;
   /** Factory for an injected client. */
@@ -72,8 +73,9 @@ export interface CoreWeaveConfig {
 type CoreWeaveCreateOptions = CreateSandboxOptions & {
   readonly image?: string;
   readonly maxLifetimeSeconds?: number;
+  readonly network?: SandboxRunOptions["network"];
   readonly runnerIds?: readonly string[];
-  readonly profileNames?: readonly string[];
+  readonly services?: SandboxRunOptions["services"];
 };
 
 export interface CoreWeaveSandbox {
@@ -103,8 +105,8 @@ function generateOwnerTag(): string {
   const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
   const bytes = randomBytes(6);
   let out = "";
-  for (let i = 0; i < 6; i++) {
-    out += alphabet[bytes[i]! % alphabet.length]!;
+  for (const byte of bytes) {
+    out += alphabet.charAt(byte % alphabet.length);
   }
   return out;
 }
@@ -151,6 +153,41 @@ async function resolveClient(config: CoreWeaveConfig): Promise<SandboxClient> {
 
   clientCache.set(config, pending);
   return pending;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function waitForAssignedUrl(handle: CoreWeaveSandbox, port: number): Promise<string> {
+  const deadline = Date.now() + SERVICE_URL_WAIT_MS;
+
+  while (true) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      throw new Error(
+        `coreweave: getUrl: no assigned HTTPS URL for port ${port} after ${SERVICE_URL_WAIT_MS}ms`,
+      );
+    }
+
+    const inspected = await handle.sandbox.inspect({ timeoutMs: remainingMs });
+    const match = inspected.serviceUrls?.find(
+      (service) => service.port === port && service.url.startsWith("https://"),
+    );
+    if (match !== undefined) {
+      return match.url;
+    }
+
+    const sleepMs = Math.min(SERVICE_URL_POLL_MS, deadline - Date.now());
+    if (sleepMs <= 0) {
+      throw new Error(
+        `coreweave: getUrl: no assigned HTTPS URL for port ${port} after ${SERVICE_URL_WAIT_MS}ms`,
+      );
+    }
+    await sleep(sleepMs);
+  }
 }
 
 function shq(arg: string): string {
@@ -204,7 +241,6 @@ function toCreateOptions(
     options?.memoryMiB !== undefined ? `${options.memoryMiB}Mi` : (config.memory ?? DEFAULT_MEMORY);
   const maxLifetimeSeconds = resolveMaxLifetimeSeconds(config, options);
   const runnerIds = options?.runnerIds ?? config.runnerIds;
-  const profileNames = options?.profileNames ?? config.profileNames;
   const name = options?.name?.trim();
 
   return {
@@ -217,7 +253,8 @@ function toCreateOptions(
     ...(options?.envs !== undefined ? { environmentVariables: options.envs } : {}),
     ...(options?.signal !== undefined ? { signal: options.signal } : {}),
     ...(runnerIds !== undefined && runnerIds.length > 0 ? { runnerIds } : {}),
-    ...(profileNames !== undefined && profileNames.length > 0 ? { profileNames } : {}),
+    ...(options?.services !== undefined ? { services: options.services } : {}),
+    ...(options?.network !== undefined ? { network: options.network } : {}),
   };
 }
 
@@ -308,7 +345,10 @@ function parseLsLaEntries(stdout: string): FileEntry[] {
     if (parts.length < 9) {
       continue;
     }
-    const perms = parts[0]!;
+    const perms = parts[0];
+    if (perms === undefined) {
+      continue;
+    }
     const name = parts.slice(8).join(" ");
     if (name === "." || name === "..") {
       continue;
@@ -393,8 +433,6 @@ export const coreweave = defineProvider<CoreWeaveSandbox, CoreWeaveConfig>({
             timeout: handle.timeoutMs,
             metadata: {
               runnerId: inspected.runnerId,
-              profileId: inspected.profileId,
-              appliedEgressMode: inspected.appliedEgressMode,
             },
           };
         } catch (error) {
@@ -411,11 +449,7 @@ export const coreweave = defineProvider<CoreWeaveSandbox, CoreWeaveConfig>({
         }
       },
 
-      getUrl: async (_sandbox, _options) => {
-        throw new Error(
-          "coreweave: getUrl is not implemented yet — expose ports at create time and use the service address.",
-        );
-      },
+      getUrl: async (handle, { port }) => waitForAssignedUrl(handle, port),
 
       filesystem: {
         readFile: async (handle, filePath) => handle.sandbox.files.readText(filePath),

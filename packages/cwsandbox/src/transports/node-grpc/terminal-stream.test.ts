@@ -4,11 +4,11 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { GatewayStreamingServiceClient } from "./generated/coreweave/sandbox/v1beta2/streaming.client.js";
+import type { SandboxServiceClient } from "./generated/coreweave/sandbox/v1/sandbox.client.js";
 import type {
   ExecStreamRequest,
   ExecStreamResponse,
-} from "./generated/coreweave/sandbox/v1beta2/streaming.js";
+} from "./generated/coreweave/sandbox/v1/sandbox.js";
 import { startGrpcShell } from "./terminal-stream.js";
 
 describe("startGrpcShell stdin ready gate", () => {
@@ -33,9 +33,9 @@ describe("startGrpcShell stdin ready gate", () => {
     expect(requestKinds(duplex.sent)).toEqual(["init"]);
 
     duplex.push({
-      response: {
+      message: {
         oneofKind: "ready",
-        ready: { sessionId: "sess-1" },
+        ready: {},
       },
     });
 
@@ -43,7 +43,7 @@ describe("startGrpcShell stdin ready gate", () => {
     expect(requestKinds(duplex.sent)).toEqual(["init", "stdin", "resize", "close"]);
 
     duplex.push({
-      response: {
+      message: {
         exit: { exitCode: 0 },
         oneofKind: "exit",
       },
@@ -58,7 +58,7 @@ describe("startGrpcShell stdin ready gate", () => {
 });
 
 function requestKinds(sent: readonly ExecStreamRequest[]): string[] {
-  return sent.map((message) => message.request.oneofKind ?? "undefined");
+  return sent.map((message) => message.message.oneofKind ?? "undefined");
 }
 
 async function yieldEventLoop(): Promise<void> {
@@ -68,7 +68,7 @@ async function yieldEventLoop(): Promise<void> {
 }
 
 function createMockDuplex(): {
-  readonly client: GatewayStreamingServiceClient;
+  readonly client: SandboxServiceClient;
   readonly sent: ExecStreamRequest[];
   end(): void;
   push(response: ExecStreamResponse): void;
@@ -129,7 +129,7 @@ function createMockDuplex(): {
         status: Promise.resolve({ code: "OK", detail: "" }),
       };
     },
-  } as unknown as GatewayStreamingServiceClient;
+  } as unknown as SandboxServiceClient;
 
   return { client, end, push, sent };
 }

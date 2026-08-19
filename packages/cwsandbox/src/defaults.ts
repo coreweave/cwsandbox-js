@@ -8,6 +8,9 @@ export const DEFAULT_KEEP_ALIVE_COMMAND = [
   "trap 'exit 0' TERM INT; sleep infinity & wait",
 ] as const;
 
+/** Default stop grace period in seconds when `gracefulShutdownSeconds` is omitted. */
+export const DEFAULT_GRACEFUL_SHUTDOWN_SECONDS = 10 as const;
+
 /** Overall wall-clock budget for `listSandboxes()` / `listAll()` when `timeoutMs` is omitted. */
 export const DEFAULT_LIST_ALL_TIMEOUT_MS = 300_000;
 

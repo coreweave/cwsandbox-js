@@ -4,17 +4,22 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { ExecResponse } from "./generated/coreweave/sandbox/v1beta2/gateway.js";
 import {
-  OutputPolicy as ProtoOutputPolicy,
-  SandboxStatus as ProtoSandboxStatus,
-} from "./generated/coreweave/sandbox/v1beta2/gateway.js";
+  EndpointAuth,
+  EndpointKind,
+  Sandbox as ProtoSandbox,
+  SandboxMode,
+  ServiceProtocol,
+  State,
+  Visibility,
+  type ExecResponse,
+} from "./generated/coreweave/sandbox/v1/sandbox.js";
 import {
   DEFAULT_CONTAINER_IMAGE,
   timeoutMsToSeconds,
+  toProtoCreateRequest,
   toProtoExecRequest,
   toProtoListSandboxesRequest,
-  toProtoStartRequest,
   toSdkGetSandboxResult,
   toSdkListSandboxesResult,
   toSdkProcessResult,
@@ -36,10 +41,14 @@ function execResponse(stdout: string, stderr = "", exitCode = 0): ExecResponse {
   };
 }
 
+function primaryContainer(request: ReturnType<typeof toProtoCreateRequest>) {
+  return request.sandbox?.spec?.containers[0];
+}
+
 describe("node transport mappers", () => {
-  describe("start requests", () => {
-    it("maps start commands to command and args", () => {
-      const request = toProtoStartRequest({
+  describe("create requests", () => {
+    it("maps start commands to the primary container", () => {
+      const request = toProtoCreateRequest({
         command: ["python", "-c", "print('hello')"],
         environmentVariables: {
           EXAMPLE: "1",
@@ -47,48 +56,63 @@ describe("node transport mappers", () => {
         timeoutMs: 1,
       });
 
-      expect(request.command).toBe("python");
-      expect(request.args).toEqual(["-c", "print('hello')"]);
-      expect(request.containerImage).toBe(DEFAULT_CONTAINER_IMAGE);
-      expect(request.environmentVariables).toEqual({ EXAMPLE: "1" });
-      expect(request.maxTimeoutSeconds).toBe(1);
+      expect(request.requestId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      );
+      expect(primaryContainer(request)).toMatchObject({
+        args: ["-c", "print('hello')"],
+        command: "python",
+        environmentVariables: { EXAMPLE: "1" },
+        image: DEFAULT_CONTAINER_IMAGE,
+        name: "main",
+      });
+      expect(request.sandbox?.spec?.primaryContainer).toBe("main");
     });
 
-    it("maps supported start options to the start request", () => {
-      const request = toProtoStartRequest({
+    it("maps supported create options onto spec and the primary container", () => {
+      const request = toProtoCreateRequest({
         annotations: { team: "platform" },
         command: ["python", "-m", "http.server", "8000"],
         environmentVariables: { EXAMPLE: "1" },
         maxLifetimeSeconds: 60,
         mountedFiles: { "/workspace/main.py": "print('hello')" },
-        network: { egressMode: "internet", exposedPorts: [8000], ingressMode: "public" },
-        ports: [{ name: "http", port: 8000, protocol: "TCP" }],
-        profileNames: ["default"],
+        network: { denyEgress: true },
         resources: { cpu: "100m", memory: "128Mi" },
         runnerIds: ["runner-id"],
+        services: [{ name: "http", port: 8000, protocol: "tcp" }],
         tags: ["project-demo"],
-        timeoutMs: 1500,
       });
 
-      expect(request).toMatchObject({
+      expect(request.sandbox?.spec).toMatchObject({
+        annotations: { team: "platform" },
+        maxLifetimeSeconds: 60,
+        mode: SandboxMode.CKS,
+        network: { denyEgress: true },
+        primaryContainer: "main",
+        runnerIds: ["runner-id"],
+        tags: ["project-demo"],
+      });
+      expect(request.sandbox?.spec?.services).toMatchObject([
+        {
+          name: "http",
+          port: 8000,
+          protocol: ServiceProtocol.TCP,
+        },
+      ]);
+      expect(primaryContainer(request)).toMatchObject({
         args: ["-m", "http.server", "8000"],
         command: "python",
         environmentVariables: { EXAMPLE: "1" },
-        maxLifetimeSeconds: 60,
-        maxTimeoutSeconds: 2,
-        network: { egressMode: "internet", exposedPorts: [8000], ingressMode: "public" },
-        podAnnotations: { team: "platform" },
-        ports: [{ containerPort: 8000, name: "http", protocol: "TCP" }],
-        profileNames: ["default"],
-        resources: { cpu: "100m", memory: "128Mi" },
-        runnerIds: ["runner-id"],
-        tags: ["project-demo"],
+        resourceRequirements: {
+          limits: { cpu: "100m", memory: "128Mi" },
+          requests: { cpu: "100m", memory: "128Mi" },
+        },
       });
-      expect(request.mountedFiles).toHaveLength(1);
+      expect(primaryContainer(request)?.files).toHaveLength(1);
     });
 
-    it("maps annotations to pod annotations", () => {
-      const request = toProtoStartRequest({
+    it("maps annotations onto spec annotations", () => {
+      const request = toProtoCreateRequest({
         annotations: {
           purpose: "smoke-test",
           team: "platform",
@@ -96,14 +120,14 @@ describe("node transport mappers", () => {
         command: ["python"],
       });
 
-      expect(request.podAnnotations).toEqual({
+      expect(request.sandbox?.spec?.annotations).toEqual({
         purpose: "smoke-test",
         team: "platform",
       });
     });
 
-    it("maps mounted file array entries to mounted files", () => {
-      const request = toProtoStartRequest({
+    it("maps mounted file array entries onto container files", () => {
+      const request = toProtoCreateRequest({
         command: ["python"],
         mountedFiles: [
           {
@@ -113,33 +137,33 @@ describe("node transport mappers", () => {
         ],
       });
 
-      expect(request.mountedFiles).toEqual([
+      expect(primaryContainer(request)?.files).toEqual([
         {
-          fileContent: textEncoder.encode("print('hello')"),
-          mountPath: "/workspace/main.py",
+          content: textEncoder.encode("print('hello')"),
+          path: "/workspace/main.py",
         },
       ]);
     });
 
-    it("maps mounted file record entries to mounted files", () => {
-      const request = toProtoStartRequest({
+    it("maps mounted file record entries onto container files", () => {
+      const request = toProtoCreateRequest({
         command: ["python"],
         mountedFiles: {
           "/workspace/main.py": "print('hello')",
         },
       });
 
-      expect(request.mountedFiles).toEqual([
+      expect(primaryContainer(request)?.files).toEqual([
         {
-          fileContent: textEncoder.encode("print('hello')"),
-          mountPath: "/workspace/main.py",
+          content: textEncoder.encode("print('hello')"),
+          path: "/workspace/main.py",
         },
       ]);
     });
 
     it("maps byte mounted file content without encoding", () => {
       const content = new Uint8Array([1, 2, 3]);
-      const request = toProtoStartRequest({
+      const request = toProtoCreateRequest({
         command: ["python"],
         mountedFiles: [
           {
@@ -149,16 +173,16 @@ describe("node transport mappers", () => {
         ],
       });
 
-      expect(request.mountedFiles).toEqual([
+      expect(primaryContainer(request)?.files).toEqual([
         {
-          fileContent: content,
-          mountPath: "/workspace/data.bin",
+          content,
+          path: "/workspace/data.bin",
         },
       ]);
     });
 
-    it("maps flat resources to guaranteed resource requests", () => {
-      const request = toProtoStartRequest({
+    it("maps flat resources onto matching requests and limits", () => {
+      const request = toProtoCreateRequest({
         command: ["python"],
         resources: {
           cpu: "2",
@@ -166,16 +190,14 @@ describe("node transport mappers", () => {
         },
       });
 
-      expect(request.resources).toEqual({
-        cpu: "2",
-        memory: "4Gi",
+      expect(primaryContainer(request)?.resourceRequirements).toEqual({
+        limits: { cpu: "2", memory: "4Gi" },
+        requests: { cpu: "2", memory: "4Gi" },
       });
-      expect(request.resourceRequests).toBeUndefined();
-      expect(request.resourceLimits).toBeUndefined();
     });
 
-    it("maps advanced resources to requests and limits", () => {
-      const request = toProtoStartRequest({
+    it("maps advanced resources onto requests and limits", () => {
+      const request = toProtoCreateRequest({
         command: ["python"],
         resources: {
           limits: {
@@ -189,109 +211,120 @@ describe("node transport mappers", () => {
         },
       });
 
-      expect(request.resources).toBeUndefined();
-      expect(request.resourceRequests).toEqual({
-        cpu: "1",
-        memory: "1Gi",
-      });
-      expect(request.resourceLimits).toEqual({
-        cpu: "4",
-        memory: "8Gi",
+      expect(primaryContainer(request)?.resourceRequirements).toEqual({
+        limits: { cpu: "4", memory: "8Gi" },
+        requests: { cpu: "1", memory: "1Gi" },
       });
     });
 
-    it("maps numeric ports to container ports", () => {
-      const request = toProtoStartRequest({
+    it("maps listen-only services", () => {
+      const request = toProtoCreateRequest({
         command: ["python"],
-        ports: [8000],
+        services: [{ port: 8000 }],
       });
 
-      expect(request.ports).toEqual([
+      expect(request.sandbox?.spec?.services).toMatchObject([
         {
-          containerPort: 8000,
-          name: "",
-          protocol: "",
+          port: 8000,
+          protocol: ServiceProtocol.UNSPECIFIED,
+          visibility: Visibility.UNSPECIFIED,
         },
       ]);
     });
 
-    it("maps object ports to container ports", () => {
-      const request = toProtoStartRequest({
+    it("maps HTTPS public services onto proto services", () => {
+      const request = toProtoCreateRequest({
         command: ["python"],
-        ports: [{ name: "http", port: 8000, protocol: "TCP" }],
+        services: [
+          {
+            endpoint: { auth: "open", kind: "https" },
+            name: "http",
+            port: 8000,
+            protocol: "tcp",
+            visibility: "public",
+          },
+        ],
       });
 
-      expect(request.ports).toEqual([
+      expect(request.sandbox?.spec?.services).toMatchObject([
         {
-          containerPort: 8000,
+          endpoint: {
+            auth: EndpointAuth.OPEN,
+            kind: EndpointKind.HTTPS,
+          },
           name: "http",
-          protocol: "TCP",
+          port: 8000,
+          protocol: ServiceProtocol.TCP,
+          visibility: Visibility.PUBLIC,
         },
       ]);
     });
 
-    it("maps network options to the start request", () => {
-      const request = toProtoStartRequest({
+    it("omits network when deny flags are unset", () => {
+      const request = toProtoCreateRequest({
         command: ["python"],
-        network: {
-          egressMode: "internet",
-          exposedPorts: [8000],
-          ingressMode: "public",
-        },
-        ports: [8000],
+        network: {},
       });
 
-      expect(request.network).toEqual({
-        egressMode: "internet",
-        exposedPorts: [8000],
-        ingressMode: "public",
-      });
+      expect(request.sandbox?.spec?.network).toBeUndefined();
     });
 
-    it("maps egress-only network options to the start request", () => {
-      const request = toProtoStartRequest({
+    it("maps deny flags onto proto network options", () => {
+      const request = toProtoCreateRequest({
         command: ["python"],
         network: {
-          egressMode: "internet",
+          denyEgress: true,
+          denyIngress: true,
         },
       });
 
-      expect(request.network).toEqual({
-        egressMode: "internet",
-        exposedPorts: [],
-        ingressMode: "",
+      expect(request.sandbox?.spec?.network).toMatchObject({
+        denyEgress: true,
+        denyIngress: true,
       });
     });
 
-    it("maps start selectors to profile and runner fields", () => {
-      const request = toProtoStartRequest({
+    it("preserves explicit false deny flags on proto network options", () => {
+      const request = toProtoCreateRequest({
         command: ["python"],
-        profileIds: ["profile-id"],
-        profileNames: ["profile-name"],
+        network: {
+          denyEgress: false,
+          denyIngress: false,
+        },
+      });
+
+      expect(request.sandbox?.spec?.network).toMatchObject({
+        denyEgress: false,
+        denyIngress: false,
+      });
+    });
+
+    it("maps runner IDs onto CKS mode", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
         runnerIds: ["runner-id"],
       });
 
-      expect(request.profileIds).toEqual(["profile-id"]);
-      expect(request.profileNames).toEqual(["profile-name"]);
-      expect(request.runnerIds).toEqual(["runner-id"]);
+      expect(request.sandbox?.spec?.mode).toBe(SandboxMode.CKS);
+      expect(request.sandbox?.spec?.runnerIds).toEqual(["runner-id"]);
     });
 
-    it("maps start tags to tags", () => {
-      const request = toProtoStartRequest({
+    it("maps start tags onto spec tags", () => {
+      const request = toProtoCreateRequest({
         command: ["python"],
         tags: ["project-demo", "purpose-smoke"],
       });
 
-      expect(request.tags).toEqual(["project-demo", "purpose-smoke"]);
+      expect(request.sandbox?.spec?.tags).toEqual(["project-demo", "purpose-smoke"]);
     });
 
     it("maps secrets with default envVar to a single secret store", () => {
-      const request = toProtoStartRequest({
+      const request = toProtoCreateRequest({
         command: ["python"],
         secrets: [{ store: "wandb-team-secrets", name: "HF_TOKEN" }],
       });
 
-      expect(request.secretStores).toEqual([
+      expect(primaryContainer(request)?.secretStores).toEqual([
         {
           secrets: [{ envVar: "HF_TOKEN", field: "", path: "HF_TOKEN" }],
           storeName: "wandb-team-secrets",
@@ -300,7 +333,7 @@ describe("node transport mappers", () => {
     });
 
     it("maps optional field and envVar on secrets", () => {
-      const request = toProtoStartRequest({
+      const request = toProtoCreateRequest({
         command: ["python"],
         secrets: [
           {
@@ -312,7 +345,7 @@ describe("node transport mappers", () => {
         ],
       });
 
-      expect(request.secretStores).toEqual([
+      expect(primaryContainer(request)?.secretStores).toEqual([
         {
           secrets: [{ envVar: "DB_PASS", field: "password", path: "db-credentials" }],
           storeName: "wandb-team-secrets",
@@ -321,7 +354,7 @@ describe("node transport mappers", () => {
     });
 
     it("groups secrets by store name", () => {
-      const request = toProtoStartRequest({
+      const request = toProtoCreateRequest({
         command: ["python"],
         secrets: [
           { store: "wandb-team-secrets", name: "HF_TOKEN" },
@@ -330,7 +363,7 @@ describe("node transport mappers", () => {
         ],
       });
 
-      expect(request.secretStores).toEqual([
+      expect(primaryContainer(request)?.secretStores).toEqual([
         {
           secrets: [
             { envVar: "HF_TOKEN", field: "", path: "HF_TOKEN" },
@@ -346,63 +379,67 @@ describe("node transport mappers", () => {
     });
 
     it("maps omitted secrets to an empty secretStores list", () => {
-      const request = toProtoStartRequest({
+      const request = toProtoCreateRequest({
         command: ["python"],
       });
 
-      expect(request.secretStores).toEqual([]);
+      expect(primaryContainer(request)?.secretStores).toEqual([]);
     });
   });
 
-  describe("start and get responses", () => {
-    it("maps start responses to SDK sandbox metadata", () => {
-      const result = toSdkStartSandboxResult({
-        appliedEgressMode: "internet",
-        appliedIngressMode: "public",
-        exposedPorts: [{ containerPort: 8000, name: "http", protocol: "TCP" }],
-        profileId: "profile-id",
-        requestedResourceLimits: { cpu: "4", memory: "8Gi" },
-        requestedResourceRequests: { cpu: "1", memory: "1Gi" },
-        runnerId: "runner-id",
-        sandboxId: "sandbox-123",
-        sandboxStatus: ProtoSandboxStatus.RUNNING,
-        serviceAddress: "sandbox.example.com",
-        startedAtTime: { nanos: 123_000_000, seconds: "1710000000" },
-      });
+  describe("create and get responses", () => {
+    it("maps create responses to SDK sandbox metadata", () => {
+      const result = toSdkStartSandboxResult(
+        ProtoSandbox.create({
+          sandboxId: "sandbox-123",
+          status: {
+            effectiveResourceRequirements: {
+              limits: { cpu: "4", memory: "8Gi" },
+              requests: { cpu: "1", memory: "1Gi" },
+            },
+            runnerId: "runner-id",
+            services: [
+              {
+                name: "http",
+                port: 8000,
+                protocol: ServiceProtocol.TCP,
+                url: "https://sandbox.example.com",
+                visibility: Visibility.PUBLIC,
+              },
+            ],
+            startTime: { nanos: 123_000_000, seconds: "1710000000" },
+            state: State.RUNNING,
+          },
+        }),
+      );
 
       expect(result).toEqual({
-        appliedEgressMode: "internet",
-        appliedIngressMode: "public",
         exposedPorts: [{ name: "http", port: 8000, protocol: "TCP" }],
-        profileId: "profile-id",
         resourceLimits: { cpu: "4", memory: "8Gi" },
         resourceRequests: { cpu: "1", memory: "1Gi" },
         runnerId: "runner-id",
         sandboxId: "sandbox-123",
-        serviceAddress: "sandbox.example.com",
+        serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
         startedAt: new Date(1_710_000_000_123),
         status: "running",
       });
     });
 
     it("maps get responses to SDK sandbox metadata", () => {
-      const result = toSdkGetSandboxResult({
-        appliedEgressMode: "none",
-        appliedIngressMode: "",
-        exposedPorts: [],
-        profileId: "profile-id",
-        runnerGroupId: "runner-group-id",
-        runnerId: "runner-id",
-        sandboxId: "sandbox-123",
-        sandboxStatus: ProtoSandboxStatus.FAILED,
-        serviceAddress: "",
-        startedAtTime: { nanos: 0, seconds: "1710000000" },
-        statusReason: "Container failed to start.",
-      });
+      const result = toSdkGetSandboxResult(
+        ProtoSandbox.create({
+          sandboxId: "sandbox-123",
+          status: {
+            runnerGroupId: "runner-group-id",
+            runnerId: "runner-id",
+            startTime: { nanos: 0, seconds: "1710000000" },
+            state: State.FAILED,
+            stateReason: "Container failed to start.",
+          },
+        }),
+      );
 
       expect(result).toEqual({
-        appliedEgressMode: "none",
-        profileId: "profile-id",
         runnerGroupId: "runner-group-id",
         runnerId: "runner-id",
         sandboxId: "sandbox-123",
@@ -410,6 +447,54 @@ describe("node transport mappers", () => {
         status: "failed",
         statusReason: "Container failed to start.",
       });
+    });
+
+    it("prefers endpoint.url when service.url is empty", () => {
+      const result = toSdkStartSandboxResult(
+        ProtoSandbox.create({
+          sandboxId: "sandbox-123",
+          status: {
+            services: [
+              {
+                endpoint: {
+                  auth: EndpointAuth.OPEN,
+                  kind: EndpointKind.HTTPS,
+                  url: "https://assigned.example.com",
+                },
+                name: "http",
+                port: 8000,
+                visibility: Visibility.PUBLIC,
+              },
+            ],
+            state: State.RUNNING,
+          },
+        }),
+      );
+
+      expect(result.serviceUrls).toEqual([
+        { name: "http", port: 8000, url: "https://assigned.example.com" },
+      ]);
+    });
+
+    it("omits unspecified-visibility services from exposedPorts", () => {
+      const result = toSdkStartSandboxResult(
+        ProtoSandbox.create({
+          sandboxId: "sandbox-123",
+          status: {
+            services: [
+              {
+                name: "listen",
+                port: 8000,
+                visibility: Visibility.UNSPECIFIED,
+              },
+            ],
+            state: State.RUNNING,
+          },
+        }),
+      );
+
+      expect(result.exposedPorts).toBeUndefined();
+      expect(result.serviceUrls).toBeUndefined();
     });
   });
 
@@ -422,23 +507,9 @@ describe("node transport mappers", () => {
       });
 
       expect(request).toMatchObject({
-        args: [],
         command: ["node", "--version"],
-        maxTimeoutSeconds: 2,
+        maxOutputBytes: 0,
         sandboxId: "sandbox-123",
-      });
-    });
-
-    it("maps exec buffer caps to buffered output policy", () => {
-      const request = toProtoExecRequest({
-        bufferedMaxKiB: 64,
-        command: ["node", "--version"],
-        sandboxId: "sandbox-123",
-      });
-
-      expect(request).toMatchObject({
-        bufferedMaxKib: 64,
-        outputHandling: ProtoOutputPolicy.BUFFERED,
       });
     });
   });
@@ -446,28 +517,22 @@ describe("node transport mappers", () => {
   describe("list requests and responses", () => {
     it("maps list filters to the list sandboxes request", () => {
       const request = toProtoListSandboxesRequest({
-        includeStopped: true,
         pageSize: 10,
         pageToken: "page-1",
-        profileIds: ["profile-id"],
-        profileNames: ["profile-name"],
         runnerIds: ["runner-id"],
+        showTerminated: true,
         status: "running",
         tags: ["tag-a"],
         timeoutMs: 1500,
       });
 
-      expect(request).toEqual({
-        includeStopped: true,
-        maxTimeoutSeconds: 2,
+      expect(request).toMatchObject({
         pageSize: 10,
         pageToken: "page-1",
-        profileIds: ["profile-id"],
-        profileNames: ["profile-name"],
         runnerIds: ["runner-id"],
-        status: ProtoSandboxStatus.RUNNING,
+        showTerminated: true,
+        state: State.RUNNING,
         tags: ["tag-a"],
-        volumeIds: [],
       });
     });
 
@@ -475,18 +540,24 @@ describe("node transport mappers", () => {
       const result = toSdkListSandboxesResult({
         nextPageToken: "next-page",
         sandboxes: [
-          {
-            appliedEgressMode: "internet",
-            appliedIngressMode: "public",
-            exposedPorts: [{ containerPort: 8000, name: "http", protocol: "TCP" }],
-            profileId: "profile-id",
-            runnerGroupId: "runner-group-id",
-            runnerId: "runner-id",
+          ProtoSandbox.create({
             sandboxId: "sandbox-123",
-            sandboxStatus: ProtoSandboxStatus.RUNNING,
-            serviceAddress: "sandbox.example.com",
-            startedAtTime: { nanos: 0, seconds: "1710000000" },
-          },
+            status: {
+              runnerGroupId: "runner-group-id",
+              runnerId: "runner-id",
+              services: [
+                {
+                  name: "http",
+                  port: 8000,
+                  protocol: ServiceProtocol.TCP,
+                  url: "https://sandbox.example.com",
+                  visibility: Visibility.PUBLIC,
+                },
+              ],
+              startTime: { nanos: 0, seconds: "1710000000" },
+              state: State.RUNNING,
+            },
+          }),
         ],
       });
 
@@ -494,14 +565,11 @@ describe("node transport mappers", () => {
         nextPageToken: "next-page",
         sandboxes: [
           {
-            appliedEgressMode: "internet",
-            appliedIngressMode: "public",
             exposedPorts: [{ name: "http", port: 8000, protocol: "TCP" }],
-            profileId: "profile-id",
             runnerGroupId: "runner-group-id",
             runnerId: "runner-id",
             sandboxId: "sandbox-123",
-            serviceAddress: "sandbox.example.com",
+            serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
             startedAt: new Date(1_710_000_000_000),
             status: "running",
           },
@@ -542,9 +610,9 @@ describe("node transport mappers", () => {
 
   describe("status, result, and timeout helpers", () => {
     it("maps protobuf status enums to SDK status strings", () => {
-      expect(toSdkSandboxStatus(ProtoSandboxStatus.RUNNING)).toBe("running");
-      expect(toSdkSandboxStatus(ProtoSandboxStatus.TERMINATING)).toBe("terminating");
-      expect(toSdkSandboxStatus(ProtoSandboxStatus.UNSPECIFIED)).toBe("unspecified");
+      expect(toSdkSandboxStatus(State.RUNNING)).toBe("running");
+      expect(toSdkSandboxStatus(State.TERMINATING)).toBe("terminating");
+      expect(toSdkSandboxStatus(State.UNSPECIFIED)).toBe("unspecified");
     });
 
     it("maps exec output bytes to strings", () => {

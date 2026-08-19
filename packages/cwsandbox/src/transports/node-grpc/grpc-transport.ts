@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
-import { CWSandboxTransportError } from "../../errors.js";
 import type {
   CommandProcess,
   CommandProcessWithStdin,
@@ -31,10 +30,10 @@ import { createGrpcClients, type GrpcClients, type GrpcMetadata } from "./channe
 import { startGrpcCommand } from "./command-stream.js";
 import { startGrpcLogStream } from "./log-stream.js";
 import {
-  timeoutMsToSeconds,
+  toProtoCreateRequest,
+  toProtoDeleteRequest,
   toProtoExecRequest,
   toProtoListSandboxesRequest,
-  toProtoStartRequest,
   toSdkGetSandboxResult,
   toSdkListSandboxesResult,
   toSdkProcessResult,
@@ -53,18 +52,17 @@ export class GrpcSandboxTransport implements SandboxTransport {
   /** Exposed so the factory can create a FileAdapter from the same channel. */
   public readonly clients: GrpcClients;
   private readonly client: GrpcClients["client"];
-  private readonly streamingClient: GrpcClients["streamingClient"];
 
   public constructor(options: GrpcSandboxTransportOptions) {
     this.clients = createGrpcClients(options);
     this.client = this.clients.client;
-    this.streamingClient = this.clients.streamingClient;
   }
 
   public async start(request: StartSandboxRequest): Promise<StartSandboxResult> {
     const response = await withGrpcErrorMapping(
       "Start sandbox",
-      () => this.client.start(toProtoStartRequest(request), toRpcOptions(request)).response,
+      () =>
+        this.client.createSandbox(toProtoCreateRequest(request), toRpcOptions(request)).response,
     );
 
     return toSdkStartSandboxResult(response);
@@ -74,9 +72,8 @@ export class GrpcSandboxTransport implements SandboxTransport {
     const response = await withGrpcErrorMapping(
       "Get sandbox",
       () =>
-        this.client.get(
+        this.client.getSandbox(
           {
-            maxTimeoutSeconds: timeoutMsToSeconds(request.timeoutMs),
             sandboxId: request.sandboxId,
           },
           toRpcOptions(request),
@@ -90,31 +87,21 @@ export class GrpcSandboxTransport implements SandboxTransport {
   public async list(options: ListSandboxesOptions): Promise<ListSandboxesResult> {
     const response = await withGrpcErrorMapping(
       "List sandboxes",
-      () => this.client.list(toProtoListSandboxesRequest(options), toRpcOptions(options)).response,
+      () =>
+        this.client.listSandboxes(toProtoListSandboxesRequest(options), toRpcOptions(options))
+          .response,
     );
 
     return toSdkListSandboxesResult(response);
   }
 
   public async delete(request: DeleteSandboxRequest): Promise<void> {
-    const response = await withGrpcErrorMapping(
+    await withGrpcErrorMapping(
       "Delete sandbox",
       () =>
-        this.client.delete(
-          {
-            maxTimeoutSeconds: timeoutMsToSeconds(request.timeoutMs),
-            sandboxId: request.sandboxId,
-          },
-          toRpcOptions(request),
-        ).response,
+        this.client.deleteSandbox(toProtoDeleteRequest(request), toRpcOptions(request)).response,
       request.sandboxId,
     );
-
-    assertGrpcSuccess(response, {
-      fallbackMessage: "Failed to delete sandbox.",
-      operation: "Delete sandbox",
-      sandboxId: request.sandboxId,
-    });
   }
 
   public async exec(request: ExecRequest): Promise<ProcessResult> {
@@ -124,7 +111,7 @@ export class GrpcSandboxTransport implements SandboxTransport {
       request.sandboxId,
     );
 
-    return toSdkProcessResult(request.command, response.result ?? emptyExecResponse());
+    return toSdkProcessResult(request.command, response);
   }
 
   public async startCommand(
@@ -136,77 +123,25 @@ export class GrpcSandboxTransport implements SandboxTransport {
   public async startCommand(
     request: StartCommandRequest,
   ): Promise<CommandProcess | CommandProcessWithStdin> {
-    return startGrpcCommand(this.streamingClient, request);
+    return startGrpcCommand(this.client, request);
   }
 
   public async startShell(request: StartShellRequest): Promise<TerminalSession> {
-    return startGrpcShell(this.streamingClient, request);
+    return startGrpcShell(this.client, request);
   }
 
   public async streamLogs(
     request: StreamLogsRequest,
   ): Promise<LogEntryStream | LogRawStream | LogStream> {
-    return startGrpcLogStream(this.streamingClient, request);
+    return startGrpcLogStream(this.client, request);
   }
 
   public async stop(request: StopSandboxRequest): Promise<void> {
-    const response = await withGrpcErrorMapping(
+    await withGrpcErrorMapping(
       "Stop sandbox",
       () =>
-        this.client.stop(
-          {
-            fileSystemSnapshotOnStop: false,
-            gracefulShutdownSeconds: request.gracefulShutdownSeconds ?? 0,
-            idempotencyKey: "",
-            maxTimeoutSeconds: timeoutMsToSeconds(request.timeoutMs),
-            sandboxId: request.sandboxId,
-          },
-          toRpcOptions(request),
-        ).response,
+        this.client.deleteSandbox(toProtoDeleteRequest(request), toRpcOptions(request)).response,
       request.sandboxId,
     );
-
-    assertGrpcSuccess(response, {
-      fallbackMessage: "Failed to stop sandbox.",
-      operation: "Stop sandbox",
-      sandboxId: request.sandboxId,
-    });
   }
-}
-
-function assertGrpcSuccess(
-  response: { readonly errorMessage?: string; readonly success: boolean },
-  options: {
-    readonly fallbackMessage: string;
-    readonly operation: string;
-    readonly sandboxId: string;
-  },
-): void {
-  if (!response.success) {
-    throw new CWSandboxTransportError(response.errorMessage || options.fallbackMessage, {
-      operation: options.operation,
-      sandboxId: options.sandboxId,
-      transport: "grpc",
-    });
-  }
-}
-
-function emptyExecResponse(): {
-  readonly exitCode: number;
-  readonly stderr: Uint8Array;
-  readonly stderrBytesProduced: string;
-  readonly stderrTruncated: boolean;
-  readonly stdout: Uint8Array;
-  readonly stdoutBytesProduced: string;
-  readonly stdoutTruncated: boolean;
-} {
-  return {
-    exitCode: -1,
-    stderr: new Uint8Array(),
-    stderrBytesProduced: "0",
-    stderrTruncated: false,
-    stdout: new Uint8Array(),
-    stdoutBytesProduced: "0",
-    stdoutTruncated: false,
-  };
 }

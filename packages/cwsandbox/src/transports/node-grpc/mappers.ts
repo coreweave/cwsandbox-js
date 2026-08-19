@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
+import { randomUUID } from "node:crypto";
+
 import { commandForWorkingDirectory } from "../../internal/commands.js";
 import { normalizeFileContent, normalizeMountedFiles } from "../../internal/mounted-files.js";
-import { normalizePorts } from "../../internal/network.js";
 import { isAdvancedResources } from "../../internal/resources.js";
 import { groupSecretsByStore, normalizeSecrets } from "../../internal/secrets.js";
 import type { Command, ProcessResult } from "../../public/commands.js";
-import type { NetworkOptions } from "../../public/network.js";
+import type { NetworkOptions, Service, ServiceUrl } from "../../public/network.js";
 import type { ResourceOptions, ResourceSpec } from "../../public/resources.js";
 import type {
   GetSandboxResult,
@@ -21,29 +22,35 @@ import type {
 } from "../../public/sandbox.js";
 import type { ExecRequest, StartSandboxRequest } from "../../transport/types.js";
 import {
-  OutputPolicy as ProtoOutputPolicy,
-  SandboxStatus as ProtoSandboxStatus,
-} from "./generated/coreweave/sandbox/v1beta2/gateway.js";
-import type {
-  ExecSandboxRequest as ProtoExecSandboxRequest,
-  ExecResponse as ProtoExecResponse,
-  GetSandboxResponse as ProtoGetSandboxResponse,
-  MountedFile as ProtoMountedFile,
+  Container,
+  CreateSandboxRequest,
+  DeleteSandboxRequest,
+  EndpointAuth,
+  EndpointKind,
+  ExecRequest as ProtoExecRequest,
+  ListSandboxesRequest,
   NetworkOptions as ProtoNetworkOptions,
-  Port as ProtoPort,
-  ListSandboxesRequest as ProtoListSandboxesRequest,
-  ListSandboxesResponse as ProtoListSandboxesResponse,
-  ResourceRequest as ProtoResourceRequest,
-  SandboxInfo as ProtoSandboxInfo,
-  StartSandboxRequest as ProtoStartSandboxRequest,
-  StartSandboxResponse as ProtoStartSandboxResponse,
-} from "./generated/coreweave/sandbox/v1beta2/gateway.js";
-import type { SecretStoreReference as ProtoSecretStoreReference } from "./generated/coreweave/sandbox/v1beta2/secrets.js";
+  ResourceRequirements,
+  Resources,
+  Sandbox as ProtoSandbox,
+  SandboxMode,
+  SandboxSpec,
+  Service as ProtoService,
+  ServiceProtocol,
+  State,
+  StreamLogsRequest as ProtoStreamLogsRequest,
+  Visibility,
+  type ExecResponse as ProtoExecResponse,
+  type Sandbox as ProtoSandboxMessage,
+  type SandboxStatus as ProtoSandboxStatus,
+  type ServiceStatus as ProtoServiceStatus,
+} from "./generated/coreweave/sandbox/v1/sandbox.js";
 import type { Timestamp as ProtoTimestamp } from "./generated/google/protobuf/timestamp.js";
 
 const textDecoder = new TextDecoder();
 
 export const DEFAULT_CONTAINER_IMAGE = "python:3.11";
+const PRIMARY_CONTAINER = "main";
 
 export function commandName(command: Command): string {
   return command[0];
@@ -57,164 +64,198 @@ export function timeoutMsToSeconds(timeoutMs: number | undefined): number {
   return timeoutMs === undefined ? 0 : Math.ceil(timeoutMs / 1000);
 }
 
-export function toProtoStartRequest(request: StartSandboxRequest): ProtoStartSandboxRequest {
-  return {
+export function toProtoCreateRequest(request: StartSandboxRequest): CreateSandboxRequest {
+  const runnerIds = [...(request.runnerIds ?? [])];
+  const network = toProtoNetwork(request.network);
+  return CreateSandboxRequest.create({
+    requestId: randomUUID(),
+    sandbox: ProtoSandbox.create({
+      spec: SandboxSpec.create({
+        annotations: { ...request.annotations },
+        containers: [toProtoContainer(request)],
+        ...(request.maxLifetimeSeconds === undefined
+          ? {}
+          : { maxLifetimeSeconds: request.maxLifetimeSeconds }),
+        ...(network === undefined ? {} : { network }),
+        ...(runnerIds.length === 0 ? {} : { mode: SandboxMode.CKS, runnerIds }),
+        primaryContainer: PRIMARY_CONTAINER,
+        services: toProtoServices(request.services),
+        tags: [...(request.tags ?? [])],
+      }),
+    }),
+  });
+}
+
+function toProtoContainer(request: StartSandboxRequest): ReturnType<typeof Container.create> {
+  const resourceRequirements = toProtoResourceRequirements(request.resources);
+  return Container.create({
     args: commandArgs(request.command),
     command: commandName(request.command),
-    containerImage: request.containerImage ?? DEFAULT_CONTAINER_IMAGE,
-    ...toProtoStartMetadata(request),
-    ...toProtoResources(request.resources),
-    ...toProtoStartFiles(request),
-    ...toProtoStartNetwork(request),
-    ...toProtoStartPlacement(request),
-    runnerClusterSecrets: [],
-    secretStores: toProtoSecretStores(request.secrets),
-    volumes: [],
-  };
-}
-
-function toProtoSecretStores(secrets: StartSandboxRequest["secrets"]): ProtoSecretStoreReference[] {
-  return groupSecretsByStore(normalizeSecrets(secrets)).map((group) => ({
-    secrets: group.secrets.map((secret) => ({
-      envVar: secret.envVar,
-      field: secret.field,
-      path: secret.name,
-    })),
-    storeName: group.store,
-  }));
-}
-
-function toProtoStartMetadata(request: StartSandboxRequest): {
-  readonly environmentVariables: Record<string, string>;
-  readonly maxLifetimeSeconds: number;
-  readonly maxTimeoutSeconds: number;
-  readonly podAnnotations: Record<string, string>;
-  readonly tags: string[];
-} {
-  return {
     environmentVariables: { ...request.environmentVariables },
-    maxLifetimeSeconds: request.maxLifetimeSeconds ?? 0,
-    maxTimeoutSeconds: timeoutMsToSeconds(request.timeoutMs),
-    podAnnotations: { ...request.annotations },
-    tags: [...(request.tags ?? [])],
-  };
+    files: normalizeMountedFiles(request.mountedFiles).map((file) => ({
+      content: normalizeFileContent(file.content),
+      path: file.path,
+    })),
+    image: request.containerImage ?? DEFAULT_CONTAINER_IMAGE,
+    name: PRIMARY_CONTAINER,
+    ...(resourceRequirements === undefined ? {} : { resourceRequirements }),
+    secretStores: groupSecretsByStore(normalizeSecrets(request.secrets)).map((group) => ({
+      secrets: group.secrets.map((secret) => ({
+        envVar: secret.envVar,
+        field: secret.field,
+        path: secret.name,
+      })),
+      storeName: group.store,
+    })),
+  });
 }
 
-function toProtoStartFiles(request: StartSandboxRequest): {
-  readonly mountedFiles: ProtoMountedFile[];
-} {
-  return {
-    mountedFiles: toProtoMountedFiles(request.mountedFiles),
-  };
+function toProtoNetwork(
+  network: NetworkOptions | undefined,
+): ReturnType<typeof ProtoNetworkOptions.create> | undefined {
+  if (network === undefined) {
+    return undefined;
+  }
+  if (network.denyEgress === undefined && network.denyIngress === undefined) {
+    return undefined;
+  }
+
+  return ProtoNetworkOptions.create({
+    ...(network.denyEgress !== undefined ? { denyEgress: network.denyEgress } : {}),
+    ...(network.denyIngress !== undefined ? { denyIngress: network.denyIngress } : {}),
+  });
 }
 
-function toProtoStartNetwork(request: StartSandboxRequest): {
-  readonly network?: ProtoNetworkOptions;
-  readonly ports: ProtoPort[];
-} {
-  return {
-    ...(request.network === undefined ? {} : { network: toProtoNetworkOptions(request.network) }),
-    ports: toProtoPorts(request.ports),
-  };
+function toProtoServices(
+  services: readonly Service[] | undefined,
+): ReturnType<typeof ProtoService.create>[] {
+  return (services ?? []).map((service) =>
+    ProtoService.create({
+      ...(service.name === undefined ? {} : { name: service.name }),
+      port: service.port,
+      protocol: toProtoServiceProtocol(service.protocol),
+      visibility: toProtoVisibility(service.visibility),
+      ...(service.endpoint === undefined
+        ? {}
+        : {
+            endpoint: {
+              auth: EndpointAuth.OPEN,
+              kind: EndpointKind.HTTPS,
+            },
+          }),
+    }),
+  );
 }
 
-function toProtoStartPlacement(request: StartSandboxRequest): {
-  readonly profileIds: string[];
-  readonly profileNames: string[];
-  readonly runnerIds: string[];
-} {
-  return {
-    profileIds: [...(request.profileIds ?? [])],
-    profileNames: [...(request.profileNames ?? [])],
-    runnerIds: [...(request.runnerIds ?? [])],
-  };
+function toProtoServiceProtocol(protocol: string | undefined): ServiceProtocol {
+  switch (protocol?.trim().toLowerCase()) {
+    case "tcp":
+      return ServiceProtocol.TCP;
+    case "udp":
+      return ServiceProtocol.UDP;
+    case "sctp":
+      return ServiceProtocol.SCTP;
+    default:
+      return ServiceProtocol.UNSPECIFIED;
+  }
 }
 
-function toProtoPorts(ports: StartSandboxRequest["ports"]): ProtoPort[] {
-  return normalizePorts(ports).map((port) => ({
-    containerPort: port.port,
-    name: port.name ?? "",
-    protocol: port.protocol ?? "",
-  }));
+function toProtoVisibility(visibility: string | undefined): Visibility {
+  switch (visibility?.trim().toLowerCase()) {
+    case "public":
+      return Visibility.PUBLIC;
+    case "private":
+      return Visibility.PRIVATE;
+    case "custom":
+      return Visibility.CUSTOM;
+    default:
+      return Visibility.UNSPECIFIED;
+  }
 }
 
-function toProtoNetworkOptions(network: NetworkOptions): ProtoNetworkOptions {
-  return {
-    egressMode: network.egressMode ?? "",
-    exposedPorts: [...(network.exposedPorts ?? [])],
-    ingressMode: network.ingressMode ?? "",
-  };
-}
-
-function toProtoResources(resources: ResourceOptions | undefined): {
-  readonly resourceLimits?: ReturnType<typeof toProtoResourceSpec>;
-  readonly resourceRequests?: ReturnType<typeof toProtoResourceSpec>;
-  readonly resources?: ReturnType<typeof toProtoResourceSpec>;
-} {
+function toProtoResourceRequirements(
+  resources: ResourceOptions | undefined,
+): ReturnType<typeof ResourceRequirements.create> | undefined {
   if (resources === undefined) {
-    return {};
+    return undefined;
   }
 
   if (isAdvancedResources(resources)) {
-    return {
-      resourceLimits: toProtoResourceSpec(resources.limits),
-      resourceRequests: toProtoResourceSpec(resources.requests),
-    };
+    return ResourceRequirements.create({
+      limits: toProtoResources(resources.limits),
+      requests: toProtoResources(resources.requests),
+    });
   }
 
-  return {
-    resources: toProtoResourceSpec(resources),
-  };
+  const spec = toProtoResources(resources);
+  return ResourceRequirements.create({
+    limits: spec,
+    requests: spec,
+  });
 }
 
-function toProtoResourceSpec(spec: ResourceSpec): {
-  readonly cpu: string;
-  readonly memory: string;
-} {
-  return {
+function toProtoResources(spec: ResourceSpec): ReturnType<typeof Resources.create> {
+  return Resources.create({
     cpu: spec.cpu ?? "",
     memory: spec.memory ?? "",
-  };
+  });
 }
 
-function toProtoMountedFiles(
-  mountedFiles: StartSandboxRequest["mountedFiles"],
-): ProtoMountedFile[] {
-  return normalizeMountedFiles(mountedFiles).map((file) => ({
-    fileContent: normalizeFileContent(file.content),
-    mountPath: file.path,
-  }));
-}
-
-export function toProtoExecRequest(request: ExecRequest): ProtoExecSandboxRequest {
-  return {
-    args: [],
-    bufferedMaxKib: request.bufferedMaxKiB ?? 0,
+export function toProtoExecRequest(
+  request: ExecRequest,
+): ReturnType<typeof ProtoExecRequest.create> {
+  return ProtoExecRequest.create({
     command: toExecCommand(request),
-    maxTimeoutSeconds: timeoutMsToSeconds(request.timeoutMs),
-    outputHandling:
-      request.bufferedMaxKiB === undefined
-        ? ProtoOutputPolicy.UNSPECIFIED
-        : ProtoOutputPolicy.BUFFERED,
     sandboxId: request.sandboxId,
-  };
+  });
 }
 
 export function toProtoListSandboxesRequest(
   request: ListSandboxesOptions,
-): ProtoListSandboxesRequest {
-  return {
-    includeStopped: request.includeStopped ?? false,
-    maxTimeoutSeconds: timeoutMsToSeconds(request.timeoutMs),
+): ReturnType<typeof ListSandboxesRequest.create> {
+  return ListSandboxesRequest.create({
     pageSize: request.pageSize ?? 0,
     pageToken: request.pageToken ?? "",
-    profileIds: [...(request.profileIds ?? [])],
-    profileNames: [...(request.profileNames ?? [])],
     runnerIds: [...(request.runnerIds ?? [])],
-    status: toProtoSandboxStatus(request.status),
+    showTerminated: request.showTerminated ?? false,
+    state: toProtoState(request.status),
     tags: [...(request.tags ?? [])],
-    volumeIds: [],
-  };
+  });
+}
+
+export function toProtoDeleteRequest(request: {
+  readonly allowMissing?: boolean;
+  readonly gracefulShutdownSeconds?: number;
+  readonly sandboxId: string;
+}): ReturnType<typeof DeleteSandboxRequest.create> {
+  return DeleteSandboxRequest.create({
+    allowMissing: request.allowMissing === true,
+    gracePeriodSeconds: request.gracefulShutdownSeconds ?? 0,
+    sandboxId: request.sandboxId,
+  });
+}
+
+export function toProtoStreamLogsRequest(request: {
+  readonly follow?: boolean;
+  readonly resume?: { readonly offset: bigint | number | string; readonly sessionId: string };
+  readonly sandboxId: string;
+  readonly sinceTime?: Date | string;
+  readonly tailLines?: number;
+  readonly timestamps?: boolean;
+}): ReturnType<typeof ProtoStreamLogsRequest.create> {
+  return ProtoStreamLogsRequest.create({
+    follow: request.follow ?? false,
+    ...(request.resume === undefined
+      ? {}
+      : {
+          resumeLogOffset: String(request.resume.offset),
+          resumeLogSessionId: request.resume.sessionId,
+        }),
+    sandboxId: request.sandboxId,
+    ...(request.sinceTime === undefined ? {} : { sinceTime: toProtoTimestamp(request.sinceTime) }),
+    tailLines: request.tailLines ?? 0,
+    timestamps: request.timestamps ?? false,
+  });
 }
 
 export function toSdkProcessResult(command: Command, response: ProtoExecResponse): ProcessResult {
@@ -234,134 +275,116 @@ export function toSdkProcessResult(command: Command, response: ProtoExecResponse
   };
 }
 
-export function toSdkListSandboxesResult(
-  response: ProtoListSandboxesResponse,
-): ListSandboxesResult {
+export function toSdkStartSandboxResult(sandbox: ProtoSandboxMessage): StartSandboxResult {
+  return toSdkSandboxMetadata(sandbox);
+}
+
+export function toSdkGetSandboxResult(sandbox: ProtoSandboxMessage): GetSandboxResult {
+  return {
+    ...toSdkSandboxMetadata(sandbox),
+    status: toSdkSandboxStatus(sandbox.status?.state ?? State.UNSPECIFIED),
+  };
+}
+
+export function toSdkListSandboxesResult(response: {
+  readonly nextPageToken: string;
+  readonly sandboxes: readonly ProtoSandboxMessage[];
+}): ListSandboxesResult {
   return {
     ...(response.nextPageToken === "" ? {} : { nextPageToken: response.nextPageToken }),
     sandboxes: response.sandboxes.map(toSdkSandboxInfo),
   };
 }
 
-export function toSdkStartSandboxResult(response: ProtoStartSandboxResponse): StartSandboxResult {
+export function toSdkSandboxInfo(sandbox: ProtoSandboxMessage): SandboxInfo {
   return {
-    ...toSdkSandboxMetadata({
-      appliedEgressMode: response.appliedEgressMode,
-      appliedIngressMode: response.appliedIngressMode,
-      exposedPorts: response.exposedPorts,
-      profileId: response.profileId,
-      resourceLimits: response.requestedResourceLimits,
-      resourceRequests: response.requestedResourceRequests,
-      runnerId: response.runnerId,
-      sandboxId: response.sandboxId,
-      serviceAddress: response.serviceAddress,
-      startedAtTime: response.startedAtTime,
-      status: response.sandboxStatus,
-    }),
+    ...toSdkSandboxMetadata(sandbox),
+    status: toSdkSandboxStatus(sandbox.status?.state ?? State.UNSPECIFIED),
   };
 }
 
-export function toSdkGetSandboxResult(response: ProtoGetSandboxResponse): GetSandboxResult {
-  return {
-    ...toSdkSandboxMetadata({
-      appliedEgressMode: response.appliedEgressMode,
-      appliedIngressMode: response.appliedIngressMode,
-      exposedPorts: response.exposedPorts,
-      profileId: response.profileId,
-      runnerGroupId: response.runnerGroupId,
-      runnerId: response.runnerId,
-      sandboxId: response.sandboxId,
-      serviceAddress: response.serviceAddress,
-      startedAtTime: response.startedAtTime,
-      status: response.sandboxStatus,
-      statusReason: response.statusReason,
-    }),
-    status: toSdkSandboxStatus(response.sandboxStatus),
-  };
-}
-
-export function toSdkSandboxInfo(info: ProtoSandboxInfo): SandboxInfo {
-  return {
-    ...toSdkSandboxMetadata({
-      appliedEgressMode: info.appliedEgressMode,
-      appliedIngressMode: info.appliedIngressMode,
-      exposedPorts: info.exposedPorts,
-      profileId: info.profileId,
-      runnerGroupId: info.runnerGroupId,
-      runnerId: info.runnerId,
-      sandboxId: info.sandboxId,
-      serviceAddress: info.serviceAddress,
-      startedAtTime: info.startedAtTime,
-      status: info.sandboxStatus,
-    }),
-    status: toSdkSandboxStatus(info.sandboxStatus),
-  };
-}
-
-function toSdkSandboxMetadata(input: {
-  readonly appliedEgressMode?: string;
-  readonly appliedIngressMode?: string;
-  readonly exposedPorts?: readonly ProtoPort[] | undefined;
-  readonly profileId?: string;
-  readonly resourceLimits?: ProtoResourceRequest | undefined;
-  readonly resourceRequests?: ProtoResourceRequest | undefined;
-  readonly runnerGroupId?: string;
-  readonly runnerId?: string;
-  readonly sandboxId: string;
-  readonly serviceAddress?: string;
-  readonly startedAtTime?: ProtoTimestamp | undefined;
-  readonly status?: ProtoSandboxStatus;
-  readonly statusReason?: string;
-}): StartSandboxResult {
-  const exposedPorts = toSdkExposedPorts(input.exposedPorts);
-  const resourceLimits = toSdkResourceSpec(input.resourceLimits);
-  const resourceRequests = toSdkResourceSpec(input.resourceRequests);
-  const startedAt = toDate(input.startedAtTime);
+function toSdkSandboxMetadata(sandbox: ProtoSandboxMessage): StartSandboxResult {
+  const status = sandbox.status;
+  const exposedPorts = toSdkExposedPorts(status?.services);
+  const serviceUrls = toSdkServiceUrls(status?.services);
+  const resourceLimits = toSdkResourceSpec(
+    status?.effectiveResourceRequirements?.limits ?? status?.effectiveResources,
+  );
+  const resourceRequests = toSdkResourceSpec(
+    status?.effectiveResourceRequirements?.requests ?? status?.effectiveResources,
+  );
+  const startedAt = toDate(status?.startTime);
 
   return {
-    ...(input.appliedEgressMode === undefined || input.appliedEgressMode === ""
-      ? {}
-      : { appliedEgressMode: input.appliedEgressMode }),
-    ...(input.appliedIngressMode === undefined || input.appliedIngressMode === ""
-      ? {}
-      : { appliedIngressMode: input.appliedIngressMode }),
     ...(exposedPorts === undefined ? {} : { exposedPorts }),
-    ...(input.profileId === undefined || input.profileId === ""
-      ? {}
-      : { profileId: input.profileId }),
     ...(resourceLimits === undefined ? {} : { resourceLimits }),
     ...(resourceRequests === undefined ? {} : { resourceRequests }),
-    ...(input.runnerGroupId === undefined || input.runnerGroupId === ""
+    ...(status?.runnerGroupId === undefined || status.runnerGroupId === ""
       ? {}
-      : { runnerGroupId: input.runnerGroupId }),
-    ...(input.runnerId === undefined || input.runnerId === "" ? {} : { runnerId: input.runnerId }),
-    sandboxId: input.sandboxId,
-    ...(input.serviceAddress === undefined || input.serviceAddress === ""
+      : { runnerGroupId: status.runnerGroupId }),
+    ...(status?.runnerId === undefined || status.runnerId === ""
       ? {}
-      : { serviceAddress: input.serviceAddress }),
+      : { runnerId: status.runnerId }),
+    sandboxId: sandbox.sandboxId,
+    ...(serviceUrls === undefined ? {} : { serviceUrls }),
     ...(startedAt === undefined ? {} : { startedAt }),
-    ...(input.status === undefined ? {} : { status: toSdkSandboxStatus(input.status) }),
-    ...(input.statusReason === undefined || input.statusReason === ""
+    ...(status === undefined ? {} : { status: toSdkSandboxStatus(status.state) }),
+    ...(status?.stateReason === undefined || status.stateReason === ""
       ? {}
-      : { statusReason: input.statusReason }),
+      : { statusReason: status.stateReason }),
   };
 }
 
-function toSdkExposedPorts(
-  ports: readonly ProtoPort[] | undefined,
-): readonly SandboxExposedPort[] | undefined {
-  if (ports === undefined || ports.length === 0) {
+function toSdkServiceUrls(
+  services: readonly ProtoServiceStatus[] | undefined,
+): readonly ServiceUrl[] | undefined {
+  if (services === undefined || services.length === 0) {
     return undefined;
   }
 
-  return ports.map((port) => ({
-    ...(port.name === "" ? {} : { name: port.name }),
-    port: port.containerPort,
-    ...(port.protocol === "" ? {} : { protocol: port.protocol }),
-  }));
+  const urls = services.flatMap((service) => {
+    const url = service.url || service.endpoint?.url || "";
+    return url === "" ? [] : [{ name: service.name, port: service.port, url }];
+  });
+
+  return urls.length === 0 ? undefined : urls;
 }
 
-function toSdkResourceSpec(resource: ProtoResourceRequest | undefined): ResourceSpec | undefined {
+function toSdkExposedPorts(
+  services: readonly ProtoServiceStatus[] | undefined,
+): readonly SandboxExposedPort[] | undefined {
+  if (services === undefined || services.length === 0) {
+    return undefined;
+  }
+
+  const ports = services
+    .filter((service) => service.visibility !== Visibility.UNSPECIFIED)
+    .map((service) => {
+      const protocol = protocolName(service.protocol);
+      return {
+        ...(service.name === "" ? {} : { name: service.name }),
+        port: service.port,
+        ...(protocol === undefined ? {} : { protocol }),
+      };
+    });
+
+  return ports.length === 0 ? undefined : ports;
+}
+
+function protocolName(protocol: ServiceProtocol): string | undefined {
+  switch (protocol) {
+    case ServiceProtocol.TCP:
+      return "TCP";
+    case ServiceProtocol.UDP:
+      return "UDP";
+    case ServiceProtocol.SCTP:
+      return "SCTP";
+    default:
+      return undefined;
+  }
+}
+
+function toSdkResourceSpec(resource: Resources | undefined): ResourceSpec | undefined {
   if (resource === undefined) {
     return undefined;
   }
@@ -387,25 +410,25 @@ function toDate(timestamp: ProtoTimestamp | undefined): Date | undefined {
   return new Date(seconds * 1000 + Math.floor(timestamp.nanos / 1_000_000));
 }
 
-export function toSdkSandboxStatus(status: ProtoSandboxStatus): SandboxStatus {
+export function toSdkSandboxStatus(status: State): SandboxStatus {
   switch (status) {
-    case ProtoSandboxStatus.PENDING:
+    case State.PENDING:
       return "pending";
-    case ProtoSandboxStatus.CREATING:
+    case State.CREATING:
       return "creating";
-    case ProtoSandboxStatus.RUNNING:
+    case State.RUNNING:
       return "running";
-    case ProtoSandboxStatus.PAUSED:
+    case State.PAUSED:
       return "paused";
-    case ProtoSandboxStatus.TERMINATING:
+    case State.TERMINATING:
       return "terminating";
-    case ProtoSandboxStatus.COMPLETED:
+    case State.COMPLETED:
       return "completed";
-    case ProtoSandboxStatus.FAILED:
+    case State.FAILED:
       return "failed";
-    case ProtoSandboxStatus.TERMINATED:
+    case State.TERMINATED:
       return "terminated";
-    case ProtoSandboxStatus.UNSPECIFIED:
+    case State.UNSPECIFIED:
       return "unspecified";
     default: {
       const _exhaustiveCheck: never = status;
@@ -414,27 +437,27 @@ export function toSdkSandboxStatus(status: ProtoSandboxStatus): SandboxStatus {
   }
 }
 
-function toProtoSandboxStatus(status: SandboxStatus | undefined): ProtoSandboxStatus {
+function toProtoState(status: SandboxStatus | undefined): State {
   switch (status) {
     case undefined:
     case "unspecified":
-      return ProtoSandboxStatus.UNSPECIFIED;
+      return State.UNSPECIFIED;
     case "pending":
-      return ProtoSandboxStatus.PENDING;
+      return State.PENDING;
     case "creating":
-      return ProtoSandboxStatus.CREATING;
+      return State.CREATING;
     case "running":
-      return ProtoSandboxStatus.RUNNING;
+      return State.RUNNING;
     case "paused":
-      return ProtoSandboxStatus.PAUSED;
+      return State.PAUSED;
     case "terminating":
-      return ProtoSandboxStatus.TERMINATING;
+      return State.TERMINATING;
     case "completed":
-      return ProtoSandboxStatus.COMPLETED;
+      return State.COMPLETED;
     case "failed":
-      return ProtoSandboxStatus.FAILED;
+      return State.FAILED;
     case "terminated":
-      return ProtoSandboxStatus.TERMINATED;
+      return State.TERMINATED;
     default: {
       const _exhaustiveCheck: never = status;
       throw new Error(`Unhandled sandbox status: ${_exhaustiveCheck}`);
@@ -444,6 +467,17 @@ function toProtoSandboxStatus(status: SandboxStatus | undefined): ProtoSandboxSt
 
 function toExecCommand(request: ExecRequest): string[] {
   return commandForWorkingDirectory(request.command, request.cwd);
+}
+
+function toProtoTimestamp(value: Date | string): ProtoTimestamp {
+  const date = value instanceof Date ? value : new Date(value);
+  const millis = date.getTime();
+  const seconds = Math.floor(millis / 1000);
+
+  return {
+    nanos: (millis - seconds * 1000) * 1_000_000,
+    seconds: String(seconds),
+  };
 }
 
 function toByteCount(value: string, fallback: Uint8Array): number {
@@ -458,3 +492,5 @@ function toByteCount(value: string, fallback: Uint8Array): number {
 
   return parsed === 0 && fallback.byteLength > 0 ? fallback.byteLength : parsed;
 }
+
+export type { ProtoSandboxStatus };

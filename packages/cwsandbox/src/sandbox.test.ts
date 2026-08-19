@@ -4,7 +4,12 @@
 
 import { describe, expect, it } from "vitest";
 
-import { CWSandboxNotFoundError, CWSandboxValidationError, type WaitOptions } from "./index.js";
+import {
+  CWSandboxNotFoundError,
+  CWSandboxValidationError,
+  DEFAULT_GRACEFUL_SHUTDOWN_SECONDS,
+  type WaitOptions,
+} from "./index.js";
 import { Sandbox } from "./sandbox.js";
 import {
   createClient,
@@ -71,6 +76,47 @@ describe("Sandbox", () => {
     await sandbox.stop({ signal, timeoutMs: 1234 });
 
     expect(stopRequest).toEqual({
+      gracefulShutdownSeconds: DEFAULT_GRACEFUL_SHUTDOWN_SECONDS,
+      sandboxId: "sandbox-for-echo",
+    });
+  });
+
+  it("defaults stop grace to 10 seconds", async () => {
+    let stopRequest: Parameters<SandboxTransport["stop"]>[0] | undefined;
+    const base = createFakeTransport();
+    const transport: SandboxTransport = {
+      ...base,
+      async stop(request) {
+        stopRequest = request;
+        await base.stop(request);
+      },
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"]);
+
+    await sandbox.stop();
+
+    expect(stopRequest).toEqual({
+      gracefulShutdownSeconds: 10,
+      sandboxId: "sandbox-for-echo",
+    });
+  });
+
+  it("forwards explicit zero stop grace", async () => {
+    let stopRequest: Parameters<SandboxTransport["stop"]>[0] | undefined;
+    const base = createFakeTransport();
+    const transport: SandboxTransport = {
+      ...base,
+      async stop(request) {
+        stopRequest = request;
+        await base.stop(request);
+      },
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"]);
+
+    await sandbox.stop({ gracefulShutdownSeconds: 0 });
+
+    expect(stopRequest).toEqual({
+      gracefulShutdownSeconds: 0,
       sandboxId: "sandbox-for-echo",
     });
   });
@@ -215,15 +261,12 @@ describe("Sandbox", () => {
       ...createFakeTransport(),
       async start(request) {
         return {
-          appliedEgressMode: "internet",
-          appliedIngressMode: "public",
           exposedPorts: [{ name: "http", port: 8000, protocol: "TCP" }],
-          profileId: "profile-id",
           resourceLimits: { cpu: "4", memory: "8Gi" },
           resourceRequests: { cpu: "1", memory: "1Gi" },
           runnerId: "runner-id",
           sandboxId: `sandbox-for-${request.command[0]}`,
-          serviceAddress: "sandbox.example.com",
+          serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
           startedAt,
           status: "running",
         };
@@ -235,11 +278,10 @@ describe("Sandbox", () => {
     expect(sandbox.status).toBe("running");
     expect(sandbox.startedAt).toEqual(startedAt);
     expect(sandbox.runnerId).toBe("runner-id");
-    expect(sandbox.profileId).toBe("profile-id");
-    expect(sandbox.serviceAddress).toBe("sandbox.example.com");
+    expect(sandbox.serviceUrls).toEqual([
+      { name: "http", port: 8000, url: "https://sandbox.example.com" },
+    ]);
     expect(sandbox.exposedPorts).toEqual([{ name: "http", port: 8000, protocol: "TCP" }]);
-    expect(sandbox.appliedIngressMode).toBe("public");
-    expect(sandbox.appliedEgressMode).toBe("internet");
     expect(sandbox.resourceRequests).toEqual({ cpu: "1", memory: "1Gi" });
     expect(sandbox.resourceLimits).toEqual({ cpu: "4", memory: "8Gi" });
   });
@@ -250,7 +292,7 @@ describe("Sandbox", () => {
       async start(request) {
         return {
           sandboxId: `sandbox-for-${request.command[0]}`,
-          serviceAddress: "sandbox.example.com",
+          serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
           status: "creating",
         };
       },
@@ -270,8 +312,42 @@ describe("Sandbox", () => {
     expect(status).toBe("running");
     expect(sandbox.status).toBe("running");
     expect(sandbox.runnerGroupId).toBe("runner-group-id");
-    expect(sandbox.serviceAddress).toBe("sandbox.example.com");
+    expect(sandbox.serviceUrls).toBeUndefined();
     expect(sandbox.statusReason).toBe("ready");
+  });
+
+  it("clears service-derived metadata when inspect omits them", async () => {
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          exposedPorts: [{ name: "http", port: 8000, protocol: "TCP" }],
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
+          status: "running",
+        };
+      },
+      async get(request) {
+        return {
+          sandboxId: request.sandboxId,
+          status: "completed",
+        };
+      },
+    };
+
+    const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
+    expect(sandbox.serviceUrls).toEqual([
+      { name: "http", port: 8000, url: "https://sandbox.example.com" },
+    ]);
+    expect(sandbox.exposedPorts).toEqual([{ name: "http", port: 8000, protocol: "TCP" }]);
+
+    const info = await sandbox.inspect();
+
+    expect(info.serviceUrls).toBeUndefined();
+    expect(info.exposedPorts).toBeUndefined();
+    expect(sandbox.serviceUrls).toBeUndefined();
+    expect(sandbox.exposedPorts).toBeUndefined();
+    expect(sandbox.status).toBe("completed");
   });
 
   it("inspects fresh metadata and forwards request options", async () => {
@@ -292,7 +368,7 @@ describe("Sandbox", () => {
           exposedPorts: [{ name: "http", port: 8000, protocol: "TCP" }],
           runnerId: "runner-id",
           sandboxId: request.sandboxId,
-          serviceAddress: "sandbox.example.com",
+          serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
           startedAt,
           status: "running",
         };
@@ -306,7 +382,7 @@ describe("Sandbox", () => {
       exposedPorts: [{ name: "http", port: 8000, protocol: "TCP" }],
       runnerId: "runner-id",
       sandboxId: "sandbox-for-echo",
-      serviceAddress: "sandbox.example.com",
+      serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
       startedAt,
       status: "running",
     });
@@ -316,7 +392,9 @@ describe("Sandbox", () => {
       timeoutMs: 1234,
     });
     expect(sandbox.status).toBe("running");
-    expect(sandbox.serviceAddress).toBe("sandbox.example.com");
+    expect(sandbox.serviceUrls).toEqual([
+      { name: "http", port: 8000, url: "https://sandbox.example.com" },
+    ]);
     expect(sandbox.exposedPorts).toEqual([{ name: "http", port: 8000, protocol: "TCP" }]);
   });
 

@@ -29,10 +29,17 @@ export const MAX_AUTO_FALLBACK_BYTES = 256 * 1024 * 1024;
 export const TRUNCATION_CHECK_MIN_BYTES = MAX_AUTO_FALLBACK_BYTES / 2;
 
 /**
- * Chunk size for StreamExec stdin frames during large-file fallback.
- * Matches Python `STDIN_CHUNK_SIZE` used by `_exec_streaming_binary_async`.
+ * Chunk size for StreamExec stdin frames when slicing a materialized buffer.
+ * Matches Python `STDIN_CHUNK_SIZE` (fallback exec), not Python
+ * `STREAMING_WRITE_CHUNK_SIZE` (1 MiB explicit `write_file_streaming` buffers).
  */
 export const STREAMING_WRITE_CHUNK_SIZE = 64 * 1024;
+
+/**
+ * Ceiling for the pre-read `stat` StreamExec used by `files.readStream`.
+ * Python `STAT_INTEGRITY_TIMEOUT_SECONDS`.
+ */
+export const STAT_INTEGRITY_TIMEOUT_MS = 10_000;
 
 /** Cap stderr buffering on binary StreamExec file reads (Python parity). */
 export const STREAMING_READ_STDERR_CAP_BYTES = 16 * 1024;

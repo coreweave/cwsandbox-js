@@ -13,11 +13,11 @@ import {
 } from "../../streaming/terminal-session.js";
 import type { StartShellRequest } from "../../transport/types.js";
 import { mapGrpcError } from "./errors.js";
-import type { GatewayStreamingServiceClient } from "./generated/coreweave/sandbox/v1beta2/streaming.client.js";
+import type { SandboxServiceClient } from "./generated/coreweave/sandbox/v1/sandbox.client.js";
 import type {
   ExecStreamRequest as ProtoExecStreamRequest,
   ExecStreamResponse as ProtoExecStreamResponse,
-} from "./generated/coreweave/sandbox/v1beta2/streaming.js";
+} from "./generated/coreweave/sandbox/v1/sandbox.js";
 import { linkedAbortController, toRpcOptions, withGrpcErrorMapping } from "./rpc.js";
 import {
   awaitStdinReadyOrAbort,
@@ -33,7 +33,7 @@ import {
 } from "./streaming-requests.js";
 
 export async function startGrpcShell(
-  streamingClient: GatewayStreamingServiceClient,
+  streamingClient: SandboxServiceClient,
   request: StartShellRequest,
 ): Promise<TerminalSession> {
   const abortController = linkedAbortController(request.signal);
@@ -83,17 +83,17 @@ async function collectTerminalSession(
 
   try {
     for await (const response of call.responses) {
-      switch (response.response.oneofKind) {
+      switch (response.message.oneofKind) {
         case "ready":
           stdinReady?.signalReady();
           await controller.dispatch({
-            sessionId: response.response.ready.sessionId,
+            sessionId: "",
             type: "ready",
           });
           break;
         case "output":
           await controller.dispatch({
-            data: response.response.output.data,
+            data: response.message.output.data,
             type: "output",
           });
           break;
@@ -107,7 +107,7 @@ async function collectTerminalSession(
             }),
           );
           await controller.dispatch({
-            exitCode: response.response.exit.exitCode,
+            exitCode: response.message.exit.exitCode,
             type: "exit",
           });
           await onTerminal().catch(() => undefined);
@@ -115,12 +115,12 @@ async function collectTerminalSession(
         case "error": {
           terminal = true;
           const error = new CWSandboxTransportError(
-            response.response.error.message || "Terminal session failed.",
+            response.message.error.message || "Terminal session failed.",
             {
               operation: "Terminal session",
               sandboxId: request.sandboxId,
               transport: "grpc",
-              transportCode: response.response.error.code,
+              transportCode: response.message.error.code,
             },
           );
           stdinReady?.signalFailed(error);
