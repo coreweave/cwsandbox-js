@@ -10,6 +10,9 @@ SPDX-PackageName: cwsandbox
 
 ## 0.2.0-beta.0
 
+Sandbox v1 public beta. Breaking vs `0.1.0-beta.0` (v1beta2 create options
+and inspect fields).
+
 - Cut the public SDK from Sandbox v1beta2 to v1 (`CreateSandbox`, one
   `SandboxService`, pinned BSR commit `95e41f6a01534851b3e000549a1b2144`)
 - Replace create-time `ports` / `egressMode` / `ingressMode` with `services`
