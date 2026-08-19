@@ -22,6 +22,7 @@ export async function startGrpcLogStream(
   request: StreamLogsRequest,
 ): Promise<LogEntryStream | LogRawStream | LogStream> {
   const abortController = linkedAbortController(request.signal);
+  const callerAbort = { aborted: false };
   const call = client.streamLogs(
     toProtoStreamLogsRequest(request),
     toRpcOptions({
@@ -31,9 +32,11 @@ export async function startGrpcLogStream(
   );
   const controls = {
     async cancel(reason: unknown) {
+      callerAbort.aborted = true;
       abortController.abort(reason);
     },
     async close() {
+      callerAbort.aborted = true;
       abortController.abort();
     },
   };
@@ -41,7 +44,7 @@ export async function startGrpcLogStream(
 
   await withGrpcErrorMapping("Stream logs", async () => undefined, request.sandboxId);
 
-  void collectLogStream(call, controller, request);
+  void collectLogStream(call, controller, request, callerAbort);
   return controller.stream;
 }
 
@@ -49,6 +52,7 @@ async function collectLogStream(
   call: ServerStreamingCall<ProtoStreamLogsRequest, ProtoLogEntry>,
   controller: LogStreamController<LogEntryStream | LogRawStream | LogStream>,
   request: StreamLogsRequest,
+  callerAbort: { aborted: boolean },
 ): Promise<void> {
   let terminal = false;
 
@@ -56,6 +60,9 @@ async function collectLogStream(
     for await (const entry of call.responses) {
       if (entry.error !== undefined) {
         terminal = true;
+        if (callerAbort.aborted) {
+          return;
+        }
         await controller.dispatch({
           error: new CWSandboxTransportError(entry.error.message || "Log stream failed.", {
             operation: "Stream logs",
@@ -78,10 +85,13 @@ async function collectLogStream(
     }
 
     await call.status;
-    if (!terminal) {
+    if (!terminal && !callerAbort.aborted) {
       await controller.dispatch({ type: "complete" });
     }
   } catch (error) {
+    if (callerAbort.aborted) {
+      return;
+    }
     await controller.dispatch({
       error: mapGrpcError(error, {
         operation: "Stream logs",

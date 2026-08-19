@@ -13,6 +13,7 @@ import {
   DEFAULT_KEEP_ALIVE_COMMAND,
   DEFAULT_LIST_ALL_TIMEOUT_MS,
   type ResourceOptions,
+  type SandboxListOptions,
   type SandboxRunOptions,
 } from "./index.js";
 import { Sandbox } from "./sandbox.js";
@@ -567,6 +568,30 @@ describe("SandboxClient", () => {
       await expect(client.listAll({ pageSize: -1 })).rejects.toThrow(CWSandboxValidationError);
     });
 
+    it("rejects removed v1beta2 list keys before the transport", async () => {
+      let listCalls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async list() {
+          listCalls += 1;
+          throw new Error("transport should not be called");
+        },
+      };
+      const client = createClient(transport);
+
+      await expect(
+        client.listAll({ includeStopped: true } as unknown as SandboxListOptions),
+      ).rejects.toThrow(/includeStopped is not supported in v1/);
+      await expect(
+        client.listAll({ profileIds: ["profile-id"] } as unknown as SandboxListOptions),
+      ).rejects.toThrow(/profileIds is not supported in v1/);
+      await expect(
+        client.listAll({ profileNames: ["default"] } as unknown as SandboxListOptions),
+      ).rejects.toThrow(/profileNames is not supported in v1/);
+
+      expect(listCalls).toBe(0);
+    });
+
     it("throws a typed validation error for empty run commands", async () => {
       const client = createClient();
 
@@ -761,6 +786,49 @@ describe("SandboxClient", () => {
       await expect(client.run(["echo", "hello"], { timeoutMs: -1 })).rejects.toThrow(
         CWSandboxValidationError,
       );
+    });
+
+    it("rejects removed v1beta2 run keys before the transport", async () => {
+      let startCalls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async start() {
+          startCalls += 1;
+          throw new Error("transport should not be called");
+        },
+      };
+      const client = createClient(transport);
+      const removed = {
+        ports: [8000],
+        profileIds: ["profile-id"],
+        profileNames: ["default"],
+        s3Mount: { bucket: "b" },
+        maxTimeoutSeconds: 30,
+      };
+
+      for (const [key, value] of Object.entries(removed)) {
+        await expect(
+          client.run(["python"], { [key]: value } as unknown as SandboxRunOptions),
+        ).rejects.toThrow(new RegExp(`${key} is not supported in v1`));
+      }
+
+      await expect(
+        client.run(["python"], {
+          network: { egressMode: "deny" },
+        } as unknown as SandboxRunOptions),
+      ).rejects.toThrow(/egressMode is not supported in v1/);
+      await expect(
+        client.run(["python"], {
+          network: { ingressMode: "public" },
+        } as unknown as SandboxRunOptions),
+      ).rejects.toThrow(/ingressMode is not supported in v1/);
+      await expect(
+        client.run(["python"], {
+          network: { exposedPorts: [8000] },
+        } as unknown as SandboxRunOptions),
+      ).rejects.toThrow(/exposedPorts is not supported in v1/);
+
+      expect(startCalls).toBe(0);
     });
 
     it("throws a typed validation error for invalid max lifetime values", async () => {

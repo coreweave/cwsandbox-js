@@ -50,6 +50,16 @@ function validateCommandOptions(options: ExecOptions | StartCommandOptions): voi
 }
 
 export function validateSandboxRunOptions(options: SandboxRunOptions): void {
+  rejectRemovedKeys(options, [
+    "maxTimeoutSeconds",
+    "ports",
+    "profileIds",
+    "profileNames",
+    "s3Mount",
+  ]);
+  if (options.network !== undefined) {
+    rejectRemovedKeys(options.network, ["egressMode", "exposedPorts", "ingressMode"]);
+  }
   validateRequestOptions(options);
   validateAnnotations(options.annotations);
   validateNonNegativeFinite(options.maxLifetimeSeconds, "maxLifetimeSeconds");
@@ -83,6 +93,7 @@ export function validateDeleteOptions(options: DeleteOptions): void {
 }
 
 export function validateListSandboxesOptions(options: ListSandboxesOptions): void {
+  rejectRemovedKeys(options, ["includeStopped", "profileIds", "profileNames"]);
   validateRequestOptions(options);
   validateNonNegativeInteger(options.pageSize, "pageSize");
   validateOptionalBoolean(options.showTerminated, "showTerminated");
@@ -105,6 +116,15 @@ export function validateLogStreamOptions(options: LogStreamOptions): void {
   validateOptionalBoolean(options.timestamps, "timestamps");
   validateSinceTime(options.sinceTime);
   validateLogResume(options);
+}
+
+function rejectRemovedKeys(source: object, keys: readonly string[]): void {
+  const record = source as Record<string, unknown>;
+  for (const key of keys) {
+    if (record[key] !== undefined) {
+      throw new CWSandboxValidationError(`${key} is not supported in v1`);
+    }
+  }
 }
 
 function validateNonNegativeFinite(value: number | undefined, name: string): void {

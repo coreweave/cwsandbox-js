@@ -8,20 +8,28 @@ export type ServiceProtocol = "sctp" | "tcp" | "udp";
 export type ServiceVisibility = "custom" | "private" | "public";
 
 export interface Endpoint {
-  readonly auth: EndpointAuth | string;
-  readonly kind: EndpointKind | string;
+  readonly auth: EndpointAuth;
+  readonly kind: EndpointKind;
 }
 
 export interface Service {
   readonly endpoint?: Endpoint;
   readonly name?: string;
   readonly port: number;
-  readonly protocol?: ServiceProtocol | string;
-  readonly visibility?: ServiceVisibility | string;
+  readonly protocol?: ServiceProtocol;
+  readonly visibility?: ServiceVisibility;
 }
 
 export interface NetworkOptions {
+  /**
+   * When true, deny outbound traffic. When omitted, the fleet policy default
+   * applies — that is not the same as “the internet is allowed”.
+   */
   readonly denyEgress?: boolean;
+  /**
+   * When true, deny inbound traffic to CUSTOM-visibility ports. No-op when the
+   * sandbox has no CUSTOM ports. Does not hide a public HTTPS endpoint.
+   */
   readonly denyIngress?: boolean;
 }
 

@@ -4,6 +4,7 @@
 
 import {
   CWSandboxNotFoundError,
+  CWSandboxTimeoutError,
   type Command,
   type CommandInputData,
   type CommandInputWriter,
@@ -338,6 +339,17 @@ describe("coreweave ComputeSDK provider", () => {
     await pending;
   });
 
+  it("fails getUrl with the inspect timeout when inspect never resolves", async () => {
+    vi.useFakeTimers();
+    const tracking = createTrackingClient({ hungInspect: true });
+    const provider = coreweave({ client: tracking.client, ownerTag: "t1" });
+    const sandbox = await provider.sandbox.create({});
+
+    const pending = expect(sandbox.getUrl({ port: 8080 })).rejects.toThrow(CWSandboxTimeoutError);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await pending;
+  });
+
   it("rejects invalid ownerTag", async () => {
     const tracking = createTrackingClient();
     const provider = coreweave({ client: tracking.client, ownerTag: "bad tag" });
@@ -352,6 +364,7 @@ interface WriteRequest {
 }
 
 interface TrackingClientOptions {
+  readonly hungInspect?: boolean;
   readonly inspectError?: Error;
   readonly inspectServiceUrls?: ReadonlyArray<readonly ServiceUrl[] | undefined>;
   readonly runStdout?: string;
@@ -441,7 +454,19 @@ function createTrackingClient(options: TrackingClientOptions = {}): TrackingClie
       exposedPorts: undefined,
       files,
       getStatus: async () => status,
-      inspect: async () => {
+      inspect: async (requestOptions?: { timeoutMs?: number }) => {
+        if (options.hungInspect === true) {
+          if (requestOptions?.timeoutMs === undefined) {
+            throw new Error("inspect timeoutMs is required");
+          }
+          await new Promise<never>((_, reject) => {
+            setTimeout(() => {
+              reject(
+                new CWSandboxTimeoutError(`inspect timed out after ${requestOptions.timeoutMs}ms`),
+              );
+            }, requestOptions.timeoutMs);
+          });
+        }
         if (options.inspectError !== undefined) {
           throw options.inspectError;
         }

@@ -3,7 +3,7 @@
 // SPDX-PackageName: cwsandbox
 
 /**
- * List sandboxes including terminated ones (`showTerminated`).
+ * List sandboxes including terminal ones (`showTerminated`).
  *
  * Usage:
  *   pnpm --dir examples/sdk list-stopped-sandboxes -- --create
@@ -36,7 +36,7 @@ async function createSandboxes(count: number): Promise<void> {
   );
 
   console.log("\nCreated and waited for terminal status.");
-  console.log("List with --list, or include terminals with --list --show-terminated.");
+  console.log("List with --list, or include terminal sandboxes with --list --show-terminated.");
 }
 
 async function listSandboxes(showTerminated: boolean): Promise<void> {

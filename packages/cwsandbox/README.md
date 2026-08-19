@@ -644,7 +644,10 @@ Do not put secret values in `environmentVariables`, annotations, or tags.
 
 ### Network And Services
 
-Internet egress is the default. Deny outbound or inbound traffic with boolean flags:
+Internet egress follows the fleet policy default. Deny outbound or inbound
+traffic with boolean flags. `denyIngress` only affects CUSTOM-visibility ports
+and is a no-op when the sandbox has none — it does not hide a public HTTPS
+endpoint:
 
 ```ts
 await client.run(["python"], {
@@ -683,8 +686,9 @@ const info = await sandbox.inspect();
 console.log(info.serviceUrls?.[0]?.url);
 ```
 
-A non-empty `serviceUrls` entry means the address was assigned, not that the
-application is listening.
+A non-empty `serviceUrls` entry means the hostname was assigned. That is not
+the same as the application listening, and not the same as the edge being
+ready.
 
 Sandbox handles expose cached backend metadata. Use `inspect()` when you need a
 fresh one-shot metadata snapshot for traces, tool results, or logs:
@@ -697,7 +701,6 @@ const sandboxTrace = {
   status: info.status,
   startedAt: info.startedAt?.toISOString(),
   serviceUrls: info.serviceUrls,
-  exposedPorts: info.exposedPorts,
   runnerId: info.runnerId,
   statusReason: info.statusReason,
 };
@@ -734,7 +737,8 @@ const sandbox = await client.fromId("sandbox-id");
 
 Use `fromId()` when you need to run commands, read files, stream logs, or manage lifecycle through a `Sandbox` instance. Use `get()` when you only need current metadata.
 
-List sandboxes — most callers want every match as usable handles:
+List sandboxes — most callers want every **active** match as usable handles.
+Listing defaults to active-only (`showTerminated` is false):
 
 ```ts
 const sandboxes = await client.listAll({
@@ -788,7 +792,9 @@ await client.delete("sandbox-id", { missingOk: true });
 await sandbox.stop({ missingOk: true });
 ```
 
-Clean up interrupted work by listing with the same tags you used at start:
+Clean up interrupted **active** work by listing with the same tags you used at
+start. Listing defaults to active-only. Do not pass `showTerminated: true`
+here — that flag includes terminal rows, it does not mean “stopped only”:
 
 ```ts
 const sandboxes = await client.listAll({

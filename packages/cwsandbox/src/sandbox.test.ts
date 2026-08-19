@@ -4,7 +4,12 @@
 
 import { describe, expect, it } from "vitest";
 
-import { CWSandboxNotFoundError, CWSandboxValidationError, type WaitOptions } from "./index.js";
+import {
+  CWSandboxNotFoundError,
+  CWSandboxValidationError,
+  DEFAULT_GRACEFUL_SHUTDOWN_SECONDS,
+  type WaitOptions,
+} from "./index.js";
 import { Sandbox } from "./sandbox.js";
 import {
   createClient,
@@ -71,6 +76,47 @@ describe("Sandbox", () => {
     await sandbox.stop({ signal, timeoutMs: 1234 });
 
     expect(stopRequest).toEqual({
+      gracefulShutdownSeconds: DEFAULT_GRACEFUL_SHUTDOWN_SECONDS,
+      sandboxId: "sandbox-for-echo",
+    });
+  });
+
+  it("defaults stop grace to 10 seconds", async () => {
+    let stopRequest: Parameters<SandboxTransport["stop"]>[0] | undefined;
+    const base = createFakeTransport();
+    const transport: SandboxTransport = {
+      ...base,
+      async stop(request) {
+        stopRequest = request;
+        await base.stop(request);
+      },
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"]);
+
+    await sandbox.stop();
+
+    expect(stopRequest).toEqual({
+      gracefulShutdownSeconds: 10,
+      sandboxId: "sandbox-for-echo",
+    });
+  });
+
+  it("forwards explicit zero stop grace", async () => {
+    let stopRequest: Parameters<SandboxTransport["stop"]>[0] | undefined;
+    const base = createFakeTransport();
+    const transport: SandboxTransport = {
+      ...base,
+      async stop(request) {
+        stopRequest = request;
+        await base.stop(request);
+      },
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"]);
+
+    await sandbox.stop({ gracefulShutdownSeconds: 0 });
+
+    expect(stopRequest).toEqual({
+      gracefulShutdownSeconds: 0,
       sandboxId: "sandbox-for-echo",
     });
   });

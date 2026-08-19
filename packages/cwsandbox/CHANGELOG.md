@@ -10,11 +10,15 @@ SPDX-PackageName: cwsandbox
 
 - Cut the public SDK from Sandbox v1beta2 to v1 (`CreateSandbox`, one
   `SandboxService`, pinned BSR commit `95e41f6a01534851b3e000549a1b2144`)
-- Replace `ports` / `egressMode` / `ingressMode` / `exposedPorts` with
-  `services` and `network.denyEgress` / `network.denyIngress`. Removed names
-  are omitted from v1 types and are not mapped.
-- List terminals with `showTerminated`; inspect now exposes `serviceUrls`
-  instead of `profileId` / `serviceAddress` / applied network modes
+- Replace create-time `ports` / `egressMode` / `ingressMode` with `services`
+  and `network.denyEgress` / `network.denyIngress`. Removed names are omitted
+  from v1 types and are not mapped. Inspect still reports `exposedPorts` as
+  output; that is not the removed create-time `ports` field. `denyIngress`
+  only affects CUSTOM-visibility ports.
+- List terminal-state sandboxes with `showTerminated`; inspect now exposes
+  `serviceUrls` instead of `profileId` / `serviceAddress` / applied network
+  modes. A `serviceUrls` hostname is assigned, not listening, and not
+  edge-ready.
 - Remove incomplete public `snapshotOnStop` from `stop()` until file-system
   snapshots (FSS) are supported end-to-end
 - Parse AIP-193 `ErrorInfo` / `RetryInfo` from gRPC status details and expose

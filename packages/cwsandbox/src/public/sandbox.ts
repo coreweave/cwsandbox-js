@@ -67,6 +67,10 @@ export interface SandboxRunOptions extends RequestOptions {
 }
 
 export interface StopOptions extends RequestOptions {
+  /**
+   * Seconds to wait for a graceful shutdown. Defaults to 10. Pass `0` to kill
+   * immediately. Standalone `delete()` does not use this default.
+   */
   readonly gracefulShutdownSeconds?: Seconds;
   /**
    * When true, treat a missing sandbox (gRPC `NOT_FOUND` or trusted
@@ -87,6 +91,10 @@ export interface ListSandboxesOptions extends RequestOptions {
   readonly pageSize?: number;
   readonly pageToken?: string;
   readonly runnerIds?: readonly string[];
+  /**
+   * When true, include terminal sandboxes (completed, failed, terminated).
+   * Listing defaults to active-only.
+   */
   readonly showTerminated?: boolean;
   readonly status?: SandboxStatus;
   readonly tags?: readonly SandboxTag[];

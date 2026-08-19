@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
+import { DEFAULT_GRACEFUL_SHUTDOWN_SECONDS } from "./defaults.js";
 import { CWSandboxTimeoutError } from "./errors.js";
 import { ignoreMissingSandbox } from "./internal/delete.js";
 import { isSandboxNotFound } from "./internal/error-info.js";
@@ -185,9 +186,8 @@ export class Sandbox implements PublicSandbox {
     if (status !== "terminating") {
       await this.runtime.transport.stop({
         sandboxId: this.sandboxId,
-        ...(options.gracefulShutdownSeconds === undefined
-          ? {}
-          : { gracefulShutdownSeconds: options.gracefulShutdownSeconds }),
+        gracefulShutdownSeconds:
+          options.gracefulShutdownSeconds ?? DEFAULT_GRACEFUL_SHUTDOWN_SECONDS,
         ...(options.missingOk === true ? { allowMissing: true } : {}),
       });
     }

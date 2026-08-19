@@ -5,8 +5,7 @@
 /**
  * Resource configuration: flat (guaranteed) and requests/limits (burstable).
  *
- * GPU examples are omitted here so the script stays runnable without GPU quota;
- * pass resources.gpu when your org/profile supports it.
+ * GPU examples are omitted here so the script stays runnable without GPU quota.
  */
 
 import { createSandboxClientFromEnv } from "@coreweave/cwsandbox/node";

@@ -164,20 +164,30 @@ function sleep(ms: number): Promise<void> {
 async function waitForAssignedUrl(handle: CoreWeaveSandbox, port: number): Promise<string> {
   const deadline = Date.now() + SERVICE_URL_WAIT_MS;
 
-  while (Date.now() < deadline) {
-    const inspected = await handle.sandbox.inspect();
+  while (true) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      throw new Error(
+        `coreweave: getUrl: no assigned HTTPS URL for port ${port} after ${SERVICE_URL_WAIT_MS}ms`,
+      );
+    }
+
+    const inspected = await handle.sandbox.inspect({ timeoutMs: remainingMs });
     const match = inspected.serviceUrls?.find(
       (service) => service.port === port && service.url.startsWith("https://"),
     );
     if (match !== undefined) {
       return match.url;
     }
-    await sleep(SERVICE_URL_POLL_MS);
-  }
 
-  throw new Error(
-    `coreweave: getUrl: no assigned HTTPS URL for port ${port} after ${SERVICE_URL_WAIT_MS}ms`,
-  );
+    const sleepMs = Math.min(SERVICE_URL_POLL_MS, deadline - Date.now());
+    if (sleepMs <= 0) {
+      throw new Error(
+        `coreweave: getUrl: no assigned HTTPS URL for port ${port} after ${SERVICE_URL_WAIT_MS}ms`,
+      );
+    }
+    await sleep(sleepMs);
+  }
 }
 
 function shq(arg: string): string {

@@ -6,6 +6,7 @@ import { expectTypeOf } from "vitest";
 
 import {
   CWSandboxExecutionError,
+  DEFAULT_GRACEFUL_SHUTDOWN_SECONDS,
   DEFAULT_KEEP_ALIVE_COMMAND,
   type Command,
   type CommandInputWriter,
@@ -92,6 +93,7 @@ expectTypeOf(createWandbSubpathClientFromEnv(wandbEnvironment)).toEqualTypeOf<Sa
 declare const client: SandboxClient;
 
 expectTypeOf(DEFAULT_KEEP_ALIVE_COMMAND).toExtend<CommandInput>();
+expectTypeOf(DEFAULT_GRACEFUL_SHUTDOWN_SECONDS).toEqualTypeOf<10>();
 const sandboxRunOptions: SandboxRunOptions = { waitUntilRunning: false };
 expectTypeOf(sandboxRunOptions.waitUntilRunning).toEqualTypeOf<boolean | undefined>();
 expectTypeOf(client.create()).toEqualTypeOf<ReturnType<SandboxClient["create"]>>();
@@ -228,6 +230,13 @@ const commandInput: CommandInput = command;
 expectTypeOf(command).toExtend<CommandInput>();
 
 const endpoint: Endpoint = { auth: "open", kind: "https" };
+// @ts-expect-error TOKEN is not a supported EndpointAuth
+const tokenEndpoint: Endpoint = { auth: "token", kind: "https" };
+const stringAuth: string = "open";
+// @ts-expect-error Endpoint.auth does not accept a widened string
+const stringEndpoint: Endpoint = { auth: stringAuth, kind: "https" };
+void tokenEndpoint;
+void stringEndpoint;
 const service: Service = {
   endpoint,
   name: "http",
@@ -412,6 +421,12 @@ expectTypeOf(sandbox.stop({ gracefulShutdownSeconds: 5 })).toEqualTypeOf<Promise
 // @ts-expect-error ports is not supported in v1.
 void client.run(["python"], { ports: [8000] });
 
+// @ts-expect-error s3Mount is not supported in v1.
+void client.run(["python"], { s3Mount: { bucket: "b" } });
+
+// @ts-expect-error maxTimeoutSeconds is not supported in v1.
+void client.run(["python"], { maxTimeoutSeconds: 30 });
+
 // @ts-expect-error profileIds is not supported in v1.
 void client.run(["python"], { profileIds: ["profile-id"] });
 
@@ -420,6 +435,9 @@ void client.run(["python"], { profileNames: ["default"] });
 
 // @ts-expect-error network.ingressMode is not supported in v1.
 void client.run(["python"], { network: { ingressMode: "public" } });
+
+// @ts-expect-error network.egressMode is not supported in v1.
+void client.run(["python"], { network: { egressMode: "deny" } });
 
 // @ts-expect-error network.exposedPorts is not supported in v1.
 void client.run(["python"], { network: { exposedPorts: [8000] } });
