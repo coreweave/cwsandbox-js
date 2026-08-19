@@ -661,7 +661,7 @@ await client.run(["python"], {
 ```
 
 Declare listen-only services, or request a public HTTPS assignment with
-`Endpoint({ kind: "https", auth: "open" })` and `visibility: "public"`:
+`endpoint: { kind: "https", auth: "open" }` and `visibility: "public"`:
 
 ```ts
 await client.run(["python", "-m", "http.server", "8000"], {

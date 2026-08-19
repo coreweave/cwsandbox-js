@@ -866,7 +866,7 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     );
 
     it.each(portProtocols)(
-      "starts a sandbox with %s service declaration",
+      "accepts listen-only %s service without assigning a URL",
       async (protocol) => {
         await withStartedSandbox(
           client,
@@ -974,10 +974,10 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
 
   describe("network behavior", () => {
     it(
-      "starts a sandbox with internet egress",
+      "creates a sandbox with default network options",
       async () => {
         await withStartedSandbox(client, startOptionsForInternetNetwork(), (sandbox) => {
-          console.log(`Started internet-egress sandbox: ${sandbox.sandboxId}`);
+          console.log(`Started default-network sandbox: ${sandbox.sandboxId}`);
           expect(sandbox.sandboxId).not.toBe("");
         });
       },

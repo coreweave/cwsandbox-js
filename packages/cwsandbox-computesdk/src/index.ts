@@ -180,7 +180,7 @@ async function waitForAssignedUrl(handle: CoreWeaveSandbox, port: number): Promi
   }
 
   throw new Error(
-    `coreweave: getUrl: sandbox was running but port ${port} had no assigned URL after ${SERVICE_URL_WAIT_MS}ms`,
+    `coreweave: getUrl: no assigned HTTPS URL for port ${port} after ${SERVICE_URL_WAIT_MS}ms`,
   );
 }
 

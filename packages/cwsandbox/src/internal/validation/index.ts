@@ -15,7 +15,6 @@ import type {
 } from "../../public/sandbox.js";
 import { validateMountedFiles } from "../mounted-files.js";
 import { validateNetworkOptions } from "../network.js";
-import { rejectUnsupportedFields } from "../removed.js";
 import { validateResources } from "../resources.js";
 import { validateSecrets } from "../secrets.js";
 import { validateAnnotations } from "./annotations.js";
@@ -68,7 +67,11 @@ export function validateWaitOptions(options: WaitOptions): void {
 }
 
 export function validateStopOptions(options: StopOptions): void {
-  rejectUnsupportedFields(options, ["snapshotOnStop"]);
+  if ((options as Record<string, unknown>)["snapshotOnStop"] !== undefined) {
+    throw new CWSandboxValidationError(
+      "snapshotOnStop is not supported until file-system snapshots (FSS) are available",
+    );
+  }
   validateRequestOptions(options);
   validateNonNegativeInteger(options.gracefulShutdownSeconds, "gracefulShutdownSeconds");
   validateOptionalBoolean(options.missingOk, "missingOk");

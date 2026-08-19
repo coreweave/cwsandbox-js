@@ -81,11 +81,11 @@ function validateEndpoint(
     throw new CWSandboxValidationError("Service.endpoint.auth must be open");
   }
   if (visibility !== "public") {
-    throw new CWSandboxValidationError("Service.visibility must be PUBLIC when endpoint is set");
+    throw new CWSandboxValidationError("Service.visibility must be public when endpoint is set");
   }
   if (protocol !== undefined && protocol !== "unspecified" && protocol !== "tcp") {
     throw new CWSandboxValidationError(
-      "Service.protocol must be unset or TCP when endpoint is set",
+      "Service.protocol must be unset or tcp when endpoint is set",
     );
   }
 }

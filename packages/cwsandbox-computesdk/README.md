@@ -69,7 +69,7 @@ Create options of note:
 
 - `name` → sandbox annotation `name` (not a tag)
 - `timeout` (ms) → `maxLifetimeSeconds` only (not create `timeoutMs`)
-- `services` / `network` forwarded to the core SDK (HTTPS assignment is create-time)
+- `services` / `network` forwarded to the core SDK (requested at create; URL may appear after running)
 - Tags always include `computesdk` + `ownerTag`
 
 ## Capability mapping
@@ -89,8 +89,8 @@ Supported:
 Explicitly unsupported for now:
 
 - `getUrl` when create did not assign a `serviceUrls` entry for that port
-- ComputeSDK `onStdout` / `onStderr` streaming (requires `getUrl` / daemond;
-  callbacks alone do not select the streamed exec path)
+- ComputeSDK `onStdout` / `onStderr` streaming (requires ComputeSDK's daemond
+  path; `getUrl` alone does not enable callbacks)
 - Templates and snapshots
 - Returning remaining lifetime on discover (`timeout` on getInfo uses create-time TTL)
 

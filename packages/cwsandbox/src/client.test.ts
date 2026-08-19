@@ -752,7 +752,7 @@ describe("SandboxClient", () => {
             },
           ],
         }),
-      ).rejects.toThrow(/Service.visibility must be PUBLIC/);
+      ).rejects.toThrow(/Service.visibility must be public/);
     });
 
     it("throws a typed validation error for invalid run timeouts", async () => {

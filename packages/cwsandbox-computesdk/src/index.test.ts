@@ -126,8 +126,8 @@ describe("coreweave ComputeSDK provider", () => {
     const provider = coreweave({ client: tracking.client, ownerTag: "t1" });
     const sandbox = await provider.sandbox.create({});
 
-    // ComputeSDK owns callback streaming (daemond + getUrl). Our adapter must not
-    // treat onStdout as a signal to use commands.start.
+    // ComputeSDK owns callback streaming via daemond; getUrl alone does not enable
+    // callbacks. Our adapter must not treat onStdout as a signal to use commands.start.
     await expect(sandbox.runCommand("printf ok", { onStdout: () => undefined })).rejects.toThrow(
       /not valid JSON/,
     );
@@ -239,7 +239,7 @@ describe("coreweave ComputeSDK provider", () => {
     const sandbox = await provider.sandbox.create({});
 
     const pending = expect(sandbox.getUrl({ port: 8080 })).rejects.toThrow(
-      /sandbox was running but port 8080 had no assigned URL after 60000ms/,
+      /no assigned HTTPS URL for port 8080 after 60000ms/,
     );
     await vi.advanceTimersByTimeAsync(60_000);
     await pending;
@@ -332,7 +332,7 @@ describe("coreweave ComputeSDK provider", () => {
     const sandbox = await provider.sandbox.create({});
 
     const pending = expect(sandbox.getUrl({ port: 9999 })).rejects.toThrow(
-      /sandbox was running but port 9999 had no assigned URL after 60000ms/,
+      /no assigned HTTPS URL for port 9999 after 60000ms/,
     );
     await vi.advanceTimersByTimeAsync(60_000);
     await pending;

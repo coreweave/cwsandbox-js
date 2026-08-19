@@ -3,12 +3,14 @@
 // SPDX-PackageName: cwsandbox
 
 /**
- * List sandboxes including stopped (terminal) ones.
+ * List sandboxes including terminated ones (`showTerminated`).
  *
  * Usage:
  *   pnpm --dir examples/sdk list-stopped-sandboxes -- --create
  *   pnpm --dir examples/sdk list-stopped-sandboxes -- --list
  *   pnpm --dir examples/sdk list-stopped-sandboxes -- --list --show-terminated
+ *
+ * `--include-stopped` is an alias of `--show-terminated`.
  */
 
 import { createSandboxClientFromEnv } from "@coreweave/cwsandbox/node";
@@ -37,7 +39,9 @@ async function createSandboxes(count: number): Promise<void> {
   );
 
   console.log("\nCreated and waited for terminal status.");
-  console.log("List with --list, or include terminals with --list --show-terminated.");
+  console.log(
+    "List with --list, or include terminals with --list --show-terminated (alias: --include-stopped).",
+  );
 }
 
 async function listSandboxes(showTerminated: boolean): Promise<void> {
@@ -66,6 +70,7 @@ async function main(): Promise<void> {
   }
 
   console.error("Usage: --create | --list [--show-terminated]");
+  console.error("       --include-stopped is an alias of --show-terminated");
   process.exitCode = 1;
 }
 

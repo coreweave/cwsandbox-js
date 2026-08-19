@@ -229,7 +229,7 @@ export async function waitForServiceUrls(
   }
 
   throw new Error(
-    `sandbox '${sandbox.sandboxId}' reached running but serviceUrls stayed empty for ports ${ports.join(", ")} after ${timeoutMs}ms`,
+    `sandbox '${sandbox.sandboxId}' had no assigned HTTPS URL for ports ${ports.join(", ")} after ${timeoutMs}ms`,
   );
 }
 
