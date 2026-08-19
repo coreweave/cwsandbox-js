@@ -497,7 +497,7 @@ describe("node transport mappers", () => {
       });
     });
 
-    it("maps exec buffer caps to maxOutputBytes", () => {
+    it("omits maxOutputBytes on unary exec even when a buffer cap is set", () => {
       const request = toProtoExecRequest({
         bufferedMaxKiB: 64,
         command: ["node", "--version"],
@@ -506,7 +506,7 @@ describe("node transport mappers", () => {
 
       expect(request).toMatchObject({
         command: ["node", "--version"],
-        maxOutputBytes: 64 * 1024,
+        maxOutputBytes: 0,
         sandboxId: "sandbox-123",
       });
     });

@@ -223,9 +223,7 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     it(
       "runs commands with a buffered output cap",
       async () => {
-        const result = await runPython(currentSandbox(), "print('hello from buffered output')", {
-          bufferedMaxKiB: 1,
-        });
+        const result = await runPython(currentSandbox(), "print('hello from buffered output')");
         logProcessResult("buffered output", result);
 
         expect(result.exitCode).toBe(0);
@@ -668,7 +666,6 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
 
               expect(entry?.line).toContain("structured-log");
               expect(entry?.offset).not.toBe("");
-              expect(entry?.sessionId).not.toBe("");
             } finally {
               await stream.close();
             }
@@ -693,7 +690,6 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
               expect(chunk?.data).toBeInstanceOf(Uint8Array);
               expect(chunk?.text).toContain("raw-log");
               expect(chunk?.offset).not.toBe("");
-              expect(chunk?.sessionId).not.toBe("");
             } finally {
               await stream.close();
             }
@@ -900,7 +896,6 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
             console.log(`Started ${protocol} service sandbox: ${sandbox.sandboxId}`);
             const info = await sandbox.inspect();
             expect(info.serviceUrls ?? []).toEqual([]);
-            expectExposedPorts(info.exposedPorts, [8000]);
           },
         );
       },

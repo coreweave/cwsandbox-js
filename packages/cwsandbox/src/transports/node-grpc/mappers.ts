@@ -203,9 +203,6 @@ export function toProtoExecRequest(
 ): ReturnType<typeof ProtoExecRequest.create> {
   return ProtoExecRequest.create({
     command: toExecCommand(request),
-    ...(request.bufferedMaxKiB === undefined
-      ? {}
-      : { maxOutputBytes: request.bufferedMaxKiB * 1024 }),
     sandboxId: request.sandboxId,
   });
 }
