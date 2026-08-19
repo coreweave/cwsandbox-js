@@ -296,7 +296,10 @@ describe("createGrpcFileAdapter readStream deadline", () => {
     const adapter = createGrpcFileAdapter(harness.clients);
     const t0 = Date.now();
     const now = vi.spyOn(Date, "now");
-    now.mockReturnValueOnce(t0).mockReturnValueOnce(t0).mockReturnValueOnce(t0 + 1);
+    now
+      .mockReturnValueOnce(t0)
+      .mockReturnValueOnce(t0)
+      .mockReturnValueOnce(t0 + 1);
 
     try {
       await expect(
