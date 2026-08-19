@@ -2,12 +2,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
-import { describe, expect, it } from "vitest";
+import { RpcError, type RpcOptions } from "@protobuf-ts/runtime-rpc";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CWSandboxTransportError, CWSandboxValidationError } from "../../errors.js";
-import { CWSANDBOX_FILE_IO_FAILED, CWSANDBOX_FILE_TRUNCATED } from "../../internal/error-info.js";
 import {
+  CWSANDBOX_FILE_IO_FAILED,
+  CWSANDBOX_FILE_IS_DIRECTORY,
+  CWSANDBOX_FILE_NOT_FOUND,
+  CWSANDBOX_FILE_TRUNCATED,
+} from "../../internal/error-info.js";
+import {
+  STAT_INTEGRITY_TIMEOUT_MS,
   STREAMING_OUTPUT_QUEUE_SIZE,
+  STREAMING_READ_STDERR_CAP_BYTES,
   TRUNCATION_CHECK_MIN_BYTES,
 } from "../../internal/file-limits.js";
 import type { GrpcClients } from "./channel.js";
@@ -196,6 +204,267 @@ describe("createGrpcFileAdapter StreamExec paths", () => {
   });
 });
 
+describe("createGrpcFileAdapter readStream deadline", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-19T00:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("caps stat at 10s and passes remaining time to cat", async () => {
+    const harness = createStreamingHarness();
+    const adapter = createGrpcFileAdapter(harness.clients);
+    harness.onCall(0, () => undefined);
+    harness.onCall(1, completeCat);
+
+    const pending = drainReadStream(
+      adapter.readStream({ path: "/tmp/a.bin", sandboxId: "sbx", timeoutMs: 60_000 }),
+    );
+    const stat = await waitForCall(harness, 0);
+    expect(stat.timeout).toBe(STAT_INTEGRITY_TIMEOUT_MS);
+    await vi.advanceTimersByTimeAsync(2_000);
+    completeStat(stat);
+    await pending;
+    expect(harness.calls[1]?.timeout).toBe(58_000);
+  });
+
+  it("clamps stat to the caller budget when it is under 10s", async () => {
+    const harness = createStreamingHarness();
+    const adapter = createGrpcFileAdapter(harness.clients);
+    harness.onCall(0, () => undefined);
+    harness.onCall(1, completeCat);
+
+    const pending = drainReadStream(
+      adapter.readStream({ path: "/tmp/a.bin", sandboxId: "sbx", timeoutMs: 5_000 }),
+    );
+    const stat = await waitForCall(harness, 0);
+    expect(stat.timeout).toBe(5_000);
+    await vi.advanceTimersByTimeAsync(2_000);
+    completeStat(stat);
+    await pending;
+    expect(harness.calls[1]?.timeout).toBe(3_000);
+  });
+
+  it("still caps stat at 10s when timeoutMs is omitted", async () => {
+    const harness = createStreamingHarness();
+    const adapter = createGrpcFileAdapter(harness.clients);
+    harness.onCall(0, completeStat);
+    harness.onCall(1, completeCat);
+
+    await drainReadStream(adapter.readStream({ path: "/tmp/a.bin", sandboxId: "sbx" }));
+    expect(harness.calls[0]?.timeout).toBe(STAT_INTEGRITY_TIMEOUT_MS);
+    expect(harness.calls[1]?.timeout).toBeUndefined();
+  });
+
+  it("throws CWSandboxTimeoutError without RPCs when timeoutMs is 0", async () => {
+    const harness = createStreamingHarness();
+    const adapter = createGrpcFileAdapter(harness.clients);
+
+    await expect(
+      drainReadStream(adapter.readStream({ path: "/tmp/a.bin", sandboxId: "sbx", timeoutMs: 0 })),
+    ).rejects.toMatchObject({
+      name: "CWSandboxTimeoutError",
+      operation: "Read file",
+      sandboxId: "sbx",
+    });
+    expect(harness.calls).toHaveLength(0);
+  });
+
+  it("times out a hung stat that consumes the full budget without starting cat", async () => {
+    const harness = createStreamingHarness();
+    const adapter = createGrpcFileAdapter(harness.clients);
+    harness.onCall(0, () => undefined);
+
+    const pending = expect(
+      drainReadStream(adapter.readStream({ path: "/tmp/a.bin", sandboxId: "sbx", timeoutMs: 100 })),
+    ).rejects.toMatchObject({
+      name: "CWSandboxTimeoutError",
+      operation: "Read file",
+      sandboxId: "sbx",
+    });
+    await waitForCall(harness, 0);
+    await vi.advanceTimersByTimeAsync(100);
+    await pending;
+    expect(harness.calls).toHaveLength(1);
+  });
+
+  it("surfaces abort during a hung stat and does not start cat", async () => {
+    const harness = createStreamingHarness();
+    const adapter = createGrpcFileAdapter(harness.clients);
+    harness.onCall(0, () => undefined);
+    const controller = new AbortController();
+    const reason = new Error("stop-stat");
+
+    const pending = expect(
+      drainReadStream(
+        adapter.readStream({
+          path: "/tmp/a.bin",
+          sandboxId: "sbx",
+          signal: controller.signal,
+        }),
+      ),
+    ).rejects.toBe(reason);
+    await waitForCall(harness, 0);
+    controller.abort(reason);
+    await pending;
+    expect(harness.calls).toHaveLength(1);
+  });
+
+  it("does not start the deadline until iteration begins", async () => {
+    const harness = createStreamingHarness();
+    const adapter = createGrpcFileAdapter(harness.clients);
+    harness.onCall(0, completeStat);
+    harness.onCall(1, completeCat);
+
+    const stream = adapter.readStream({
+      path: "/tmp/a.bin",
+      sandboxId: "sbx",
+      timeoutMs: 60_000,
+    });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(harness.calls).toHaveLength(0);
+
+    await drainReadStream(stream);
+    expect(harness.calls[0]?.timeout).toBe(STAT_INTEGRITY_TIMEOUT_MS);
+    expect(harness.calls[1]?.timeout).toBe(60_000);
+  });
+
+  it("skips stat when expectedSize is provided", async () => {
+    const harness = createStreamingHarness();
+    const adapter = createGrpcFileAdapter(harness.clients);
+    harness.onCall(0, completeCat);
+
+    await expect(async () => {
+      for await (const _chunk of adapter.readStream({
+        expectedSize: TRUNCATION_CHECK_MIN_BYTES,
+        path: "/tmp/big.bin",
+        sandboxId: "sbx",
+      })) {
+        // drain
+      }
+    }).rejects.toMatchObject({
+      name: "CWSandboxFileError",
+      reason: CWSANDBOX_FILE_TRUNCATED,
+    });
+    expect(harness.calls).toHaveLength(1);
+    expect(initCommand(harness.calls[0]?.sent ?? [])).toEqual(
+      expect.arrayContaining(["cwsandbox-read-file-streaming", "/tmp/big.bin"]),
+    );
+  });
+
+  it("remaps a cat RPC deadline to operation Read file", async () => {
+    const harness = createStreamingHarness();
+    const adapter = createGrpcFileAdapter(harness.clients);
+    harness.onCall(0, () => undefined);
+
+    const pending = expect(
+      drainReadStream(
+        adapter.readStream({
+          expectedSize: 10,
+          path: "/tmp/a.bin",
+          sandboxId: "sbx",
+          timeoutMs: 50,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      name: "CWSandboxTimeoutError",
+      operation: "Read file",
+      sandboxId: "sbx",
+    });
+    await waitForCall(harness, 0);
+    await vi.advanceTimersByTimeAsync(50);
+    await pending;
+    expect(harness.calls).toHaveLength(1);
+  });
+
+  it("caps stderr bytes and drops a split UTF-8 tail", async () => {
+    const harness = createStreamingHarness();
+    const adapter = createGrpcFileAdapter(harness.clients);
+    const euro = new Uint8Array([0xe2, 0x82, 0xac]);
+    const euroTail = euro.subarray(1);
+    harness.onCall(0, (duplex) => {
+      duplex.push(readyFrame());
+      duplex.push(stderrBytesFrame(new Uint8Array(STREAMING_READ_STDERR_CAP_BYTES - 1).fill(0x78)));
+      duplex.push(stderrBytesFrame(euro.subarray(0, 1)));
+      duplex.push(stderrBytesFrame(euroTail));
+      duplex.push(stderrBytesFrame(new TextEncoder().encode("UNIQUE_TAIL")));
+      duplex.push(exitFrame(1));
+      duplex.end();
+    });
+
+    await expect(
+      drainReadStream(
+        adapter.readStream({
+          expectedSize: 1,
+          path: "/tmp/fail.bin",
+          sandboxId: "sbx",
+        }),
+      ),
+    ).rejects.toSatisfy((error: unknown) => {
+      return (
+        error instanceof Error &&
+        error.name === "CWSandboxFileError" &&
+        !error.message.includes("UNIQUE_TAIL")
+      );
+    });
+  });
+
+  it("keeps typed missing-file mapping when stderr exceeds the cap", async () => {
+    const harness = createStreamingHarness();
+    const adapter = createGrpcFileAdapter(harness.clients);
+    harness.onCall(0, (duplex) => {
+      duplex.push(readyFrame());
+      duplex.push(
+        stderrBytesFrame(new Uint8Array(STREAMING_READ_STDERR_CAP_BYTES + 32).fill(0x78)),
+      );
+      duplex.push(exitFrame(2));
+      duplex.end();
+    });
+
+    await expect(
+      drainReadStream(
+        adapter.readStream({
+          expectedSize: 1,
+          path: "/tmp/missing.bin",
+          sandboxId: "sbx",
+        }),
+      ),
+    ).rejects.toMatchObject({
+      name: "CWSandboxFileError",
+      reason: CWSANDBOX_FILE_NOT_FOUND,
+    });
+  });
+
+  it("keeps typed directory mapping when stderr exceeds the cap", async () => {
+    const harness = createStreamingHarness();
+    const adapter = createGrpcFileAdapter(harness.clients);
+    harness.onCall(0, (duplex) => {
+      duplex.push(readyFrame());
+      duplex.push(
+        stderrBytesFrame(new Uint8Array(STREAMING_READ_STDERR_CAP_BYTES + 32).fill(0x78)),
+      );
+      duplex.push(exitFrame(3));
+      duplex.end();
+    });
+
+    await expect(
+      drainReadStream(
+        adapter.readStream({
+          expectedSize: 1,
+          path: "/tmp/dir",
+          sandboxId: "sbx",
+        }),
+      ),
+    ).rejects.toMatchObject({
+      name: "CWSandboxFileError",
+      reason: CWSANDBOX_FILE_IS_DIRECTORY,
+    });
+  });
+});
+
 function initCommand(sent: readonly ExecStreamRequest[]): string[] {
   const init = sent.find((message) => message.message.oneofKind === "init");
   if (init?.message.oneofKind !== "init") {
@@ -236,15 +505,49 @@ function stdoutFrame(data: string | Uint8Array): ExecStreamResponse {
 }
 
 function stderrFrame(message: string): ExecStreamResponse {
+  return stderrBytesFrame(new TextEncoder().encode(message));
+}
+
+function stderrBytesFrame(data: Uint8Array): ExecStreamResponse {
   return {
     message: {
       oneofKind: "output",
       output: {
-        data: new TextEncoder().encode(message),
+        data,
         stream: ProtoExecStreamOutputStream.STDERR,
       },
     },
   };
+}
+
+function completeStat(duplex: MockDuplex, size = "10"): void {
+  duplex.push(stdoutFrame(size));
+  duplex.push(exitFrame(0));
+  duplex.end();
+}
+
+function completeCat(duplex: MockDuplex): void {
+  duplex.push(readyFrame());
+  duplex.push(stdoutFrame(new Uint8Array([1])));
+  duplex.push(exitFrame(0));
+  duplex.end();
+}
+
+async function drainReadStream(stream: AsyncIterable<Uint8Array>): Promise<void> {
+  for await (const _chunk of stream) {
+    // drain
+  }
+}
+
+async function waitForCall(harness: { calls: MockDuplex[] }, index: number): Promise<MockDuplex> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const call = harness.calls[index];
+    if (call !== undefined) {
+      return call;
+    }
+    await Promise.resolve();
+  }
+  throw new Error(`StreamExec call ${index} did not start.`);
 }
 
 async function settledWithin(promise: Promise<unknown>, timeoutMs: number): Promise<void> {
@@ -269,6 +572,7 @@ interface MockDuplex {
   readonly aborted: boolean;
   readonly drainPromise: Promise<void>;
   readonly sent: ExecStreamRequest[];
+  readonly timeout: number | undefined;
   end(): void;
   push(response: ExecStreamResponse): void;
 }
@@ -283,8 +587,9 @@ function createStreamingHarness(): {
   let nextIndex = 0;
 
   const client = {
-    streamExec(options?: { abort?: AbortSignal }) {
-      const duplex = createMockDuplex(options?.abort);
+    streamExec(options?: RpcOptions) {
+      const timeoutMs = typeof options?.timeout === "number" ? options.timeout : undefined;
+      const duplex = createMockDuplex(options?.abort, timeoutMs);
       const index = nextIndex;
       nextIndex += 1;
       calls.push(duplex);
@@ -304,7 +609,10 @@ function createStreamingHarness(): {
   };
 }
 
-function createMockDuplex(abort?: AbortSignal): MockDuplex & {
+function createMockDuplex(
+  abort?: AbortSignal,
+  timeoutMs?: number,
+): MockDuplex & {
   readonly call: {
     readonly requests: {
       complete(): Promise<void>;
@@ -321,12 +629,17 @@ function createMockDuplex(abort?: AbortSignal): MockDuplex & {
   let closed = false;
   let aborted = false;
   let abortError: unknown;
+  let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
   let resolveDrain!: () => void;
   const drainPromise = new Promise<void>((resolve) => {
     resolveDrain = resolve;
   });
 
   const failWaiters = (reason: unknown): void => {
+    if (timeoutTimer !== undefined) {
+      clearTimeout(timeoutTimer);
+      timeoutTimer = undefined;
+    }
     aborted = true;
     abortError = reason;
     while (rejecters.length > 0) {
@@ -335,6 +648,14 @@ function createMockDuplex(abort?: AbortSignal): MockDuplex & {
     waiters.length = 0;
     resolveDrain();
   };
+
+  if (timeoutMs !== undefined && timeoutMs <= 0) {
+    failWaiters(new RpcError("deadline", "DEADLINE_EXCEEDED"));
+  } else if (timeoutMs !== undefined) {
+    timeoutTimer = setTimeout(() => {
+      failWaiters(new RpcError("deadline", "DEADLINE_EXCEEDED"));
+    }, timeoutMs);
+  }
 
   abort?.addEventListener(
     "abort",
@@ -358,6 +679,10 @@ function createMockDuplex(abort?: AbortSignal): MockDuplex & {
   };
 
   const end = (): void => {
+    if (timeoutTimer !== undefined) {
+      clearTimeout(timeoutTimer);
+      timeoutTimer = undefined;
+    }
     closed = true;
     while (waiters.length > 0) {
       rejecters.shift();
@@ -410,5 +735,6 @@ function createMockDuplex(abort?: AbortSignal): MockDuplex & {
     end,
     push,
     sent,
+    timeout: timeoutMs,
   };
 }

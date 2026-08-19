@@ -30,6 +30,9 @@ export interface SandboxFiles {
   /**
    * Incrementally read a remote file as binary chunks. Prefer this over
    * buffered `read` for large files. Drain promptly to avoid stream backpressure.
+   *
+   * `timeoutMs` is one wall-clock budget for the integrity `stat` and the
+   * file transfer combined. The clock starts when iteration begins.
    */
   readStream(path: string, options?: RequestOptions): AsyncIterable<Uint8Array>;
   readText(path: string, options?: RequestOptions): Promise<string>;

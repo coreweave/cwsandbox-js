@@ -6,6 +6,7 @@ import {
   CWSandboxFileError,
   CWSandboxStreamBackpressureError,
   CWSandboxStreamTruncatedError,
+  CWSandboxTimeoutError,
   CWSandboxTransportError,
   CWSandboxValidationError,
 } from "../../errors.js";
@@ -16,7 +17,9 @@ import {
   CWSANDBOX_FILE_TRUNCATED,
 } from "../../internal/error-info.js";
 import {
+  STAT_INTEGRITY_TIMEOUT_MS,
   STREAMING_OUTPUT_QUEUE_SIZE,
+  STREAMING_READ_STDERR_CAP_BYTES,
   STREAMING_WRITE_CHUNK_SIZE,
   TRUNCATION_CHECK_MIN_BYTES,
 } from "../../internal/file-limits.js";
@@ -159,14 +162,30 @@ async function* grpcReadStreamIterator(
   streamingClient: SandboxServiceClient,
   request: ReadStreamRequest,
 ): AsyncGenerator<Uint8Array, void, undefined> {
-  const expectedSize = await statFileSize(streamingClient, request);
+  const deadline = request.timeoutMs === undefined ? undefined : Date.now() + request.timeoutMs;
+  request.signal?.throwIfAborted();
+  throwIfReadTimedOut(deadline, request.sandboxId);
+
+  let expectedSize = request.expectedSize;
+  if (expectedSize === undefined) {
+    const remaining = remainingMs(deadline);
+    const statTimeoutMs =
+      remaining === undefined
+        ? STAT_INTEGRITY_TIMEOUT_MS
+        : Math.min(STAT_INTEGRITY_TIMEOUT_MS, remaining);
+    expectedSize = await statFileSize(streamingClient, request, statTimeoutMs);
+    request.signal?.throwIfAborted();
+    throwIfReadTimedOut(deadline, request.sandboxId);
+  }
+
+  const catTimeoutMs = remainingMs(deadline);
   const outputQueue = new AsyncQueue<Uint8Array>(STREAMING_OUTPUT_QUEUE_SIZE);
 
   const session = await startExecSession(streamingClient, {
     command: ["/bin/sh", "-c", READ_STREAM_SCRIPT, "cwsandbox-read-file-streaming", request.path],
     sandboxId: request.sandboxId,
     ...(request.signal !== undefined ? { signal: request.signal } : {}),
-    ...(request.timeoutMs !== undefined ? { timeoutMs: request.timeoutMs } : {}),
+    ...(catTimeoutMs === undefined ? {} : { timeoutMs: catTimeoutMs }),
   });
 
   const onAbort = (): void => {
@@ -175,7 +194,8 @@ async function* grpcReadStreamIterator(
   request.signal?.addEventListener("abort", onAbort, { once: true });
 
   let exitCode: number | undefined;
-  let stderr = "";
+  const stderrChunks: Uint8Array[] = [];
+  let stderrBytes = 0;
   let delivered = 0;
 
   // Collect frames in the background; push stdout to queue.
@@ -188,13 +208,13 @@ async function* grpcReadStreamIterator(
             delivered += frame.data.byteLength;
             break;
           case "stderr":
-            stderr += new TextDecoder().decode(frame.data);
+            stderrBytes = appendCappedStderr(stderrChunks, stderrBytes, frame.data);
             break;
           case "exit":
             exitCode = frame.exitCode;
             break;
           case "error":
-            outputQueue.fail(frame.error);
+            outputQueue.fail(remapReadFileTimeout(frame.error, request.sandboxId));
             return;
           case "ready":
             break;
@@ -202,7 +222,7 @@ async function* grpcReadStreamIterator(
       }
       outputQueue.close();
     } catch (error) {
-      outputQueue.fail(error);
+      outputQueue.fail(remapReadFileTimeout(error, request.sandboxId));
     }
   })();
 
@@ -219,13 +239,18 @@ async function* grpcReadStreamIterator(
     settled = true;
 
     if (exitCode !== 0) {
-      throw mapReadStreamExit(request.sandboxId, request.path, exitCode ?? -1, stderr);
+      throw mapReadStreamExit(
+        request.sandboxId,
+        request.path,
+        exitCode ?? -1,
+        decodeStderr(stderrChunks),
+      );
     }
 
     verifyNoTruncation(request.sandboxId, request.path, delivered, expectedSize);
   } catch (error) {
-    failure = error;
-    throw error;
+    failure = remapReadFileTimeout(error, request.sandboxId);
+    throw failure;
   } finally {
     request.signal?.removeEventListener("abort", onAbort);
     if (!settled) {
@@ -358,18 +383,22 @@ async function grpcWriteStream(
 async function statFileSize(
   streamingClient: SandboxServiceClient,
   request: ReadStreamRequest,
+  timeoutMs: number,
 ): Promise<number | undefined> {
   try {
     const session = await startExecSession(streamingClient, {
       command: ["/bin/sh", "-c", STAT_SCRIPT, "cwsandbox-stat", request.path],
       sandboxId: request.sandboxId,
       ...(request.signal !== undefined ? { signal: request.signal } : {}),
-      ...(request.timeoutMs !== undefined ? { timeoutMs: request.timeoutMs } : {}),
+      timeoutMs,
     });
 
     let stdout = "";
     let exitCode: number | undefined;
     for await (const frame of session.frames) {
+      if (frame.type === "error") {
+        return undefined;
+      }
       if (frame.type === "stdout") {
         stdout += new TextDecoder().decode(frame.data);
       } else if (frame.type === "exit") {
@@ -421,6 +450,61 @@ function coerceChunk(chunk: unknown): Uint8Array {
 
 function isAsyncIterable(value: object): value is AsyncIterable<Uint8Array> {
   return Symbol.asyncIterator in value;
+}
+
+function remainingMs(deadline: number | undefined): number | undefined {
+  if (deadline === undefined) {
+    return undefined;
+  }
+  return Math.max(0, deadline - Date.now());
+}
+
+function throwIfReadTimedOut(deadline: number | undefined, sandboxId: string): void {
+  const remaining = remainingMs(deadline);
+  if (remaining !== undefined && remaining <= 0) {
+    throw new CWSandboxTimeoutError("Read file timed out.", {
+      operation: "Read file",
+      sandboxId,
+    });
+  }
+}
+
+function remapReadFileTimeout(error: unknown, sandboxId: string): unknown {
+  if (!(error instanceof CWSandboxTimeoutError)) {
+    return error;
+  }
+  if (error.operation === "Read file") {
+    return error;
+  }
+  return new CWSandboxTimeoutError(error.message, {
+    cause: error,
+    operation: "Read file",
+    sandboxId,
+  });
+}
+
+function appendCappedStderr(chunks: Uint8Array[], usedBytes: number, data: Uint8Array): number {
+  if (usedBytes >= STREAMING_READ_STDERR_CAP_BYTES) {
+    return usedBytes;
+  }
+  const room = STREAMING_READ_STDERR_CAP_BYTES - usedBytes;
+  const slice = data.byteLength <= room ? data : data.subarray(0, room);
+  chunks.push(slice.slice());
+  return usedBytes + slice.byteLength;
+}
+
+function decodeStderr(chunks: readonly Uint8Array[]): string {
+  if (chunks.length === 0) {
+    return "";
+  }
+  const total = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
 }
 
 function isAbortError(error: unknown): boolean {

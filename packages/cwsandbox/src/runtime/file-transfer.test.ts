@@ -101,6 +101,28 @@ describe("FileTransfer", () => {
     expect(seen).toEqual([]);
   });
 
+  it("passes expectedSize into readStream on FILE_TOO_LARGE fallback", async () => {
+    let captured: Parameters<FileAdapter["readStream"]>[0] | undefined;
+    const adapter = createFakeAdapter({
+      read: async () => {
+        throw new CWSandboxTransportError("too large", {
+          reason: CWSANDBOX_FILE_TOO_LARGE,
+          metadata: { size_bytes: "10" },
+        });
+      },
+      readStream: (request) => {
+        captured = request;
+        return (async function* () {
+          yield new Uint8Array(10);
+        })();
+      },
+    });
+    const transfer = new FileTransfer("sbx", adapter);
+
+    await transfer.readSingle("/tmp/a.bin", {});
+    expect(captured?.expectedSize).toBe(10);
+  });
+
   it("rejects truncated fallback reads", async () => {
     const adapter = createFakeAdapter({
       read: async () => {

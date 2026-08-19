@@ -506,6 +506,9 @@ Notes for streaming:
 
 - Mid-failure or `signal` abort on `writeStream` may leave a **partial remote file**.
 - Early stop / abort on `readStream` best-effort cancels the StreamExec process.
+- `readStream({ timeoutMs })` is one wall-clock across the integrity `stat` and
+  the file transfer. The clock starts when iteration begins. Omit `timeoutMs`
+  for an unbounded transfer (`stat` is still capped internally at 10s).
 - Slow work inside the read loop can trip `CWSandboxStreamBackpressureError`
   (`STREAM_BACKPRESSURE`); drain first, process afterward.
 - Bad iterable chunks (not `Uint8Array`) throw `CWSandboxValidationError`.

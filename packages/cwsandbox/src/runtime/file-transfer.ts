@@ -140,6 +140,7 @@ export class FileTransfer {
       ...options,
       path,
       sandboxId: this.sandboxId,
+      ...(expectedSize === undefined ? {} : { expectedSize }),
     })) {
       chunks.push(chunk);
       totalBytes += chunk.byteLength;
