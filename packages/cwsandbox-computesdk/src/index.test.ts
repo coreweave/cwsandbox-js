@@ -21,13 +21,16 @@ import {
   type ServiceUrl,
   type StartCommandOptions,
 } from "@coreweave/cwsandbox";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { coreweave } from "./index.js";
 
 const encoder = new TextEncoder();
 
 describe("coreweave ComputeSDK provider", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
   it("creates sandboxes with resource, owner tag, and name annotation mapping", async () => {
     const tracking = createTrackingClient();
     const provider = coreweave({ client: tracking.client, ownerTag: "matt" });
@@ -230,13 +233,16 @@ describe("coreweave ComputeSDK provider", () => {
     expect(tracking.deletedSandboxIds).toEqual(["sandbox-1", "sandbox-2"]);
   });
 
-  it("fails clearly for getUrl without assigned service URLs", async () => {
+  it("fails clearly for getUrl when assignment never arrives", async () => {
+    vi.useFakeTimers();
     const provider = coreweave({ client: createTrackingClient().client, ownerTag: "t1" });
     const sandbox = await provider.sandbox.create({});
 
-    await expect(sandbox.getUrl({ port: 8080 })).rejects.toThrow(
-      /getUrl has no assigned URL for port 8080/,
+    const pending = expect(sandbox.getUrl({ port: 8080 })).rejects.toThrow(
+      /sandbox was running but port 8080 had no assigned URL after 60000ms/,
     );
+    await vi.advanceTimersByTimeAsync(60_000);
+    await pending;
   });
 
   it("forwards runnerIds from config and create", async () => {
@@ -289,9 +295,47 @@ describe("coreweave ComputeSDK provider", () => {
     expect(tracking.createOptions[0]?.network).toEqual({ denyEgress: false });
     await expect(sandbox.getUrl({ port: 8001 })).resolves.toBe("https://b.example");
     await expect(sandbox.getUrl({ port: 8000 })).resolves.toBe("https://a.example");
-    await expect(sandbox.getUrl({ port: 9999 })).rejects.toThrow(
-      /getUrl has no assigned URL for port 9999/,
+  });
+
+  it("polls inspect until the requested port is assigned", async () => {
+    vi.useFakeTimers();
+    const tracking = createTrackingClient({
+      inspectServiceUrls: [undefined, [{ name: "http-b", port: 8001, url: "https://b.example" }]],
+    });
+    const provider = coreweave({ client: tracking.client, ownerTag: "t1" });
+    const sandbox = await provider.sandbox.create({
+      services: [
+        {
+          endpoint: { auth: "open", kind: "https" },
+          name: "http-b",
+          port: 8001,
+          visibility: "public",
+        },
+      ],
+    });
+
+    const pending = expect(sandbox.getUrl({ port: 8001 })).resolves.toBe("https://b.example");
+    await vi.advanceTimersByTimeAsync(500);
+    await pending;
+    expect(tracking.inspectCalls).toBeGreaterThan(1);
+  });
+
+  it("times out when getUrl port is missing among assigned URLs", async () => {
+    vi.useFakeTimers();
+    const tracking = createTrackingClient({
+      serviceUrls: [
+        { name: "http-a", port: 8000, url: "https://a.example" },
+        { name: "http-b", port: 8001, url: "https://b.example" },
+      ],
+    });
+    const provider = coreweave({ client: tracking.client, ownerTag: "t1" });
+    const sandbox = await provider.sandbox.create({});
+
+    const pending = expect(sandbox.getUrl({ port: 9999 })).rejects.toThrow(
+      /sandbox was running but port 9999 had no assigned URL after 60000ms/,
     );
+    await vi.advanceTimersByTimeAsync(60_000);
+    await pending;
   });
 
   it("rejects invalid ownerTag", async () => {
@@ -309,6 +353,7 @@ interface WriteRequest {
 
 interface TrackingClientOptions {
   readonly inspectError?: Error;
+  readonly inspectServiceUrls?: ReadonlyArray<readonly ServiceUrl[] | undefined>;
   readonly runStdout?: string;
   readonly serviceUrls?: readonly ServiceUrl[];
 }
@@ -319,6 +364,7 @@ interface TrackingClient {
   readonly deletedSandboxIds: string[];
   readonly execCommands: Command[];
   readonly execOptions: Array<ExecOptions | undefined>;
+  readonly inspectCalls: number;
   readonly listAllOptions: Array<SandboxListOptions | undefined>;
   readonly startCommands: Command[];
   readonly writeRequests: WriteRequest[];
@@ -332,6 +378,7 @@ function createTrackingClient(options: TrackingClientOptions = {}): TrackingClie
   const listAllOptions: Array<SandboxListOptions | undefined> = [];
   const startCommands: Command[] = [];
   const writeRequests: WriteRequest[] = [];
+  let inspectCalls = 0;
   let sandboxCounter = 0;
 
   function createFakeSandbox(sandboxId: string, status: SandboxStatus = "running"): Sandbox {
@@ -398,9 +445,15 @@ function createTrackingClient(options: TrackingClientOptions = {}): TrackingClie
         if (options.inspectError !== undefined) {
           throw options.inspectError;
         }
+        inspectCalls += 1;
+        const sequence = options.inspectServiceUrls;
+        const serviceUrls =
+          sequence === undefined
+            ? options.serviceUrls
+            : sequence[Math.min(inspectCalls - 1, sequence.length - 1)];
         return {
           sandboxId,
-          ...(options.serviceUrls === undefined ? {} : { serviceUrls: options.serviceUrls }),
+          ...(serviceUrls === undefined ? {} : { serviceUrls }),
           status,
         };
       },
@@ -473,6 +526,9 @@ function createTrackingClient(options: TrackingClientOptions = {}): TrackingClie
     deletedSandboxIds,
     execCommands,
     execOptions,
+    get inspectCalls() {
+      return inspectCalls;
+    },
     listAllOptions,
     startCommands,
     writeRequests,

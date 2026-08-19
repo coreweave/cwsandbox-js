@@ -22,6 +22,14 @@ async function main(): Promise<void> {
     memoryMiB: 2048,
     maxLifetimeSeconds: 900,
     name: "adapter-smoke",
+    services: [
+      {
+        endpoint: { auth: "open", kind: "https" },
+        name: "http",
+        port: 8000,
+        visibility: "public",
+      },
+    ],
   });
   console.log(`created ${sandbox.sandboxId} in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 
@@ -76,6 +84,13 @@ async function main(): Promise<void> {
     console.log(`[info] status=${info.status} runner=${info.metadata?.["runnerId"] ?? ""}`);
     if (info.status !== "running" || info.id !== sandbox.sandboxId) {
       throw new Error(`getInfo unexpected: status=${info.status} id=${info.id}`);
+    }
+
+    // 6. Public HTTPS assignment (polls inspect until the hostname appears)
+    const url = await sandbox.getUrl({ port: 8000 });
+    console.log(`[url] ${url}`);
+    if (!url.startsWith("https://")) {
+      throw new Error(`getUrl unexpected: ${url}`);
     }
 
     console.log("ALL SMOKE TESTS PASSED");

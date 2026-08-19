@@ -84,6 +84,7 @@ Supported:
 - Resource mapping from ComputeSDK `cpu` / `memoryMiB`
 - `getInfo`: not-found → `stopped`; other inspect errors rethrown
 - `getUrl({ port })` returns the assigned `serviceUrls` entry for that port
+  (polls inspect up to 60s; assignment can lag `running`)
 
 Explicitly unsupported for now:
 
@@ -108,6 +109,7 @@ Live smoke (billable, not part of `pnpm check`) covers:
 - long-timeout streamed exec (`timeout > 240s` → SDK `commands.start`)
 - nested filesystem write/read + `readdir` (parent mkdir via adapter)
 - `getInfo` status `running`
+- `getUrl({ port })` after public HTTPS create (waits up to 60s for assignment)
 - destroy
 
 ## License

@@ -40,6 +40,9 @@ const DEFAULT_MAX_LIFETIME_SECONDS = 3600;
 const STREAM_TIMEOUT_MS = 240_000;
 const OWNER_TAG_PATTERN = /^[A-Za-z0-9._-]*[A-Za-z0-9]$/;
 const OWNER_TAG_MAX_LENGTH = 59;
+/** Hostname assignment can lag `running`; match core e2e wait. */
+const SERVICE_URL_WAIT_MS = 60_000;
+const SERVICE_URL_POLL_MS = 500;
 
 export interface CoreWeaveConfig {
   /** API key; falls back to `CWSANDBOX_API_KEY`. Ignored when `client` is set. */
@@ -154,6 +157,31 @@ async function resolveClient(config: CoreWeaveConfig): Promise<SandboxClient> {
 
   clientCache.set(config, pending);
   return pending;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function waitForAssignedUrl(handle: CoreWeaveSandbox, port: number): Promise<string> {
+  const deadline = Date.now() + SERVICE_URL_WAIT_MS;
+
+  while (Date.now() < deadline) {
+    const inspected = await handle.sandbox.inspect();
+    const match = inspected.serviceUrls?.find(
+      (service) => service.port === port && service.url.startsWith("https://"),
+    );
+    if (match !== undefined) {
+      return match.url;
+    }
+    await sleep(SERVICE_URL_POLL_MS);
+  }
+
+  throw new Error(
+    `coreweave: getUrl: sandbox was running but port ${port} had no assigned URL after ${SERVICE_URL_WAIT_MS}ms`,
+  );
 }
 
 function shq(arg: string): string {
@@ -415,14 +443,7 @@ export const coreweave = defineProvider<CoreWeaveSandbox, CoreWeaveConfig>({
         }
       },
 
-      getUrl: async (handle, { port }) => {
-        const inspected = await handle.sandbox.inspect();
-        const match = inspected.serviceUrls?.find((service) => service.port === port);
-        if (match === undefined || match.url === "") {
-          throw new Error(`coreweave: getUrl has no assigned URL for port ${port}`);
-        }
-        return match.url;
-      },
+      getUrl: async (handle, { port }) => waitForAssignedUrl(handle, port),
 
       filesystem: {
         readFile: async (handle, filePath) => handle.sandbox.files.readText(filePath),
