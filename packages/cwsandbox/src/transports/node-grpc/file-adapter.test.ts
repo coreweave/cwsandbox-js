@@ -259,6 +259,24 @@ describe("createGrpcFileAdapter readStream deadline", () => {
     expect(harness.calls[1]?.timeout).toBeUndefined();
   });
 
+  it("starts unbounded cat after a hung best-effort stat when timeoutMs is omitted", async () => {
+    const harness = createStreamingHarness();
+    const adapter = createGrpcFileAdapter(harness.clients);
+    harness.onCall(0, () => undefined);
+    harness.onCall(1, completeCat);
+
+    const pending = drainReadStream(adapter.readStream({ path: "/tmp/a.bin", sandboxId: "sbx" }));
+    await waitForCall(harness, 0);
+    await vi.advanceTimersByTimeAsync(STAT_INTEGRITY_TIMEOUT_MS);
+    await pending;
+    expect(harness.calls).toHaveLength(2);
+    expect(harness.calls[0]?.timeout).toBe(STAT_INTEGRITY_TIMEOUT_MS);
+    expect(harness.calls[1]?.timeout).toBeUndefined();
+    expect(initCommand(harness.calls[1]?.sent ?? [])).toEqual(
+      expect.arrayContaining(["cwsandbox-read-file-streaming", "/tmp/a.bin"]),
+    );
+  });
+
   it("throws CWSandboxTimeoutError without RPCs when timeoutMs is 0", async () => {
     const harness = createStreamingHarness();
     const adapter = createGrpcFileAdapter(harness.clients);
@@ -271,6 +289,34 @@ describe("createGrpcFileAdapter readStream deadline", () => {
       sandboxId: "sbx",
     });
     expect(harness.calls).toHaveLength(0);
+  });
+
+  it("throws Read file timeout when skip-stat remaining hits 0 before cat", async () => {
+    const harness = createStreamingHarness();
+    const adapter = createGrpcFileAdapter(harness.clients);
+    const t0 = Date.now();
+    const now = vi.spyOn(Date, "now");
+    now.mockReturnValueOnce(t0).mockReturnValueOnce(t0).mockReturnValueOnce(t0 + 1);
+
+    try {
+      await expect(
+        drainReadStream(
+          adapter.readStream({
+            expectedSize: 1,
+            path: "/tmp/a.bin",
+            sandboxId: "sbx",
+            timeoutMs: 1,
+          }),
+        ),
+      ).rejects.toMatchObject({
+        name: "CWSandboxTimeoutError",
+        operation: "Read file",
+        sandboxId: "sbx",
+      });
+      expect(harness.calls).toHaveLength(0);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it("times out a hung stat that consumes the full budget without starting cat", async () => {
@@ -301,6 +347,29 @@ describe("createGrpcFileAdapter readStream deadline", () => {
     const pending = expect(
       drainReadStream(
         adapter.readStream({
+          path: "/tmp/a.bin",
+          sandboxId: "sbx",
+          signal: controller.signal,
+        }),
+      ),
+    ).rejects.toBe(reason);
+    await waitForCall(harness, 0);
+    controller.abort(reason);
+    await pending;
+    expect(harness.calls).toHaveLength(1);
+  });
+
+  it("surfaces abort after cat starts with the caller's reason", async () => {
+    const harness = createStreamingHarness();
+    const adapter = createGrpcFileAdapter(harness.clients);
+    harness.onCall(0, () => undefined);
+    const controller = new AbortController();
+    const reason = new Error("stop-cat");
+
+    const pending = expect(
+      drainReadStream(
+        adapter.readStream({
+          expectedSize: 1,
           path: "/tmp/a.bin",
           sandboxId: "sbx",
           signal: controller.signal,
@@ -377,6 +446,29 @@ describe("createGrpcFileAdapter readStream deadline", () => {
     await waitForCall(harness, 0);
     await vi.advanceTimersByTimeAsync(50);
     await pending;
+    expect(harness.calls).toHaveLength(1);
+  });
+
+  it("remaps an init-frame deadline to operation Read file", async () => {
+    const harness = createStreamingHarness();
+    const adapter = createGrpcFileAdapter(harness.clients);
+    harness.onCall(0, (duplex) => {
+      duplex.rejectSend(new RpcError("deadline", "DEADLINE_EXCEEDED"));
+    });
+
+    await expect(
+      drainReadStream(
+        adapter.readStream({
+          expectedSize: 10,
+          path: "/tmp/a.bin",
+          sandboxId: "sbx",
+        }),
+      ),
+    ).rejects.toMatchObject({
+      name: "CWSandboxTimeoutError",
+      operation: "Read file",
+      sandboxId: "sbx",
+    });
     expect(harness.calls).toHaveLength(1);
   });
 
@@ -575,6 +667,7 @@ interface MockDuplex {
   readonly timeout: number | undefined;
   end(): void;
   push(response: ExecStreamResponse): void;
+  rejectSend(reason: unknown): void;
 }
 
 function createStreamingHarness(): {
@@ -629,6 +722,7 @@ function createMockDuplex(
   let closed = false;
   let aborted = false;
   let abortError: unknown;
+  let sendError: unknown;
   let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
   let resolveDrain!: () => void;
   const drainPromise = new Promise<void>((resolve) => {
@@ -726,6 +820,9 @@ function createMockDuplex(
         complete: async () => undefined,
         send: async (message: ExecStreamRequest) => {
           sent.push(message);
+          if (sendError !== undefined) {
+            throw sendError;
+          }
         },
       },
       responses,
@@ -734,6 +831,9 @@ function createMockDuplex(
     drainPromise,
     end,
     push,
+    rejectSend(reason: unknown) {
+      sendError = reason;
+    },
     sent,
     timeout: timeoutMs,
   };

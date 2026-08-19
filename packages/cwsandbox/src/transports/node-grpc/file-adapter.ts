@@ -179,14 +179,26 @@ async function* grpcReadStreamIterator(
   }
 
   const catTimeoutMs = remainingMs(deadline);
+  if (catTimeoutMs === 0) {
+    throw new CWSandboxTimeoutError("Read file timed out.", {
+      operation: "Read file",
+      sandboxId: request.sandboxId,
+    });
+  }
+
   const outputQueue = new AsyncQueue<Uint8Array>(STREAMING_OUTPUT_QUEUE_SIZE);
 
-  const session = await startExecSession(streamingClient, {
-    command: ["/bin/sh", "-c", READ_STREAM_SCRIPT, "cwsandbox-read-file-streaming", request.path],
-    sandboxId: request.sandboxId,
-    ...(request.signal !== undefined ? { signal: request.signal } : {}),
-    ...(catTimeoutMs === undefined ? {} : { timeoutMs: catTimeoutMs }),
-  });
+  let session;
+  try {
+    session = await startExecSession(streamingClient, {
+      command: ["/bin/sh", "-c", READ_STREAM_SCRIPT, "cwsandbox-read-file-streaming", request.path],
+      sandboxId: request.sandboxId,
+      ...(request.signal !== undefined ? { signal: request.signal } : {}),
+      ...(catTimeoutMs === undefined ? {} : { timeoutMs: catTimeoutMs }),
+    });
+  } catch (error) {
+    throwReadStreamFailure(request.signal, error, request.sandboxId);
+  }
 
   const onAbort = (): void => {
     session.cancel(request.signal?.reason);
@@ -249,8 +261,12 @@ async function* grpcReadStreamIterator(
 
     verifyNoTruncation(request.sandboxId, request.path, delivered, expectedSize);
   } catch (error) {
-    failure = remapReadFileTimeout(error, request.sandboxId);
-    throw failure;
+    try {
+      throwReadStreamFailure(request.signal, error, request.sandboxId);
+    } catch (next) {
+      failure = next;
+      throw next;
+    }
   } finally {
     request.signal?.removeEventListener("abort", onAbort);
     if (!settled) {
@@ -481,6 +497,15 @@ function remapReadFileTimeout(error: unknown, sandboxId: string): unknown {
     operation: "Read file",
     sandboxId,
   });
+}
+
+function throwReadStreamFailure(
+  signal: AbortSignal | undefined,
+  error: unknown,
+  sandboxId: string,
+): never {
+  signal?.throwIfAborted();
+  throw remapReadFileTimeout(error, sandboxId);
 }
 
 function appendCappedStderr(chunks: Uint8Array[], usedBytes: number, data: Uint8Array): number {
