@@ -8,13 +8,17 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type {
+  CommandInput,
   ExecOptions,
   ProcessResult,
   Sandbox,
   SandboxClient,
+  SandboxExposedPort,
   SandboxRunOptions,
   SandboxStatus,
   SandboxTag,
+  Service,
+  ServiceUrl,
 } from "@coreweave/cwsandbox";
 import { expect } from "vitest";
 
@@ -37,12 +41,15 @@ export interface SmokeConfig {
 const smokeDir = dirname(fileURLToPath(import.meta.url));
 
 export const mountedBinaryContent = new Uint8Array([0, 1, 2, 127, 128, 255]);
+export const dualHttpServerScript = readSmokeScript("dual-http-server.js");
 export const noInternetProbeScript = readSmokeScript("no-internet-probe.py");
 export const portProtocols = ["TCP", "UDP", "SCTP"] as const;
 export const resourceProbeScript = readSmokeScript("resource-probe.py");
 export const smokeConfig = createSmokeConfig();
 export const terminalStatuses = new Set<SandboxStatus>(["completed", "failed", "terminated"]);
 export const testTimeoutMs = 120_000;
+export const serviceUrlWaitTimeoutMs = 60_000;
+export const websocketEchoScript = readSmokeScript("websocket-echo.js");
 
 /** Known-good large unary size (matches Python integration; below 32 MiB cap). */
 export const LARGE_FILE_20_MIB = 20 * 1024 * 1024;
@@ -84,7 +91,7 @@ export async function listIncludesSandbox(
   client: SandboxClient,
   sandboxId: string,
   tags: readonly SandboxTag[] = [],
-  options: { readonly pageSize?: number } = {},
+  options: { readonly pageSize?: number; readonly showTerminated?: boolean } = {},
 ): Promise<boolean> {
   let pageToken: string | undefined;
 
@@ -92,6 +99,7 @@ export async function listIncludesSandbox(
     const result = await client.list({
       pageSize: options.pageSize ?? 100,
       ...(pageToken === undefined ? {} : { pageToken }),
+      ...(options.showTerminated === undefined ? {} : { showTerminated: options.showTerminated }),
       ...(tags.length === 0 ? {} : { tags }),
     });
 
@@ -142,17 +150,13 @@ export function runPython(
 }
 
 export function startOptionsForInternetNetwork(): SandboxRunOptions {
-  return {
-    network: {
-      egressMode: "internet",
-    },
-  };
+  return {};
 }
 
 export function startOptionsForNoInternetNetwork(): SandboxRunOptions {
   return {
     network: {
-      egressMode: "none",
+      denyEgress: true,
     },
   };
 }
@@ -161,12 +165,154 @@ export function uniqueSmokeTag(): SandboxTag {
   return `cwsandbox-js-smoke-${Date.now()}-${Math.random().toString(36).slice(2, 10)}x`;
 }
 
+export function publicHttpsService(port: number, name?: string): Service {
+  return {
+    endpoint: { auth: "open", kind: "https" },
+    ...(name === undefined ? {} : { name }),
+    port,
+    visibility: "public",
+  };
+}
+
+export function httpsUrlToWss(url: string): string {
+  const parsed = new URL(url);
+  parsed.protocol = "wss:";
+  return parsed.toString();
+}
+
+export function expectExposedPorts(
+  ports: readonly SandboxExposedPort[] | undefined,
+  expected: readonly number[],
+): void {
+  const actual = new Set((ports ?? []).map((port) => port.port));
+  for (const port of expected) {
+    expect(actual.has(port)).toBe(true);
+  }
+}
+
+export async function waitForServiceUrl(
+  sandbox: Sandbox,
+  port: number,
+  options: { readonly timeoutMs?: number } = {},
+): Promise<ServiceUrl> {
+  const [service] = await waitForServiceUrls(sandbox, [port], options);
+  if (service === undefined) {
+    throw new Error(`sandbox '${sandbox.sandboxId}' missing service URL for port ${port}`);
+  }
+  return service;
+}
+
+export async function waitForServiceUrls(
+  sandbox: Sandbox,
+  ports: readonly number[],
+  options: { readonly timeoutMs?: number } = {},
+): Promise<readonly ServiceUrl[]> {
+  const timeoutMs = options.timeoutMs ?? serviceUrlWaitTimeoutMs;
+  const deadline = Date.now() + timeoutMs;
+  const wanted = new Set(ports);
+
+  while (Date.now() < deadline) {
+    const info = await sandbox.inspect();
+    const found = (info.serviceUrls ?? []).filter(
+      (service) => wanted.has(service.port) && service.url.startsWith("https://"),
+    );
+    if (found.length === wanted.size) {
+      return ports.map((port) => {
+        const service = found.find((entry) => entry.port === port);
+        if (service === undefined) {
+          throw new Error(`sandbox '${sandbox.sandboxId}' missing service URL for port ${port}`);
+        }
+        return service;
+      });
+    }
+    await sleep(500);
+  }
+
+  throw new Error(
+    `sandbox '${sandbox.sandboxId}' reached running but serviceUrls stayed empty for ports ${ports.join(", ")} after ${timeoutMs}ms`,
+  );
+}
+
+export async function waitForHttpOk(
+  url: string,
+  options: { readonly timeoutMs?: number } = {},
+): Promise<Response> {
+  const timeoutMs = options.timeoutMs ?? serviceUrlWaitTimeoutMs;
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown;
+
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+      if (response.status === 200) {
+        return response;
+      }
+      lastError = new Error(`HTTP ${String(response.status)} from ${url}`);
+    } catch (error) {
+      lastError = error;
+    }
+    await sleep(500);
+  }
+
+  throw new Error(`Timed out waiting for HTTP 200 from ${url}: ${String(lastError)}`);
+}
+
+export async function waitForWebSocketEcho(
+  url: string,
+  message: string,
+  options: { readonly timeoutMs?: number } = {},
+): Promise<string> {
+  const timeoutMs = options.timeoutMs ?? serviceUrlWaitTimeoutMs;
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown;
+
+  while (Date.now() < deadline) {
+    try {
+      return await websocketEchoOnce(url, message, Math.min(10_000, deadline - Date.now()));
+    } catch (error) {
+      lastError = error;
+    }
+    await sleep(500);
+  }
+
+  throw new Error(`Timed out waiting for WebSocket echo from ${url}: ${String(lastError)}`);
+}
+
+export async function waitForSandboxListPresence(
+  client: SandboxClient,
+  sandboxId: string,
+  tags: readonly SandboxTag[],
+  options: {
+    readonly present: boolean;
+    readonly showTerminated?: boolean;
+    readonly timeoutMs?: number;
+  },
+): Promise<boolean> {
+  const timeoutMs = options.timeoutMs ?? 30_000;
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const listOptions =
+      options.showTerminated === undefined ? {} : { showTerminated: options.showTerminated };
+    const found = await listIncludesSandbox(client, sandboxId, tags, listOptions);
+    if (found === options.present) {
+      return true;
+    }
+    await sleep(1000);
+  }
+
+  return false;
+}
+
 export function withStartedSandbox<TResult>(
   client: SandboxClient,
-  options: SandboxRunOptions,
+  options: SandboxRunOptions & { readonly command?: CommandInput },
   callback: (sandbox: Sandbox) => Promise<TResult> | TResult,
 ): Promise<TResult> {
-  return client.withSandbox(callback, options);
+  const { command, ...runOptions } = options;
+  return command === undefined
+    ? client.withSandbox(callback, runOptions)
+    : client.withSandbox(command, callback, runOptions);
 }
 
 export async function withDedicatedTaggedSandbox<TResult>(
@@ -226,4 +372,33 @@ function hasWandbCredentials(): boolean {
 
 function readSmokeScript(filename: string): string {
   return readFileSync(join(smokeDir, "..", "scripts", filename), "utf8");
+}
+
+function sleep(timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, timeoutMs);
+  });
+}
+
+function websocketEchoOnce(url: string, message: string, timeoutMs: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(url);
+    const timer = setTimeout(() => {
+      socket.close();
+      reject(new Error(`WebSocket timed out after ${String(timeoutMs)}ms`));
+    }, timeoutMs);
+
+    socket.addEventListener("open", () => {
+      socket.send(message);
+    });
+    socket.addEventListener("message", (event) => {
+      clearTimeout(timer);
+      socket.close();
+      resolve(String(event.data));
+    });
+    socket.addEventListener("error", () => {
+      clearTimeout(timer);
+      reject(new Error(`WebSocket error for ${url}`));
+    });
+  });
 }

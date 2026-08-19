@@ -46,7 +46,7 @@ One workspace package with self-contained scripts (same deps). Typecheck is part
 | `delete-sandboxes.ts`       | `delete` / `missingOk` / `stop`    | `pnpm --dir examples/sdk delete-sandboxes`                   |
 | `cleanup-by-tag.ts`         | `listAll` + tag cleanup            | `pnpm --dir examples/sdk cleanup-by-tag -- --create`         |
 | `cleanup-old-sandboxes.ts`  | age filter on `startedAt`          | `pnpm --dir examples/sdk cleanup-old-sandboxes -- --dry-run` |
-| `list-stopped-sandboxes.ts` | `includeStopped`                   | `pnpm --dir examples/sdk list-stopped-sandboxes -- --create` |
+| `list-stopped-sandboxes.ts` | `showTerminated`                   | `pnpm --dir examples/sdk list-stopped-sandboxes -- --create` |
 | `multiple-sandboxes.ts`     | parallel sandboxes (no Session)    | `pnpm --dir examples/sdk multiple-sandboxes`                 |
 | `parallel-batch-job.ts`     | batch `Promise` fan-out            | `pnpm --dir examples/sdk parallel-batch-job`                 |
 | `interactive-streaming.ts`  | `run` + log follow                 | `pnpm --dir examples/sdk interactive-streaming`              |

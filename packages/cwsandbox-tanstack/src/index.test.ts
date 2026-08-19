@@ -182,8 +182,6 @@ function createTrackingClient(): TrackingClient {
     };
 
     const sandbox: Sandbox = {
-      appliedEgressMode: undefined,
-      appliedIngressMode: undefined,
       commands,
       delete: async () => {
         deletedSandboxIds.push(sandboxId);
@@ -199,13 +197,12 @@ function createTrackingClient(): TrackingClient {
       getStatus: async () => status,
       inspect: async () => ({ sandboxId, status }),
       logs,
-      profileId: undefined,
       resourceLimits: undefined,
       resourceRequests: undefined,
       runnerGroupId: undefined,
       runnerId: undefined,
       sandboxId,
-      serviceAddress: undefined,
+      serviceUrls: undefined,
       shell: async () => {
         throw new Error("Shell not used");
       },

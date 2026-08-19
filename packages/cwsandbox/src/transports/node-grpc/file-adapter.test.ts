@@ -12,12 +12,12 @@ import {
 } from "../../internal/file-limits.js";
 import type { GrpcClients } from "./channel.js";
 import { createGrpcFileAdapter } from "./file-adapter.js";
-import type { GatewayStreamingServiceClient } from "./generated/coreweave/sandbox/v1beta2/streaming.client.js";
+import type { SandboxServiceClient } from "./generated/coreweave/sandbox/v1/sandbox.client.js";
 import {
-  ExecStreamOutput_StreamType as ProtoExecStreamOutputStreamType,
+  ExecStreamOutput_Stream as ProtoExecStreamOutputStream,
   type ExecStreamRequest,
   type ExecStreamResponse,
-} from "./generated/coreweave/sandbox/v1beta2/streaming.js";
+} from "./generated/coreweave/sandbox/v1/sandbox.js";
 
 describe("createGrpcFileAdapter StreamExec paths", () => {
   it("cancels and settles when the readStream consumer stops early", async () => {
@@ -197,25 +197,25 @@ describe("createGrpcFileAdapter StreamExec paths", () => {
 });
 
 function initCommand(sent: readonly ExecStreamRequest[]): string[] {
-  const init = sent.find((message) => message.request.oneofKind === "init");
-  if (init?.request.oneofKind !== "init") {
+  const init = sent.find((message) => message.message.oneofKind === "init");
+  if (init?.message.oneofKind !== "init") {
     return [];
   }
-  return [...init.request.init.command];
+  return [...init.message.init.command];
 }
 
-function readyFrame(sessionId: string): ExecStreamResponse {
+function readyFrame(_sessionId?: string): ExecStreamResponse {
   return {
-    response: {
+    message: {
       oneofKind: "ready",
-      ready: { sessionId },
+      ready: {},
     },
   };
 }
 
 function exitFrame(exitCode: number): ExecStreamResponse {
   return {
-    response: {
+    message: {
       exit: { exitCode },
       oneofKind: "exit",
     },
@@ -225,11 +225,11 @@ function exitFrame(exitCode: number): ExecStreamResponse {
 function stdoutFrame(data: string | Uint8Array): ExecStreamResponse {
   const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
   return {
-    response: {
+    message: {
       oneofKind: "output",
       output: {
         data: bytes,
-        streamType: ProtoExecStreamOutputStreamType.STDOUT,
+        stream: ProtoExecStreamOutputStream.STDOUT,
       },
     },
   };
@@ -237,11 +237,11 @@ function stdoutFrame(data: string | Uint8Array): ExecStreamResponse {
 
 function stderrFrame(message: string): ExecStreamResponse {
   return {
-    response: {
+    message: {
       oneofKind: "output",
       output: {
         data: new TextEncoder().encode(message),
-        streamType: ProtoExecStreamOutputStreamType.STDERR,
+        stream: ProtoExecStreamOutputStream.STDERR,
       },
     },
   };
@@ -282,7 +282,7 @@ function createStreamingHarness(): {
   const calls: MockDuplex[] = [];
   let nextIndex = 0;
 
-  const streamingClient = {
+  const client = {
     streamExec(options?: { abort?: AbortSignal }) {
       const duplex = createMockDuplex(options?.abort);
       const index = nextIndex;
@@ -291,13 +291,12 @@ function createStreamingHarness(): {
       setups.get(index)?.(duplex);
       return duplex.call;
     },
-  } as unknown as GatewayStreamingServiceClient;
+  } as unknown as SandboxServiceClient;
 
   return {
     calls,
     clients: {
-      client: {} as GrpcClients["client"],
-      streamingClient,
+      client,
     },
     onCall(index, setup) {
       setups.set(index, setup);

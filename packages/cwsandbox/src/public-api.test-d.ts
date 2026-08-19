@@ -31,9 +31,8 @@ import {
   type MountedFile,
   type MountedFileContent,
   type MountedFiles,
+  type Endpoint,
   type NetworkOptions,
-  type PortInput,
-  type PortOptions,
   type ProcessResult,
   type ResourceRequestsAndLimits,
   type Sandbox,
@@ -50,6 +49,8 @@ import {
   type SandboxTag,
   type SecretInput,
   type Secrets,
+  type Service,
+  type ServiceUrl,
   type StartSandboxResult,
   type StartCommandOptionsWithStdin,
   type TerminalResult,
@@ -141,24 +142,28 @@ expectTypeOf(
 ).toEqualTypeOf<ReturnType<SandboxClient["run"]>>();
 expectTypeOf(
   client.run(["python"], {
-    profileIds: ["profile-id"],
-    profileNames: ["profile-name"],
     runnerIds: ["runner-id"],
   }),
 ).toEqualTypeOf<ReturnType<SandboxClient["run"]>>();
 expectTypeOf(
   client.run(["python", "-m", "http.server", "8000"], {
     network: {
-      egressMode: "internet",
-      exposedPorts: [8000],
-      ingressMode: "public",
+      denyEgress: true,
     },
-    ports: [8000],
+    services: [{ port: 8000 }],
   }),
 ).toEqualTypeOf<ReturnType<SandboxClient["run"]>>();
 expectTypeOf(
   client.run(["python", "-m", "http.server", "8000"], {
-    ports: [{ name: "http", port: 8000, protocol: "TCP" }],
+    services: [
+      {
+        endpoint: { auth: "open", kind: "https" },
+        name: "http",
+        port: 8000,
+        protocol: "tcp",
+        visibility: "public",
+      },
+    ],
   }),
 ).toEqualTypeOf<ReturnType<SandboxClient["run"]>>();
 const tags = ["project-demo", "purpose-smoke"] as const satisfies readonly SandboxTag[];
@@ -171,8 +176,8 @@ expectTypeOf(client.list({ tags })).toEqualTypeOf<Promise<ListSandboxesResult>>(
 expectTypeOf(client.listSandboxes({ tags })).toEqualTypeOf<SandboxList>();
 expectTypeOf(client.listAll({ tags })).toEqualTypeOf<Promise<readonly Sandbox[]>>();
 const listOptions = {
-  includeStopped: true,
   pageSize: 25,
+  showTerminated: true,
   tags,
   timeoutMs: 1_000,
 } as const satisfies SandboxListOptions;
@@ -222,23 +227,27 @@ expectTypeOf(client.run(command)).toEqualTypeOf<ReturnType<SandboxClient["run"]>
 const commandInput: CommandInput = command;
 expectTypeOf(command).toExtend<CommandInput>();
 
-const portInput: PortInput = { port: 8000, protocol: "TCP" };
-const portOptions: PortOptions = { name: "http", port: 8000 };
+const endpoint: Endpoint = { auth: "open", kind: "https" };
+const service: Service = {
+  endpoint,
+  name: "http",
+  port: 8000,
+  protocol: "tcp",
+  visibility: "public",
+};
+const serviceUrl: ServiceUrl = { name: "http", port: 8000, url: "https://sandbox.example.com" };
 const sandboxAnnotations: SandboxAnnotations = { team: "platform" };
 const sandboxTag: SandboxTag = "project-demo";
 const sandboxExposedPort: SandboxExposedPort = { name: "http", port: 8000, protocol: "TCP" };
 const sandboxResourceSpec: SandboxResourceSpec = { cpu: "1", memory: "1Gi" };
 const sandboxMetadata: SandboxMetadata = {
-  appliedEgressMode: "internet",
-  appliedIngressMode: "public",
   exposedPorts: [sandboxExposedPort],
-  profileId: "profile-id",
   resourceLimits: sandboxResourceSpec,
   resourceRequests: sandboxResourceSpec,
   runnerGroupId: "runner-group-id",
   runnerId: "runner-id",
   sandboxId: "sandbox-id",
-  serviceAddress: "sandbox.example.com",
+  serviceUrls: [serviceUrl],
   startedAt: new Date(),
   status: "running",
   statusReason: "ready",
@@ -249,12 +258,11 @@ const sandboxInfo: SandboxInfo = {
 };
 const startSandboxResult: StartSandboxResult = sandboxMetadata;
 const networkOptions: NetworkOptions = {
-  egressMode: "internet",
-  exposedPorts: [8000],
-  ingressMode: "public",
+  denyEgress: true,
 };
-expectTypeOf(portInput).toExtend<PortInput>();
-expectTypeOf(portOptions).toExtend<PortInput>();
+expectTypeOf(endpoint).toExtend<Endpoint>();
+expectTypeOf(service).toExtend<Service>();
+expectTypeOf(serviceUrl).toExtend<ServiceUrl>();
 expectTypeOf(sandboxAnnotations).toExtend<SandboxAnnotations>();
 expectTypeOf(sandboxTag).toExtend<SandboxTag>();
 expectTypeOf(sandboxExposedPort).toExtend<SandboxExposedPort>();
@@ -269,11 +277,8 @@ expectTypeOf(sandbox.status).toEqualTypeOf<SandboxStatus | undefined>();
 expectTypeOf(sandbox.startedAt).toEqualTypeOf<Date | undefined>();
 expectTypeOf(sandbox.runnerId).toEqualTypeOf<string | undefined>();
 expectTypeOf(sandbox.runnerGroupId).toEqualTypeOf<string | undefined>();
-expectTypeOf(sandbox.profileId).toEqualTypeOf<string | undefined>();
-expectTypeOf(sandbox.serviceAddress).toEqualTypeOf<string | undefined>();
+expectTypeOf(sandbox.serviceUrls).toEqualTypeOf<readonly ServiceUrl[] | undefined>();
 expectTypeOf(sandbox.exposedPorts).toEqualTypeOf<readonly SandboxExposedPort[] | undefined>();
-expectTypeOf(sandbox.appliedIngressMode).toEqualTypeOf<string | undefined>();
-expectTypeOf(sandbox.appliedEgressMode).toEqualTypeOf<string | undefined>();
 expectTypeOf(sandbox.resourceRequests).toEqualTypeOf<SandboxResourceSpec | undefined>();
 expectTypeOf(sandbox.resourceLimits).toEqualTypeOf<SandboxResourceSpec | undefined>();
 expectTypeOf(sandbox.statusReason).toEqualTypeOf<string | undefined>();
@@ -403,6 +408,15 @@ client.listSandboxes({ pageToken: "page-1" });
 // @ts-expect-error listAll owns pagination and does not accept pageToken.
 client.listAll({ pageToken: "page-1" });
 expectTypeOf(sandbox.stop({ gracefulShutdownSeconds: 5 })).toEqualTypeOf<Promise<void>>();
+// @ts-expect-error ports is not supported in v1.
+void client.run(["python"], { ports: [8000] });
+
+// @ts-expect-error profileIds is not supported in v1.
+void client.run(["python"], { profileIds: ["profile-id"] });
+
+// @ts-expect-error includeStopped is not supported in v1.
+void client.listAll({ includeStopped: true });
+
 // @ts-expect-error snapshotOnStop is hidden until FSS is supported.
 sandbox.stop({ snapshotOnStop: true });
 expectTypeOf(sandbox.stop({ missingOk: true })).toEqualTypeOf<Promise<void>>();
@@ -443,8 +457,9 @@ void mountedFileContent;
 void mountedFile;
 void mountedFiles;
 void resourceRequestsAndLimits;
-void portInput;
-void portOptions;
+void endpoint;
+void service;
+void serviceUrl;
 void sandboxAnnotations;
 void sandboxExposedPort;
 void sandboxResourceSpec;

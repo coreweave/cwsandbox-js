@@ -231,7 +231,7 @@ describe("coreweave ComputeSDK provider", () => {
     const provider = coreweave({ client: createTrackingClient().client, ownerTag: "t1" });
     const sandbox = await provider.sandbox.create({});
 
-    await expect(sandbox.getUrl({ port: 8080 })).rejects.toThrow(/getUrl is not implemented/);
+    await expect(sandbox.getUrl({ port: 8080 })).rejects.toThrow(/getUrl requires a service URL/);
   });
 
   it("rejects invalid ownerTag", async () => {
@@ -325,8 +325,6 @@ function createTrackingClient(options: TrackingClientOptions = {}): TrackingClie
     };
 
     const sandbox: Sandbox = {
-      appliedEgressMode: undefined,
-      appliedIngressMode: undefined,
       commands,
       delete: async () => {
         deletedSandboxIds.push(sandboxId);
@@ -342,13 +340,12 @@ function createTrackingClient(options: TrackingClientOptions = {}): TrackingClie
         return { sandboxId, status };
       },
       logs,
-      profileId: undefined,
       resourceLimits: undefined,
       resourceRequests: undefined,
       runnerGroupId: undefined,
       runnerId: undefined,
       sandboxId,
-      serviceAddress: undefined,
+      serviceUrls: undefined,
       shell: async () => {
         throw new Error("Shell not used");
       },

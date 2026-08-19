@@ -16,7 +16,7 @@ let cleaned = 0;
 
 do {
   const result = await client.list({
-    includeStopped: false,
+    showTerminated: false,
     pageSize: 100,
     ...(pageToken === undefined ? {} : { pageToken }),
     tags: [options.tag],

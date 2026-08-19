@@ -215,15 +215,12 @@ describe("Sandbox", () => {
       ...createFakeTransport(),
       async start(request) {
         return {
-          appliedEgressMode: "internet",
-          appliedIngressMode: "public",
           exposedPorts: [{ name: "http", port: 8000, protocol: "TCP" }],
-          profileId: "profile-id",
           resourceLimits: { cpu: "4", memory: "8Gi" },
           resourceRequests: { cpu: "1", memory: "1Gi" },
           runnerId: "runner-id",
           sandboxId: `sandbox-for-${request.command[0]}`,
-          serviceAddress: "sandbox.example.com",
+          serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
           startedAt,
           status: "running",
         };
@@ -235,11 +232,10 @@ describe("Sandbox", () => {
     expect(sandbox.status).toBe("running");
     expect(sandbox.startedAt).toEqual(startedAt);
     expect(sandbox.runnerId).toBe("runner-id");
-    expect(sandbox.profileId).toBe("profile-id");
-    expect(sandbox.serviceAddress).toBe("sandbox.example.com");
+    expect(sandbox.serviceUrls).toEqual([
+      { name: "http", port: 8000, url: "https://sandbox.example.com" },
+    ]);
     expect(sandbox.exposedPorts).toEqual([{ name: "http", port: 8000, protocol: "TCP" }]);
-    expect(sandbox.appliedIngressMode).toBe("public");
-    expect(sandbox.appliedEgressMode).toBe("internet");
     expect(sandbox.resourceRequests).toEqual({ cpu: "1", memory: "1Gi" });
     expect(sandbox.resourceLimits).toEqual({ cpu: "4", memory: "8Gi" });
   });
@@ -250,7 +246,7 @@ describe("Sandbox", () => {
       async start(request) {
         return {
           sandboxId: `sandbox-for-${request.command[0]}`,
-          serviceAddress: "sandbox.example.com",
+          serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
           status: "creating",
         };
       },
@@ -270,7 +266,9 @@ describe("Sandbox", () => {
     expect(status).toBe("running");
     expect(sandbox.status).toBe("running");
     expect(sandbox.runnerGroupId).toBe("runner-group-id");
-    expect(sandbox.serviceAddress).toBe("sandbox.example.com");
+    expect(sandbox.serviceUrls).toEqual([
+      { name: "http", port: 8000, url: "https://sandbox.example.com" },
+    ]);
     expect(sandbox.statusReason).toBe("ready");
   });
 
@@ -292,7 +290,7 @@ describe("Sandbox", () => {
           exposedPorts: [{ name: "http", port: 8000, protocol: "TCP" }],
           runnerId: "runner-id",
           sandboxId: request.sandboxId,
-          serviceAddress: "sandbox.example.com",
+          serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
           startedAt,
           status: "running",
         };
@@ -306,7 +304,7 @@ describe("Sandbox", () => {
       exposedPorts: [{ name: "http", port: 8000, protocol: "TCP" }],
       runnerId: "runner-id",
       sandboxId: "sandbox-for-echo",
-      serviceAddress: "sandbox.example.com",
+      serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
       startedAt,
       status: "running",
     });
@@ -316,7 +314,9 @@ describe("Sandbox", () => {
       timeoutMs: 1234,
     });
     expect(sandbox.status).toBe("running");
-    expect(sandbox.serviceAddress).toBe("sandbox.example.com");
+    expect(sandbox.serviceUrls).toEqual([
+      { name: "http", port: 8000, url: "https://sandbox.example.com" },
+    ]);
     expect(sandbox.exposedPorts).toEqual([{ name: "http", port: 8000, protocol: "TCP" }]);
   });
 

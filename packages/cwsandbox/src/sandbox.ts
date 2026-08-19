@@ -21,6 +21,7 @@ import type {
 import type { RequestOptions } from "./public/common.js";
 import type { SandboxFiles } from "./public/files.js";
 import type { SandboxLogs } from "./public/logs.js";
+import type { ServiceUrl } from "./public/network.js";
 import type {
   DeleteOptions,
   GetSandboxResult,
@@ -81,20 +82,8 @@ export class Sandbox implements PublicSandbox {
     this.logs = createSandboxLogs(this.runtime);
   }
 
-  public get appliedEgressMode(): string | undefined {
-    return this.metadata.appliedEgressMode;
-  }
-
-  public get appliedIngressMode(): string | undefined {
-    return this.metadata.appliedIngressMode;
-  }
-
   public get exposedPorts(): readonly SandboxExposedPort[] | undefined {
     return this.metadata.exposedPorts?.map((port) => ({ ...port }));
-  }
-
-  public get profileId(): string | undefined {
-    return this.metadata.profileId;
   }
 
   public get resourceLimits(): SandboxResourceSpec | undefined {
@@ -113,8 +102,8 @@ export class Sandbox implements PublicSandbox {
     return this.metadata.runnerId;
   }
 
-  public get serviceAddress(): string | undefined {
-    return this.metadata.serviceAddress;
+  public get serviceUrls(): readonly ServiceUrl[] | undefined {
+    return this.metadata.serviceUrls?.map((service) => ({ ...service }));
   }
 
   public get startedAt(): Date | undefined {
@@ -198,6 +187,7 @@ export class Sandbox implements PublicSandbox {
         ...(options.gracefulShutdownSeconds === undefined
           ? {}
           : { gracefulShutdownSeconds: options.gracefulShutdownSeconds }),
+        ...(options.missingOk === true ? { allowMissing: true } : {}),
       });
     }
 
@@ -226,6 +216,7 @@ export class Sandbox implements PublicSandbox {
       this.runtime.transport.delete({
         ...requestOptions,
         sandboxId: this.sandboxId,
+        ...(missingOk === true ? { allowMissing: true } : {}),
       }),
       missingOk === true,
     );
@@ -320,16 +311,9 @@ function cloneMetadata(metadata: SandboxMetadata | undefined): Partial<SandboxMe
   }
 
   return {
-    ...(metadata.appliedEgressMode === undefined
-      ? {}
-      : { appliedEgressMode: metadata.appliedEgressMode }),
-    ...(metadata.appliedIngressMode === undefined
-      ? {}
-      : { appliedIngressMode: metadata.appliedIngressMode }),
     ...(metadata.exposedPorts === undefined
       ? {}
       : { exposedPorts: metadata.exposedPorts.map((port) => ({ ...port })) }),
-    ...(metadata.profileId === undefined ? {} : { profileId: metadata.profileId }),
     ...(metadata.resourceLimits === undefined
       ? {}
       : { resourceLimits: { ...metadata.resourceLimits } }),
@@ -339,7 +323,9 @@ function cloneMetadata(metadata: SandboxMetadata | undefined): Partial<SandboxMe
     ...(metadata.runnerGroupId === undefined ? {} : { runnerGroupId: metadata.runnerGroupId }),
     ...(metadata.runnerId === undefined ? {} : { runnerId: metadata.runnerId }),
     sandboxId: metadata.sandboxId,
-    ...(metadata.serviceAddress === undefined ? {} : { serviceAddress: metadata.serviceAddress }),
+    ...(metadata.serviceUrls === undefined
+      ? {}
+      : { serviceUrls: metadata.serviceUrls.map((service) => ({ ...service })) }),
     ...(metadata.startedAt === undefined ? {} : { startedAt: new Date(metadata.startedAt) }),
     ...(metadata.status === undefined ? {} : { status: metadata.status }),
     ...(metadata.statusReason === undefined ? {} : { statusReason: metadata.statusReason }),

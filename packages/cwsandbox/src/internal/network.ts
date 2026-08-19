@@ -3,66 +3,92 @@
 // SPDX-PackageName: cwsandbox
 
 import { CWSandboxValidationError } from "../errors.js";
-import type { NetworkOptions, PortInput, PortOptions } from "../public/network.js";
+import type { Endpoint, NetworkOptions, Service } from "../public/network.js";
+import { rejectUnsupportedFields } from "./removed.js";
 
-export function normalizePorts(ports: readonly PortInput[] | undefined): readonly PortOptions[] {
-  return ports?.map((port) => (typeof port === "number" ? { port } : port)) ?? [];
-}
+const ENDPOINT_AUTHS = new Set(["open"]);
+const ENDPOINT_KINDS = new Set(["https"]);
+const SERVICE_PROTOCOLS = new Set(["sctp", "tcp", "udp", "unspecified"]);
+const SERVICE_VISIBILITIES = new Set(["custom", "private", "public", "unspecified"]);
 
 export function validateNetworkOptions(
-  ports: readonly PortInput[] | undefined,
+  services: readonly Service[] | undefined,
   network: NetworkOptions | undefined,
 ): void {
-  const normalizedPorts = normalizePorts(ports);
-  validatePorts(normalizedPorts);
-  validateNetwork(network, normalizedPorts);
+  rejectUnsupportedFields(network ?? {}, ["egressMode", "exposedPorts", "ingressMode"]);
+  validateServices(services);
+  validateDenyFlags(network);
 }
 
-function validatePorts(ports: readonly PortOptions[]): void {
-  const seenPorts = new Set<number>();
-
-  for (const { port, name, protocol } of ports) {
-    validatePortNumber(port, "ports.port");
-
-    if (seenPorts.has(port)) {
-      throw new CWSandboxValidationError(`ports contains duplicate port: ${port}`);
-    }
-
-    if (name !== undefined && name.trim() === "") {
-      throw new CWSandboxValidationError("ports.name must not be empty");
-    }
-
-    if (protocol !== undefined && protocol.trim() === "") {
-      throw new CWSandboxValidationError("ports.protocol must not be empty");
-    }
-
-    seenPorts.add(port);
-  }
-}
-
-function validateNetwork(network: NetworkOptions | undefined, ports: readonly PortOptions[]): void {
+function validateDenyFlags(network: NetworkOptions | undefined): void {
   if (network === undefined) {
     return;
   }
 
-  if (network.ingressMode !== undefined && network.ingressMode.trim() === "") {
-    throw new CWSandboxValidationError("network.ingressMode must not be empty");
+  if (network.denyEgress !== undefined && typeof network.denyEgress !== "boolean") {
+    throw new CWSandboxValidationError("network.denyEgress must be a boolean");
   }
 
-  if (network.egressMode !== undefined && network.egressMode.trim() === "") {
-    throw new CWSandboxValidationError("network.egressMode must not be empty");
+  if (network.denyIngress !== undefined && typeof network.denyIngress !== "boolean") {
+    throw new CWSandboxValidationError("network.denyIngress must be a boolean");
+  }
+}
+
+function validateServices(services: readonly Service[] | undefined): void {
+  if (services === undefined) {
+    return;
   }
 
-  const declaredPorts = new Set(ports.map((port) => port.port));
+  const seenPorts = new Set<number>();
+  for (const service of services) {
+    validatePortNumber(service.port, "services.port");
+    if (seenPorts.has(service.port)) {
+      throw new CWSandboxValidationError(`services contains duplicate port: ${service.port}`);
+    }
+    seenPorts.add(service.port);
 
-  for (const exposedPort of network.exposedPorts ?? []) {
-    validatePortNumber(exposedPort, "network.exposedPorts");
+    if (service.name !== undefined && service.name.trim() === "") {
+      throw new CWSandboxValidationError("services.name must not be empty");
+    }
 
-    if (declaredPorts.size > 0 && !declaredPorts.has(exposedPort)) {
+    const protocol = normalizeEnum(service.protocol);
+    if (protocol !== undefined && !SERVICE_PROTOCOLS.has(protocol)) {
+      throw new CWSandboxValidationError(`services.protocol is not supported: ${service.protocol}`);
+    }
+
+    const visibility = normalizeEnum(service.visibility);
+    if (visibility !== undefined && !SERVICE_VISIBILITIES.has(visibility)) {
       throw new CWSandboxValidationError(
-        `network.exposedPorts contains undeclared port: ${exposedPort}`,
+        `services.visibility is not supported: ${service.visibility}`,
       );
     }
+
+    if (service.endpoint !== undefined) {
+      validateEndpoint(service.endpoint, visibility, protocol);
+    }
+  }
+}
+
+function validateEndpoint(
+  endpoint: Endpoint,
+  visibility: string | undefined,
+  protocol: string | undefined,
+): void {
+  const kind = normalizeEnum(endpoint.kind);
+  const auth = normalizeEnum(endpoint.auth);
+  if (kind === undefined || !ENDPOINT_KINDS.has(kind)) {
+    throw new CWSandboxValidationError("Service.endpoint.kind must be https");
+  }
+  if (auth === undefined || !ENDPOINT_AUTHS.has(auth)) {
+    throw new CWSandboxValidationError("Service.endpoint.auth must be open");
+  }
+  if (visibility !== "public") {
+    throw new CWSandboxValidationError("Service.visibility must be PUBLIC when endpoint is set");
+  }
+  if (protocol !== undefined && protocol !== "unspecified" && protocol !== "tcp") {
+    throw new CWSandboxValidationError(
+      "Service.protocol must be unset or TCP when endpoint is set",
+    );
   }
 }
 
@@ -70,4 +96,8 @@ function validatePortNumber(port: number, fieldName: string): void {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     throw new CWSandboxValidationError(`${fieldName} must be an integer between 1 and 65535`);
   }
+}
+
+function normalizeEnum(value: string | undefined): string | undefined {
+  return value === undefined ? undefined : value.trim().toLowerCase();
 }

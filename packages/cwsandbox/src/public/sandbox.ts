@@ -13,7 +13,7 @@ import type {
 import type { RequestOptions, Seconds } from "./common.js";
 import type { MountedFiles, SandboxFiles } from "./files.js";
 import type { SandboxLogs } from "./logs.js";
-import type { NetworkOptions, PortInput } from "./network.js";
+import type { NetworkOptions, Service, ServiceUrl } from "./network.js";
 import type { ResourceOptions, ResourceSpec } from "./resources.js";
 import type { Secrets } from "./secrets.js";
 
@@ -47,11 +47,9 @@ export interface SandboxRunOptions extends RequestOptions {
   readonly maxLifetimeSeconds?: Seconds;
   readonly mountedFiles?: MountedFiles;
   readonly network?: NetworkOptions;
-  readonly ports?: readonly PortInput[];
-  readonly profileIds?: readonly string[];
-  readonly profileNames?: readonly string[];
   readonly resources?: ResourceOptions;
   readonly runnerIds?: readonly string[];
+  readonly services?: readonly Service[];
   /**
    * Secret-store references to resolve server-side and inject as environment variables.
    *
@@ -86,12 +84,10 @@ export interface DeleteOptions extends RequestOptions {
 }
 
 export interface ListSandboxesOptions extends RequestOptions {
-  readonly includeStopped?: boolean;
   readonly pageSize?: number;
   readonly pageToken?: string;
-  readonly profileIds?: readonly string[];
-  readonly profileNames?: readonly string[];
   readonly runnerIds?: readonly string[];
+  readonly showTerminated?: boolean;
   readonly status?: SandboxStatus;
   readonly tags?: readonly SandboxTag[];
 }
@@ -113,16 +109,13 @@ export interface SandboxExposedPort {
 export type SandboxResourceSpec = ResourceSpec;
 
 export interface SandboxMetadata {
-  readonly appliedEgressMode?: string;
-  readonly appliedIngressMode?: string;
   readonly exposedPorts?: readonly SandboxExposedPort[];
-  readonly profileId?: string;
   readonly resourceLimits?: SandboxResourceSpec;
   readonly resourceRequests?: SandboxResourceSpec;
   readonly runnerGroupId?: string;
   readonly runnerId?: string;
   readonly sandboxId: SandboxId;
-  readonly serviceAddress?: string;
+  readonly serviceUrls?: readonly ServiceUrl[];
   readonly startedAt?: Date;
   readonly status?: SandboxStatus;
   readonly statusReason?: string;
@@ -149,15 +142,12 @@ export interface Sandbox {
   readonly files: SandboxFiles;
   readonly logs: SandboxLogs;
   readonly sandboxId: SandboxId;
-  readonly appliedEgressMode: string | undefined;
-  readonly appliedIngressMode: string | undefined;
   readonly exposedPorts: readonly SandboxExposedPort[] | undefined;
-  readonly profileId: string | undefined;
   readonly resourceLimits: SandboxResourceSpec | undefined;
   readonly resourceRequests: SandboxResourceSpec | undefined;
   readonly runnerGroupId: string | undefined;
   readonly runnerId: string | undefined;
-  readonly serviceAddress: string | undefined;
+  readonly serviceUrls: readonly ServiceUrl[] | undefined;
   readonly startedAt: Date | undefined;
   readonly status: SandboxStatus | undefined;
   readonly statusReason: string | undefined;

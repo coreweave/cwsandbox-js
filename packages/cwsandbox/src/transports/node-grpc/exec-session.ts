@@ -13,12 +13,12 @@ import { STREAM_BACKPRESSURE, STREAM_TRUNCATED } from "../../internal/error-info
 import type { Command } from "../../public/commands.js";
 import type { RequestOptions } from "../../public/common.js";
 import { mapGrpcError } from "./errors.js";
-import type { GatewayStreamingServiceClient } from "./generated/coreweave/sandbox/v1beta2/streaming.client.js";
+import type { SandboxServiceClient } from "./generated/coreweave/sandbox/v1/sandbox.client.js";
 import {
-  ExecStreamOutput_StreamType as ProtoExecStreamOutputStreamType,
+  ExecStreamOutput_Stream as ProtoExecStreamOutputStream,
   type ExecStreamRequest as ProtoExecStreamRequest,
   type ExecStreamResponse as ProtoExecStreamResponse,
-} from "./generated/coreweave/sandbox/v1beta2/streaming.js";
+} from "./generated/coreweave/sandbox/v1/sandbox.js";
 import { linkedAbortController, toRpcOptions, withGrpcErrorMapping } from "./rpc.js";
 import {
   awaitStdinReadyOrAbort,
@@ -61,7 +61,7 @@ export interface StartExecSessionOptions extends RequestOptions {
 }
 
 export async function startExecSession(
-  streamingClient: GatewayStreamingServiceClient,
+  streamingClient: SandboxServiceClient,
   options: StartExecSessionOptions,
 ): Promise<ExecSession> {
   const abortController = linkedAbortController(options.signal);
@@ -153,16 +153,16 @@ async function* collectExecFrames(
 
   try {
     for await (const response of call.responses) {
-      switch (response.response.oneofKind) {
+      switch (response.message.oneofKind) {
         case "ready":
           stdinReady?.signalReady();
-          yield { sessionId: response.response.ready.sessionId, type: "ready" };
+          yield { sessionId: "", type: "ready" };
           break;
         case "output":
           yield {
-            data: response.response.output.data,
+            data: response.message.output.data,
             type:
-              response.response.output.streamType === ProtoExecStreamOutputStreamType.STDERR
+              response.message.output.stream === ProtoExecStreamOutputStream.STDERR
                 ? "stderr"
                 : "stdout",
           };
@@ -176,14 +176,14 @@ async function* collectExecFrames(
               transport: "grpc",
             }),
           );
-          yield { exitCode: response.response.exit.exitCode, type: "exit" };
+          yield { exitCode: response.message.exit.exitCode, type: "exit" };
           await onTerminal().catch(() => undefined);
           return;
         case "error": {
           terminal = true;
           const error = mapExecSessionError(
-            response.response.error.code,
-            response.response.error.message || "Streaming command failed.",
+            response.message.error.code,
+            response.message.error.message || "Streaming command failed.",
             options.sandboxId,
           );
           stdinReady?.signalFailed(error);

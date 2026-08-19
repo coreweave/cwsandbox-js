@@ -86,7 +86,16 @@ export type {
   LogStreamOptions,
   SandboxLogs,
 } from "./public/logs.js";
-export type { NetworkOptions, PortInput, PortOptions, PortProtocol } from "./public/network.js";
+export type {
+  Endpoint,
+  EndpointAuth,
+  EndpointKind,
+  NetworkOptions,
+  Service,
+  ServiceProtocol,
+  ServiceUrl,
+  ServiceVisibility,
+} from "./public/network.js";
 export type {
   ResourceOptions,
   ResourceRequestsAndLimits,

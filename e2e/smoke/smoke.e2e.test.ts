@@ -8,20 +8,25 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   createPatternedPayload,
+  dualHttpServerScript,
   expectBytesEqual,
+  expectExposedPorts,
   expectRunning,
   expectTerminalStatus,
+  httpsUrlToWss,
   LARGE_FILE_20_MIB,
   LARGE_FILE_40_MIB,
   largeFileTimeout20Ms,
   largeFileTimeout40Ms,
   STREAM_SMOKE_1_MIB,
+  listAllIncludesSandbox,
   listIncludesSandbox,
   logCaughtError,
   logProcessResult,
   mountedBinaryContent,
   noInternetProbeScript,
   portProtocols,
+  publicHttpsService,
   resourceProbeScript,
   runPython,
   smokeConfig,
@@ -29,6 +34,12 @@ import {
   startOptionsForNoInternetNetwork,
   testTimeoutMs,
   uniqueSmokeTag,
+  waitForHttpOk,
+  waitForSandboxListPresence,
+  waitForServiceUrl,
+  waitForServiceUrls,
+  waitForWebSocketEcho,
+  websocketEchoScript,
   withDedicatedTaggedSandbox,
   withStartedSandbox,
 } from "./helpers.js";
@@ -75,19 +86,15 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
         const info = await activeSandbox.inspect();
 
         console.log("inspect metadata:", {
-          appliedEgressMode: info.appliedEgressMode,
-          appliedIngressMode: info.appliedIngressMode,
           exposedPorts: info.exposedPorts,
-          profileId: info.profileId,
           runnerGroupId: info.runnerGroupId,
           runnerId: info.runnerId,
-          serviceAddress: info.serviceAddress,
+          serviceUrls: info.serviceUrls,
           startedAt: info.startedAt?.toISOString(),
           statusReason: info.statusReason,
         });
 
         expect(info).toMatchObject({
-          profileId: expect.stringMatching(/\S/),
           runnerId: expect.stringMatching(/\S/),
           sandboxId: activeSandbox.sandboxId,
           startedAt: expect.any(Date),
@@ -876,16 +883,106 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     );
 
     it.each(portProtocols)(
-      "starts a sandbox with %s port declaration",
+      "starts a sandbox with %s service declaration",
       async (protocol) => {
         await withStartedSandbox(
           client,
           {
-            ports: [{ name: `port-${protocol.toLowerCase()}`, port: 8000, protocol }],
+            services: [
+              {
+                name: `port-${protocol.toLowerCase()}`,
+                port: 8000,
+                protocol: protocol.toLowerCase(),
+              },
+            ],
           },
-          (sandbox) => {
-            console.log(`Started ${protocol} port sandbox: ${sandbox.sandboxId}`);
-            expect(sandbox.sandboxId).not.toBe("");
+          async (sandbox) => {
+            console.log(`Started ${protocol} service sandbox: ${sandbox.sandboxId}`);
+            const info = await sandbox.inspect();
+            expect(info.serviceUrls ?? []).toEqual([]);
+            expectExposedPorts(info.exposedPorts, [8000]);
+          },
+        );
+      },
+      testTimeoutMs,
+    );
+
+    it(
+      "assigns a public HTTPS service URL",
+      async () => {
+        await withStartedSandbox(
+          client,
+          {
+            services: [publicHttpsService(8000, "http")],
+          },
+          async (sandbox) => {
+            const service = await waitForServiceUrl(sandbox, 8000);
+            console.log("HTTPS service assignment:", service.url);
+            expect(service.url).toEqual(expect.stringMatching(/^https:\/\//));
+            expectExposedPorts(sandbox.exposedPorts, [8000]);
+          },
+        );
+      },
+      testTimeoutMs,
+    );
+
+    it(
+      "serves HTTP on two assigned public HTTPS URLs",
+      async () => {
+        await withStartedSandbox(
+          client,
+          {
+            command: ["node", "/workspace/dual-http-server.js"],
+            containerImage: "node:22",
+            mountedFiles: {
+              "/workspace/dual-http-server.js": dualHttpServerScript,
+            },
+            services: [publicHttpsService(8000, "http-a"), publicHttpsService(8001, "http-b")],
+          },
+          async (sandbox) => {
+            const services = await waitForServiceUrls(sandbox, [8000, 8001]);
+            const first = services.find((service) => service.port === 8000);
+            const second = services.find((service) => service.port === 8001);
+            if (first === undefined || second === undefined) {
+              throw new Error("expected service URLs for ports 8000 and 8001");
+            }
+            expectExposedPorts(sandbox.exposedPorts, [8000, 8001]);
+
+            const reattached = await client.fromId(sandbox.sandboxId);
+            const refreshed = await reattached.inspect();
+            const refreshedUrls = (refreshed.serviceUrls ?? []).map((service) => service.url);
+            expect(refreshedUrls).toEqual(expect.arrayContaining([first.url, second.url]));
+
+            const [firstResponse, secondResponse] = await Promise.all([
+              waitForHttpOk(first.url),
+              waitForHttpOk(second.url),
+            ]);
+            expect(await firstResponse.text()).toContain("ok:8000");
+            expect(await secondResponse.text()).toContain("ok:8001");
+          },
+        );
+      },
+      testTimeoutMs,
+    );
+
+    it(
+      "echoes over the assigned public WebSocket URL",
+      async () => {
+        await withStartedSandbox(
+          client,
+          {
+            command: ["node", "/workspace/websocket-echo.js"],
+            containerImage: "node:22",
+            mountedFiles: {
+              "/workspace/websocket-echo.js": websocketEchoScript,
+            },
+            services: [publicHttpsService(8000, "ws")],
+          },
+          async (sandbox) => {
+            const service = await waitForServiceUrl(sandbox, 8000);
+            expectExposedPorts(sandbox.exposedPorts, [8000]);
+            const echo = await waitForWebSocketEcho(httpsUrlToWss(service.url), "ping-from-smoke");
+            expect(echo).toBe("ping-from-smoke");
           },
         );
       },
@@ -1046,6 +1143,35 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
 
         await client.delete(sandbox.sandboxId);
         await expect(sandbox.stop({ missingOk: true })).resolves.toBeUndefined();
+      },
+      testTimeoutMs,
+    );
+
+    it(
+      "lists a stopped sandbox only when showTerminated is true",
+      async () => {
+        const tag = uniqueSmokeTag();
+        const dedicated = await client.create({ tags: [tag] });
+
+        try {
+          await dedicated.wait();
+          await dedicated.stop();
+          await expectTerminalStatus(dedicated);
+
+          const hidden = await waitForSandboxListPresence(client, dedicated.sandboxId, [tag], {
+            present: false,
+          });
+          expect(hidden).toBe(true);
+          expect(await listAllIncludesSandbox(client, dedicated.sandboxId, [tag])).toBeUndefined();
+
+          const shown = await waitForSandboxListPresence(client, dedicated.sandboxId, [tag], {
+            present: true,
+            showTerminated: true,
+          });
+          expect(shown).toBe(true);
+        } finally {
+          await dedicated.delete({ missingOk: true });
+        }
       },
       testTimeoutMs,
     );

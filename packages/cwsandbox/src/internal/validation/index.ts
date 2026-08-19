@@ -15,6 +15,7 @@ import type {
 } from "../../public/sandbox.js";
 import { validateMountedFiles } from "../mounted-files.js";
 import { validateNetworkOptions } from "../network.js";
+import { rejectUnsupportedFields } from "../removed.js";
 import { validateResources } from "../resources.js";
 import { validateSecrets } from "../secrets.js";
 import { validateAnnotations } from "./annotations.js";
@@ -50,15 +51,14 @@ function validateCommandOptions(options: ExecOptions | StartCommandOptions): voi
 }
 
 export function validateSandboxRunOptions(options: SandboxRunOptions): void {
+  rejectUnsupportedFields(options, ["ports", "profileIds", "profileNames"]);
   validateRequestOptions(options);
   validateAnnotations(options.annotations);
   validateNonNegativeFinite(options.maxLifetimeSeconds, "maxLifetimeSeconds");
   validateMountedFiles(options.mountedFiles);
-  validateNetworkOptions(options.ports, options.network);
+  validateNetworkOptions(options.services, options.network);
   validateResources(options.resources);
   validateSecrets(options.secrets, options.environmentVariables);
-  validateUniqueStringList(options.profileIds, "profileIds");
-  validateUniqueStringList(options.profileNames, "profileNames");
   validateUniqueStringList(options.runnerIds, "runnerIds");
   validateTags(options.tags);
   validateOptionalBoolean(options.waitUntilRunning, "waitUntilRunning");
@@ -69,6 +69,7 @@ export function validateWaitOptions(options: WaitOptions): void {
 }
 
 export function validateStopOptions(options: StopOptions): void {
+  rejectUnsupportedFields(options, ["snapshotOnStop"]);
   validateRequestOptions(options);
   validateNonNegativeInteger(options.gracefulShutdownSeconds, "gracefulShutdownSeconds");
   validateOptionalBoolean(options.missingOk, "missingOk");
@@ -80,8 +81,11 @@ export function validateDeleteOptions(options: DeleteOptions): void {
 }
 
 export function validateListSandboxesOptions(options: ListSandboxesOptions): void {
+  rejectUnsupportedFields(options, ["includeStopped", "profileIds", "profileNames"]);
   validateRequestOptions(options);
   validateNonNegativeInteger(options.pageSize, "pageSize");
+  validateOptionalBoolean(options.showTerminated, "showTerminated");
+  validateUniqueStringList(options.runnerIds, "runnerIds");
   validateTags(options.tags);
 }
 

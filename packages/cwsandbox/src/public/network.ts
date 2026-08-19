@@ -2,17 +2,31 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
-export type PortInput = number | PortOptions;
-export type PortProtocol = "SCTP" | "TCP" | "UDP" | (string & {});
+export type EndpointAuth = "open";
+export type EndpointKind = "https";
+export type ServiceProtocol = "sctp" | "tcp" | "udp";
+export type ServiceVisibility = "custom" | "private" | "public";
 
-export interface PortOptions {
+export interface Endpoint {
+  readonly auth: EndpointAuth | string;
+  readonly kind: EndpointKind | string;
+}
+
+export interface Service {
+  readonly endpoint?: Endpoint;
   readonly name?: string;
   readonly port: number;
-  readonly protocol?: PortProtocol;
+  readonly protocol?: ServiceProtocol | string;
+  readonly visibility?: ServiceVisibility | string;
 }
 
 export interface NetworkOptions {
-  readonly egressMode?: string;
-  readonly exposedPorts?: readonly number[];
-  readonly ingressMode?: string;
+  readonly denyEgress?: boolean;
+  readonly denyIngress?: boolean;
+}
+
+export interface ServiceUrl {
+  readonly name: string;
+  readonly port: number;
+  readonly url: string;
 }

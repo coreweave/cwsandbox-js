@@ -4,17 +4,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { LogStreamRequest } from "./generated/coreweave/sandbox/v1beta2/streaming.js";
-import {
-  sendLogStreamClose,
-  sendLogStreamInit,
-  toLogStreamCloseRequest,
-  toLogStreamInitRequest,
-  type LogStreamingRequestWriter,
-} from "./log-streaming-requests.js";
+import { toLogStreamInitRequest } from "./log-streaming-requests.js";
 
 describe("log streaming request helpers", () => {
-  it("maps finite log stream init requests", () => {
+  it("maps finite log stream requests", () => {
     expect(
       toLogStreamInitRequest({
         mode: "lines",
@@ -22,18 +15,11 @@ describe("log streaming request helpers", () => {
         tailLines: 50,
         timestamps: true,
       }),
-    ).toEqual({
-      request: {
-        init: {
-          follow: false,
-          resumeOffset: "0",
-          resumeSessionId: "",
-          sandboxId: "sandbox-123",
-          tailLines: 50,
-          timestamps: true,
-        },
-        oneofKind: "init",
-      },
+    ).toMatchObject({
+      follow: false,
+      sandboxId: "sandbox-123",
+      tailLines: 50,
+      timestamps: true,
     });
   });
 
@@ -46,16 +32,14 @@ describe("log streaming request helpers", () => {
         mode: "entries",
         sandboxId: "sandbox-123",
         sinceTime,
-      }).request,
+      }),
     ).toMatchObject({
-      init: {
-        follow: true,
-        sinceTime: {
-          nanos: 123_000_000,
-          seconds: "1780136430",
-        },
+      follow: true,
+      sandboxId: "sandbox-123",
+      sinceTime: {
+        nanos: 123_000_000,
+        seconds: "1780136430",
       },
-      oneofKind: "init",
     });
 
     expect(
@@ -64,48 +48,12 @@ describe("log streaming request helpers", () => {
         mode: "raw",
         resume: { offset: 123n, sessionId: "session-1" },
         sandboxId: "sandbox-123",
-      }).request,
+      }),
     ).toMatchObject({
-      init: {
-        resumeOffset: "123",
-        resumeSessionId: "session-1",
-      },
-    });
-  });
-
-  it("maps close requests and sends messages", async () => {
-    const writer = createTrackingWriter();
-
-    expect(toLogStreamCloseRequest()).toEqual({
-      request: {
-        close: {},
-        oneofKind: "close",
-      },
-    });
-
-    await sendLogStreamInit(writer, {
       follow: true,
-      mode: "lines",
+      resumeLogOffset: "123",
+      resumeLogSessionId: "session-1",
       sandboxId: "sandbox-123",
     });
-    await sendLogStreamClose(writer);
-
-    expect(writer.messages.map((message) => message.request.oneofKind)).toEqual(["init", "close"]);
   });
 });
-
-function createTrackingWriter(): LogStreamingRequestWriter & {
-  readonly messages: LogStreamRequest[];
-} {
-  const messages: LogStreamRequest[] = [];
-
-  return {
-    messages,
-    async complete() {
-      return undefined;
-    },
-    async send(message) {
-      messages.push(message);
-    },
-  };
-}

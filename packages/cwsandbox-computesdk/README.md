@@ -85,7 +85,7 @@ Supported:
 
 Explicitly unsupported for now:
 
-- `getUrl` (port exposure helper)
+- `getUrl` when create did not assign a `serviceUrls` entry
 - ComputeSDK `onStdout` / `onStderr` streaming (requires `getUrl` / daemond;
   callbacks alone do not select the streamed exec path)
 - Templates and snapshots

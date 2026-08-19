@@ -393,8 +393,6 @@ export const coreweave = defineProvider<CoreWeaveSandbox, CoreWeaveConfig>({
             timeout: handle.timeoutMs,
             metadata: {
               runnerId: inspected.runnerId,
-              profileId: inspected.profileId,
-              appliedEgressMode: inspected.appliedEgressMode,
             },
           };
         } catch (error) {
@@ -411,10 +409,15 @@ export const coreweave = defineProvider<CoreWeaveSandbox, CoreWeaveConfig>({
         }
       },
 
-      getUrl: async (_sandbox, _options) => {
-        throw new Error(
-          "coreweave: getUrl is not implemented yet — expose ports at create time and use the service address.",
-        );
+      getUrl: async (handle) => {
+        const inspected = await handle.sandbox.inspect();
+        const url = inspected.serviceUrls?.[0]?.url;
+        if (url === undefined || url === "") {
+          throw new Error(
+            "coreweave: getUrl requires a service URL assigned at create time (services + Endpoint).",
+          );
+        }
+        return url;
       },
 
       filesystem: {

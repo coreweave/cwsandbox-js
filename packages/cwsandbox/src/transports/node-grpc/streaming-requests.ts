@@ -4,7 +4,7 @@
 
 import { commandForWorkingDirectory } from "../../internal/commands.js";
 import type { StartCommandRequest, StartShellRequest } from "../../transport/types.js";
-import type { ExecStreamRequest } from "./generated/coreweave/sandbox/v1beta2/streaming.js";
+import { ExecStreamRequest } from "./generated/coreweave/sandbox/v1/sandbox.js";
 
 export interface StreamingRequestWriter {
   complete(): Promise<void>;
@@ -12,12 +12,12 @@ export interface StreamingRequestWriter {
 }
 
 export function toStreamingInitRequest(request: StartCommandRequest): ExecStreamRequest {
-  return {
-    request: {
+  return ExecStreamRequest.create({
+    message: {
       init: {
         command: commandForWorkingDirectory(request.command, request.cwd),
+        container: "",
         env: {},
-        resumeSessionId: "",
         sandboxId: request.sandboxId,
         tty: false,
         ttyHeight: 0,
@@ -25,16 +25,16 @@ export function toStreamingInitRequest(request: StartCommandRequest): ExecStream
       },
       oneofKind: "init",
     },
-  };
+  });
 }
 
 export function toStreamingShellInitRequest(request: StartShellRequest): ExecStreamRequest {
-  return {
-    request: {
+  return ExecStreamRequest.create({
+    message: {
       init: {
         command: [...request.command],
+        container: "",
         env: {},
-        resumeSessionId: "",
         sandboxId: request.sandboxId,
         tty: true,
         ttyHeight: request.rows ?? 0,
@@ -42,39 +42,37 @@ export function toStreamingShellInitRequest(request: StartShellRequest): ExecStr
       },
       oneofKind: "init",
     },
-  };
+  });
 }
 
 export function toStreamingStdinRequest(data: Uint8Array): ExecStreamRequest {
-  return {
-    request: {
+  return ExecStreamRequest.create({
+    message: {
       oneofKind: "stdin",
-      stdin: {
-        data,
-      },
+      stdin: data,
     },
-  };
+  });
 }
 
 export function toStreamingCloseRequest(): ExecStreamRequest {
-  return {
-    request: {
+  return ExecStreamRequest.create({
+    message: {
       close: {},
       oneofKind: "close",
     },
-  };
+  });
 }
 
 export function toStreamingResizeRequest(cols: number, rows: number): ExecStreamRequest {
-  return {
-    request: {
+  return ExecStreamRequest.create({
+    message: {
       oneofKind: "resize",
       resize: {
         height: rows,
         width: cols,
       },
     },
-  };
+  });
 }
 
 export async function sendStreamingInit(

@@ -31,8 +31,11 @@ import type {
 } from "../../transport/file-adapter.js";
 import type { GrpcClients } from "./channel.js";
 import { startExecSession } from "./exec-session.js";
-import type { GatewayStreamingServiceClient } from "./generated/coreweave/sandbox/v1beta2/streaming.client.js";
-import { timeoutMsToSeconds } from "./mappers.js";
+import type { SandboxServiceClient } from "./generated/coreweave/sandbox/v1/sandbox.client.js";
+import {
+  ReadFileRequest as ProtoReadFileRequest,
+  WriteFileRequest as ProtoWriteFileRequest,
+} from "./generated/coreweave/sandbox/v1/sandbox.js";
 import { toRpcOptions, withGrpcErrorMapping } from "./rpc.js";
 
 /**
@@ -97,8 +100,8 @@ export function createGrpcFileAdapter(clients: GrpcClients): FileAdapter {
   return {
     read: (request) => grpcReadFile(clients.client, request),
     write: (request) => grpcWriteFile(clients.client, request),
-    readStream: (request) => grpcReadStream(clients.streamingClient, request),
-    writeStream: (request) => grpcWriteStream(clients.streamingClient, request),
+    readStream: (request) => grpcReadStream(clients.client, request),
+    writeStream: (request) => grpcWriteStream(clients.client, request),
   };
 }
 
@@ -106,26 +109,19 @@ async function grpcWriteFile(
   client: GrpcClients["client"],
   request: WriteFileRequest,
 ): Promise<void> {
-  const response = await withGrpcErrorMapping(
+  await withGrpcErrorMapping(
     "Write file",
     () =>
-      client.addFile(
-        {
-          fileContents: request.content,
-          filepath: request.path,
-          maxTimeoutSeconds: timeoutMsToSeconds(request.timeoutMs),
+      client.writeFile(
+        ProtoWriteFileRequest.create({
+          content: request.content,
+          path: request.path,
           sandboxId: request.sandboxId,
-        },
+        }),
         toRpcOptions(request),
       ).response,
     { filepath: request.path, sandboxId: request.sandboxId },
   );
-
-  assertGrpcSuccess(response, {
-    fallbackMessage: "Failed to write file.",
-    operation: "Write file",
-    sandboxId: request.sandboxId,
-  });
 }
 
 async function grpcReadFile(
@@ -135,28 +131,21 @@ async function grpcReadFile(
   const response = await withGrpcErrorMapping(
     "Read file",
     () =>
-      client.retrieveFile(
-        {
-          filepath: request.path,
-          maxTimeoutSeconds: timeoutMsToSeconds(request.timeoutMs),
+      client.readFile(
+        ProtoReadFileRequest.create({
+          path: request.path,
           sandboxId: request.sandboxId,
-        },
+        }),
         toRpcOptions(request),
       ).response,
     { filepath: request.path, sandboxId: request.sandboxId },
   );
 
-  assertGrpcSuccess(response, {
-    fallbackMessage: "Failed to read file.",
-    operation: "Read file",
-    sandboxId: request.sandboxId,
-  });
-
-  return { content: response.fileContents };
+  return { content: response.content };
 }
 
 function grpcReadStream(
-  streamingClient: GatewayStreamingServiceClient,
+  streamingClient: SandboxServiceClient,
   request: ReadStreamRequest,
 ): AsyncIterable<Uint8Array> {
   return {
@@ -167,7 +156,7 @@ function grpcReadStream(
 }
 
 async function* grpcReadStreamIterator(
-  streamingClient: GatewayStreamingServiceClient,
+  streamingClient: SandboxServiceClient,
   request: ReadStreamRequest,
 ): AsyncGenerator<Uint8Array, void, undefined> {
   const expectedSize = await statFileSize(streamingClient, request);
@@ -257,7 +246,7 @@ async function* grpcReadStreamIterator(
 }
 
 async function grpcWriteStream(
-  streamingClient: GatewayStreamingServiceClient,
+  streamingClient: SandboxServiceClient,
   request: WriteStreamRequest,
 ): Promise<void> {
   const script =
@@ -367,7 +356,7 @@ async function grpcWriteStream(
 }
 
 async function statFileSize(
-  streamingClient: GatewayStreamingServiceClient,
+  streamingClient: SandboxServiceClient,
   request: ReadStreamRequest,
 ): Promise<number | undefined> {
   try {
@@ -441,23 +430,6 @@ function isAbortError(error: unknown): boolean {
       error instanceof DOMException &&
       error.name === "AbortError")
   );
-}
-
-function assertGrpcSuccess(
-  response: { readonly errorMessage?: string; readonly success: boolean },
-  options: {
-    readonly fallbackMessage: string;
-    readonly operation: string;
-    readonly sandboxId: string;
-  },
-): void {
-  if (!response.success) {
-    throw new CWSandboxTransportError(response.errorMessage || options.fallbackMessage, {
-      operation: options.operation,
-      sandboxId: options.sandboxId,
-      transport: "grpc",
-    });
-  }
 }
 
 function mapReadStreamExit(

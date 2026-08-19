@@ -7,11 +7,11 @@ import { describe, expect, it } from "vitest";
 import { CWSandboxTransportError } from "../../errors.js";
 import { STREAM_BACKPRESSURE } from "../../internal/error-info.js";
 import { startExecSession, type ExecFrame } from "./exec-session.js";
-import type { GatewayStreamingServiceClient } from "./generated/coreweave/sandbox/v1beta2/streaming.client.js";
+import type { SandboxServiceClient } from "./generated/coreweave/sandbox/v1/sandbox.client.js";
 import type {
   ExecStreamRequest,
   ExecStreamResponse,
-} from "./generated/coreweave/sandbox/v1beta2/streaming.js";
+} from "./generated/coreweave/sandbox/v1/sandbox.js";
 
 describe("startExecSession", () => {
   it("settles ready and exit frames cleanly", async () => {
@@ -22,13 +22,13 @@ describe("startExecSession", () => {
     });
 
     duplex.push({
-      response: {
+      message: {
         oneofKind: "ready",
-        ready: { sessionId: "sess-1" },
+        ready: {},
       },
     });
     duplex.push({
-      response: {
+      message: {
         exit: { exitCode: 0 },
         oneofKind: "exit",
       },
@@ -36,7 +36,7 @@ describe("startExecSession", () => {
     duplex.end();
 
     await expect(collectFrames(session.frames)).resolves.toEqual([
-      { sessionId: "sess-1", type: "ready" },
+      { sessionId: "", type: "ready" },
       { exitCode: 0, type: "exit" },
     ]);
     expect(requestKinds(duplex.sent)).toEqual(["init"]);
@@ -50,7 +50,7 @@ describe("startExecSession", () => {
     });
 
     duplex.push({
-      response: {
+      message: {
         error: { code: STREAM_BACKPRESSURE, message: "slow" },
         oneofKind: "error",
       },
@@ -89,16 +89,16 @@ describe("startExecSession", () => {
     });
 
     duplex.push({
-      response: {
+      message: {
         oneofKind: "ready",
-        ready: { sessionId: "sess-1" },
+        ready: {},
       },
     });
     duplex.end();
 
     const frames = await collectFrames(session.frames);
     expect(frames).toEqual([
-      { sessionId: "sess-1", type: "ready" },
+      { sessionId: "", type: "ready" },
       {
         error: expect.any(CWSandboxTransportError),
         type: "error",
@@ -119,12 +119,12 @@ async function collectFrames(frames: AsyncIterable<ExecFrame>): Promise<ExecFram
 }
 
 function requestKinds(sent: readonly ExecStreamRequest[]): string[] {
-  return sent.map((message) => message.request.oneofKind ?? "undefined");
+  return sent.map((message) => message.message.oneofKind ?? "undefined");
 }
 
 function createMockDuplex(): {
   readonly aborted: boolean;
-  readonly client: GatewayStreamingServiceClient;
+  readonly client: SandboxServiceClient;
   readonly sent: ExecStreamRequest[];
   end(): void;
   push(response: ExecStreamResponse): void;
@@ -213,7 +213,7 @@ function createMockDuplex(): {
         status: Promise.resolve({ code: "OK", detail: "" }),
       };
     },
-  } as unknown as GatewayStreamingServiceClient;
+  } as unknown as SandboxServiceClient;
 
   return {
     get aborted() {

@@ -53,7 +53,7 @@
   "scripts": {
     "build": "tsdown",
     "prepack": "pnpm build",
-    "proto:update": "buf generate buf.build/coreweave/sandbox --template buf.gen.yaml --path coreweave/sandbox/v1beta2/gateway.proto --path coreweave/sandbox/v1beta2/secrets.proto --path coreweave/sandbox/v1beta2/streaming.proto && tsx scripts/postprocess-generated.ts",
+    "proto:update": "buf generate buf.build/coreweave/sandbox:95e41f6a01534851b3e000549a1b2144 --template buf.gen.yaml --path coreweave/sandbox/v1/sandbox.proto && tsx scripts/postprocess-generated.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run --config vitest.config.ts",
     "test:types": "vitest run --typecheck.only --config vitest.config.ts"
