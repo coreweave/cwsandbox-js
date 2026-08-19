@@ -12,11 +12,11 @@
   },
   "dependencies": {
     "@coreweave/cwsandbox": "workspace:*",
-    "weave": "^0.16.3"
+    "weave": "^0.16.6"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
-    "tsx": "^4.23.1",
+    "tsx": "^4.23.12",
     "typescript": "^7.0.2"
   }
 }
