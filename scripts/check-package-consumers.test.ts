@@ -18,7 +18,9 @@ const packageManifest = JSON.parse(readFileSync(join(packageRoot, "package.json"
 };
 const packageVersion = packageManifest.version;
 if (packageVersion === undefined || packageVersion === "") {
-  throw new Error("packages/cwsandbox/package.json must declare version for package consumer tests.");
+  throw new Error(
+    "packages/cwsandbox/package.json must declare version for package consumer tests.",
+  );
 }
 
 describe("built package consumers", () => {
