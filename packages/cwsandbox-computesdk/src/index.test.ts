@@ -22,7 +22,7 @@ import {
 } from "@coreweave/cwsandbox";
 import { describe, expect, it } from "vitest";
 
-import { coreweave } from "./index.js";
+import { coreweave, type CoreWeaveConfig } from "./index.js";
 
 const encoder = new TextEncoder();
 
@@ -232,6 +232,37 @@ describe("coreweave ComputeSDK provider", () => {
     const sandbox = await provider.sandbox.create({});
 
     await expect(sandbox.getUrl({ port: 8080 })).rejects.toThrow(/getUrl requires a service URL/);
+  });
+
+  it("forwards runnerIds and does not forward profileNames", async () => {
+    const tracking = createTrackingClient();
+    const fromConfig = coreweave({
+      client: tracking.client,
+      ownerTag: "t1",
+      runnerIds: ["runner-a"],
+    });
+
+    await fromConfig.sandbox.create({});
+
+    expect(tracking.createOptions[0]?.runnerIds).toEqual(["runner-a"]);
+    expect(tracking.createOptions[0]).not.toHaveProperty("profileNames");
+
+    const fromCreate = coreweave({ client: tracking.client, ownerTag: "t1" });
+    await fromCreate.sandbox.create({ runnerIds: ["runner-b"] });
+
+    expect(tracking.createOptions[1]?.runnerIds).toEqual(["runner-b"]);
+    expect(tracking.createOptions[1]).not.toHaveProperty("profileNames");
+  });
+
+  it("does not type profileNames on config or create", () => {
+    const config: CoreWeaveConfig = { ownerTag: "t1" };
+    // @ts-expect-error profileNames is not a CoreWeaveConfig field.
+    void config.profileNames;
+
+    type CreateArg = Parameters<ReturnType<typeof coreweave>["sandbox"]["create"]>[0];
+    const createOptions = { runnerIds: ["runner-a"] } satisfies CreateArg;
+    // @ts-expect-error profileNames is not a create field.
+    void createOptions.profileNames;
   });
 
   it("rejects invalid ownerTag", async () => {

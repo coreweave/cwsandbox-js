@@ -32,6 +32,7 @@ export function validateExecOptions(options: ExecOptions): void {
 
 export function validateStartCommandOptions(options: StartCommandOptions): void {
   validateCommandOptions(options);
+  validateNonNegativeInteger(options.bufferedMaxKiB, "bufferedMaxKiB");
 }
 
 export function validateShellOptions(options: ShellOptions): void {
@@ -42,7 +43,6 @@ export function validateShellOptions(options: ShellOptions): void {
 
 function validateCommandOptions(options: ExecOptions | StartCommandOptions): void {
   validateRequestOptions(options);
-  validateNonNegativeInteger(options.bufferedMaxKiB, "bufferedMaxKiB");
   validateOptionalBoolean(options.check, "check");
   validateOptionalNonBlankString(options.cwd, "cwd");
   if ("stdin" in options) {

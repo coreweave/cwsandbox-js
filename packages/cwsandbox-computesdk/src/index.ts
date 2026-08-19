@@ -61,8 +61,6 @@ export interface CoreWeaveConfig {
   readonly ownerTag?: string;
   /** Restrict scheduling to these runner names. */
   readonly runnerIds?: readonly string[];
-  /** Restrict scheduling to these profile names. */
-  readonly profileNames?: readonly string[];
   /** Injected client (tests / advanced). */
   readonly client?: SandboxClient;
   /** Factory for an injected client. */
@@ -73,7 +71,6 @@ type CoreWeaveCreateOptions = CreateSandboxOptions & {
   readonly image?: string;
   readonly maxLifetimeSeconds?: number;
   readonly runnerIds?: readonly string[];
-  readonly profileNames?: readonly string[];
 };
 
 export interface CoreWeaveSandbox {
@@ -204,7 +201,6 @@ function toCreateOptions(
     options?.memoryMiB !== undefined ? `${options.memoryMiB}Mi` : (config.memory ?? DEFAULT_MEMORY);
   const maxLifetimeSeconds = resolveMaxLifetimeSeconds(config, options);
   const runnerIds = options?.runnerIds ?? config.runnerIds;
-  const profileNames = options?.profileNames ?? config.profileNames;
   const name = options?.name?.trim();
 
   return {
@@ -217,7 +213,6 @@ function toCreateOptions(
     ...(options?.envs !== undefined ? { environmentVariables: options.envs } : {}),
     ...(options?.signal !== undefined ? { signal: options.signal } : {}),
     ...(runnerIds !== undefined && runnerIds.length > 0 ? { runnerIds } : {}),
-    ...(profileNames !== undefined && profileNames.length > 0 ? { profileNames } : {}),
   };
 }
 

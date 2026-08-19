@@ -11,7 +11,6 @@ export type CommandOutputStream = AsyncIterable<string>;
 export type CommandProcessStatus = "cancelled" | "exited" | "failed" | "running" | "starting";
 
 export interface ExecOptions extends RequestOptions {
-  readonly bufferedMaxKiB?: number;
   readonly check?: boolean;
   readonly cwd?: string;
 }

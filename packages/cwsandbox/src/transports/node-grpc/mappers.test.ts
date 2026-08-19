@@ -493,19 +493,6 @@ describe("node transport mappers", () => {
 
       expect(request).toMatchObject({
         command: ["node", "--version"],
-        sandboxId: "sandbox-123",
-      });
-    });
-
-    it("omits maxOutputBytes on unary exec even when a buffer cap is set", () => {
-      const request = toProtoExecRequest({
-        bufferedMaxKiB: 64,
-        command: ["node", "--version"],
-        sandboxId: "sandbox-123",
-      });
-
-      expect(request).toMatchObject({
-        command: ["node", "--version"],
         maxOutputBytes: 0,
         sandboxId: "sandbox-123",
       });

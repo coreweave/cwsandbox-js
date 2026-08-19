@@ -179,13 +179,11 @@ describe("Sandbox commands", () => {
     const sandbox = await createClient(transport).run(["echo", "hello"]);
 
     await sandbox.exec(["node", "--version"], {
-      bufferedMaxKiB: 64,
       signal,
       timeoutMs: 5000,
     });
 
     expect(execRequest).toEqual({
-      bufferedMaxKiB: 64,
       command: ["node", "--version"],
       sandboxId: "sandbox-for-echo",
       signal,
@@ -200,12 +198,6 @@ describe("Sandbox commands", () => {
     await expect(sandbox.exec([])).rejects.toThrow(CWSandboxValidationError);
     await expect(sandbox.commands.run([])).rejects.toThrow(CWSandboxValidationError);
     await expect(sandbox.exec(["echo"], { timeoutMs: -1 })).rejects.toThrow(
-      CWSandboxValidationError,
-    );
-    await expect(sandbox.exec(["echo"], { bufferedMaxKiB: -1 })).rejects.toThrow(
-      CWSandboxValidationError,
-    );
-    await expect(sandbox.exec(["echo"], { bufferedMaxKiB: 1.5 })).rejects.toThrow(
       CWSandboxValidationError,
     );
     await expect(sandbox.exec(["echo"], { check: "yes" as unknown as boolean })).rejects.toThrow(

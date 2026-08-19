@@ -71,6 +71,7 @@ export class Sandbox implements PublicSandbox {
     this.metadata = {
       ...cloneMetadata(options.metadata),
       sandboxId: this.sandboxId,
+      ...cloneServiceDerivedFields(options.metadata),
     };
     const fileTransfer = new FileTransfer(this.sandboxId, options.fileAdapter);
     this.runtime = {
@@ -224,9 +225,10 @@ export class Sandbox implements PublicSandbox {
 
   private updateMetadata(metadata: SandboxMetadata): void {
     this.metadata = {
-      ...this.metadata,
+      ...cloneMetadata(this.metadata),
       ...cloneMetadata(metadata),
       sandboxId: this.sandboxId,
+      ...cloneServiceDerivedFields(metadata),
     };
   }
 }
@@ -305,15 +307,35 @@ function cloneResourceSpec(spec: SandboxResourceSpec | undefined): SandboxResour
   return spec === undefined ? undefined : { ...spec };
 }
 
+function cloneExposedPorts(
+  ports: readonly SandboxExposedPort[] | undefined,
+): readonly SandboxExposedPort[] | undefined {
+  return ports === undefined ? undefined : ports.map((port) => ({ ...port }));
+}
+
+function cloneServiceUrls(
+  urls: readonly ServiceUrl[] | undefined,
+): readonly ServiceUrl[] | undefined {
+  return urls === undefined ? undefined : urls.map((service) => ({ ...service }));
+}
+
+function cloneServiceDerivedFields(
+  metadata: SandboxMetadata | undefined,
+): Pick<SandboxMetadata, "exposedPorts" | "serviceUrls"> {
+  const exposedPorts = cloneExposedPorts(metadata?.exposedPorts);
+  const serviceUrls = cloneServiceUrls(metadata?.serviceUrls);
+  return {
+    ...(exposedPorts === undefined ? {} : { exposedPorts }),
+    ...(serviceUrls === undefined ? {} : { serviceUrls }),
+  };
+}
+
 function cloneMetadata(metadata: SandboxMetadata | undefined): Partial<SandboxMetadata> {
   if (metadata === undefined) {
     return {};
   }
 
   return {
-    ...(metadata.exposedPorts === undefined
-      ? {}
-      : { exposedPorts: metadata.exposedPorts.map((port) => ({ ...port })) }),
     ...(metadata.resourceLimits === undefined
       ? {}
       : { resourceLimits: { ...metadata.resourceLimits } }),
@@ -323,9 +345,6 @@ function cloneMetadata(metadata: SandboxMetadata | undefined): Partial<SandboxMe
     ...(metadata.runnerGroupId === undefined ? {} : { runnerGroupId: metadata.runnerGroupId }),
     ...(metadata.runnerId === undefined ? {} : { runnerId: metadata.runnerId }),
     sandboxId: metadata.sandboxId,
-    ...(metadata.serviceUrls === undefined
-      ? {}
-      : { serviceUrls: metadata.serviceUrls.map((service) => ({ ...service })) }),
     ...(metadata.startedAt === undefined ? {} : { startedAt: new Date(metadata.startedAt) }),
     ...(metadata.status === undefined ? {} : { status: metadata.status }),
     ...(metadata.statusReason === undefined ? {} : { statusReason: metadata.statusReason }),

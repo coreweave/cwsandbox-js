@@ -289,12 +289,13 @@ expectTypeOf(sandbox.shell({ cols: 80, rows: 24 })).toEqualTypeOf<Promise<Termin
 expectTypeOf(sandbox.commands.run(command)).toEqualTypeOf<
   ReturnType<typeof sandbox.commands.run>
 >();
-expectTypeOf(sandbox.commands.run(command, { bufferedMaxKiB: 64 })).toEqualTypeOf<
-  ReturnType<typeof sandbox.commands.run>
->();
 expectTypeOf(sandbox.commands.run(command, { check: true })).toEqualTypeOf<
   ReturnType<typeof sandbox.commands.run>
 >();
+// @ts-expect-error bufferedMaxKiB is not part of public ExecOptions
+void sandbox.commands.run(command, { bufferedMaxKiB: 64 });
+// @ts-expect-error bufferedMaxKiB is not part of public ExecOptions
+void sandbox.exec(command, { bufferedMaxKiB: 64 });
 const commandProcess = await sandbox.commands.start(command, { bufferedMaxKiB: 64 });
 expectTypeOf(commandProcess).toExtend<CommandProcess>();
 expectTypeOf(commandProcess.status).toEqualTypeOf<CommandProcessStatus>();
@@ -414,8 +415,23 @@ void client.run(["python"], { ports: [8000] });
 // @ts-expect-error profileIds is not supported in v1.
 void client.run(["python"], { profileIds: ["profile-id"] });
 
+// @ts-expect-error profileNames is not supported in v1.
+void client.run(["python"], { profileNames: ["default"] });
+
+// @ts-expect-error network.ingressMode is not supported in v1.
+void client.run(["python"], { network: { ingressMode: "public" } });
+
+// @ts-expect-error network.exposedPorts is not supported in v1.
+void client.run(["python"], { network: { exposedPorts: [8000] } });
+
 // @ts-expect-error includeStopped is not supported in v1.
 void client.listAll({ includeStopped: true });
+
+// @ts-expect-error profileIds is not supported in v1.
+void client.listAll({ profileIds: ["profile-id"] });
+
+// @ts-expect-error profileNames is not supported in v1.
+void client.listAll({ profileNames: ["default"] });
 
 // @ts-expect-error snapshotOnStop is hidden until FSS is supported.
 sandbox.stop({ snapshotOnStop: true });

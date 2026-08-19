@@ -740,8 +740,20 @@ describe("SandboxClient", () => {
       await expect(
         client.run(["python"], { network: { egressMode: "internet" } } as never),
       ).rejects.toThrow(/egressMode is not supported in v1/);
+      await expect(
+        client.run(["python"], { network: { ingressMode: "public" } } as never),
+      ).rejects.toThrow(/ingressMode is not supported in v1/);
+      await expect(
+        client.run(["python"], { network: { exposedPorts: [8000] } } as never),
+      ).rejects.toThrow(/exposedPorts is not supported in v1/);
       await expect(client.list({ includeStopped: true } as never)).rejects.toThrow(
         /includeStopped is not supported in v1/,
+      );
+      await expect(client.list({ profileIds: ["profile"] } as never)).rejects.toThrow(
+        /profileIds is not supported in v1/,
+      );
+      await expect(client.list({ profileNames: ["default"] } as never)).rejects.toThrow(
+        /profileNames is not supported in v1/,
       );
     });
 

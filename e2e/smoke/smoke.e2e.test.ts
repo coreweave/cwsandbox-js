@@ -221,19 +221,6 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     );
 
     it(
-      "runs commands with a buffered output cap",
-      async () => {
-        const result = await runPython(currentSandbox(), "print('hello from buffered output')");
-        logProcessResult("buffered output", result);
-
-        expect(result.exitCode).toBe(0);
-        expect(result.stdout).toContain("hello from buffered output");
-        expect(result.stderr).toBe("");
-      },
-      testTimeoutMs,
-    );
-
-    it(
       "streams stdout and stderr through commands.start",
       async () => {
         const process = await currentSandbox().commands.start([

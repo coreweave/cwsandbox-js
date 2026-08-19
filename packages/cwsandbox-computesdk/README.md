@@ -62,7 +62,7 @@ await sandbox.destroy();
 | `cpu` / `memory`                 | `2` / `4Gi`                 | Kubernetes quantities (defaults; per-create `cpu`/`memoryMiB` override) |
 | `maxLifetimeSeconds`             | `3600`                      | server-enforced hard TTL                                                |
 | `ownerTag`                       | auto 6-char `[a-z0-9]`      | paired with `computesdk` tag for list scoping; stable per config object |
-| `runnerIds` / `profileNames`     | —                           | scheduling constraints                                                  |
+| `runnerIds`                      | —                           | scheduling constraints                                                  |
 | `client` / `createClient`        | —                           | inject a `SandboxClient` (tests / advanced); client factory is memoized |
 
 Create options of note:

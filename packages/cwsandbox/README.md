@@ -281,14 +281,10 @@ if (result.exitCode !== 0) {
 }
 ```
 
-Use `cwd` for a working directory and `bufferedMaxKiB` to request a buffered output cap:
+Use `cwd` for a working directory:
 
 ```ts
 await sandbox.commands.run(["pwd"], { cwd: "/tmp" });
-
-await sandbox.commands.run(["python", "-c", "print('hello')"], {
-  bufferedMaxKiB: 64,
-});
 ```
 
 Use `commands.start()` when you need to stream output while a command is running:

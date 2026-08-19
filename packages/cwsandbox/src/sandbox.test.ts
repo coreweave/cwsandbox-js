@@ -266,10 +266,42 @@ describe("Sandbox", () => {
     expect(status).toBe("running");
     expect(sandbox.status).toBe("running");
     expect(sandbox.runnerGroupId).toBe("runner-group-id");
+    expect(sandbox.serviceUrls).toBeUndefined();
+    expect(sandbox.statusReason).toBe("ready");
+  });
+
+  it("clears service-derived metadata when inspect omits them", async () => {
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          exposedPorts: [{ name: "http", port: 8000, protocol: "TCP" }],
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
+          status: "running",
+        };
+      },
+      async get(request) {
+        return {
+          sandboxId: request.sandboxId,
+          status: "completed",
+        };
+      },
+    };
+
+    const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
     expect(sandbox.serviceUrls).toEqual([
       { name: "http", port: 8000, url: "https://sandbox.example.com" },
     ]);
-    expect(sandbox.statusReason).toBe("ready");
+    expect(sandbox.exposedPorts).toEqual([{ name: "http", port: 8000, protocol: "TCP" }]);
+
+    const info = await sandbox.inspect();
+
+    expect(info.serviceUrls).toBeUndefined();
+    expect(info.exposedPorts).toBeUndefined();
+    expect(sandbox.serviceUrls).toBeUndefined();
+    expect(sandbox.exposedPorts).toBeUndefined();
+    expect(sandbox.status).toBe("completed");
   });
 
   it("inspects fresh metadata and forwards request options", async () => {
