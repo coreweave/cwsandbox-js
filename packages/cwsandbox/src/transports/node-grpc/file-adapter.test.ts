@@ -670,7 +670,7 @@ interface MockDuplex {
   readonly timeout: number | undefined;
   end(): void;
   push(response: ExecStreamResponse): void;
-  rejectSend(reason: unknown): void;
+  rejectSend(reason: Error): void;
 }
 
 function createStreamingHarness(): {
@@ -725,7 +725,7 @@ function createMockDuplex(
   let closed = false;
   let aborted = false;
   let abortError: unknown;
-  let sendError: unknown;
+  let sendError: Error | undefined;
   let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
   let resolveDrain!: () => void;
   const drainPromise = new Promise<void>((resolve) => {
@@ -824,7 +824,7 @@ function createMockDuplex(
         send: async (message: ExecStreamRequest) => {
           sent.push(message);
           if (sendError !== undefined) {
-            throw sendError;
+            return Promise.reject(sendError);
           }
         },
       },
@@ -834,7 +834,7 @@ function createMockDuplex(
     drainPromise,
     end,
     push,
-    rejectSend(reason: unknown) {
+    rejectSend(reason: Error) {
       sendError = reason;
     },
     sent,
