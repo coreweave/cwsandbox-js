@@ -239,7 +239,7 @@ async function* grpcReadStreamIterator(
   })();
 
   let settled = false;
-  let failure: unknown;
+  let failure: Error | undefined;
   try {
     request.signal?.throwIfAborted();
     for await (const chunk of outputQueue) {
@@ -261,12 +261,10 @@ async function* grpcReadStreamIterator(
 
     verifyNoTruncation(request.sandboxId, request.path, delivered, expectedSize);
   } catch (error) {
-    try {
-      throwReadStreamFailure(request.signal, error, request.sandboxId);
-    } catch (next) {
-      failure = next;
-      throw next;
-    }
+    request.signal?.throwIfAborted();
+    const remapped = remapReadFileTimeout(error, request.sandboxId);
+    failure = remapped;
+    throw remapped;
   } finally {
     request.signal?.removeEventListener("abort", onAbort);
     if (!settled) {
@@ -485,17 +483,25 @@ function throwIfReadTimedOut(deadline: number | undefined, sandboxId: string): v
   }
 }
 
-function remapReadFileTimeout(error: unknown, sandboxId: string): unknown {
-  if (!(error instanceof CWSandboxTimeoutError)) {
+function remapReadFileTimeout(error: unknown, sandboxId: string): Error {
+  if (error instanceof CWSandboxTimeoutError) {
+    if (error.operation === "Read file") {
+      return error;
+    }
+    return new CWSandboxTimeoutError(error.message, {
+      cause: error,
+      operation: "Read file",
+      sandboxId,
+    });
+  }
+  if (error instanceof Error) {
     return error;
   }
-  if (error.operation === "Read file") {
-    return error;
-  }
-  return new CWSandboxTimeoutError(error.message, {
+  return new CWSandboxTransportError("Read file failed.", {
     cause: error,
     operation: "Read file",
     sandboxId,
+    transport: "grpc",
   });
 }
 
