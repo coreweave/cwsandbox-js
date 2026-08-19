@@ -100,8 +100,12 @@ function generateOwnerTag(): string {
   const alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
   const bytes = randomBytes(6);
   let out = "";
-  for (let i = 0; i < 6; i++) {
-    out += alphabet[bytes[i]! % alphabet.length]!;
+  for (const byte of bytes) {
+    const char = alphabet[byte % alphabet.length];
+    if (char === undefined) {
+      throw new Error("ownerTag alphabet lookup failed");
+    }
+    out += char;
   }
   return out;
 }
@@ -303,7 +307,10 @@ function parseLsLaEntries(stdout: string): FileEntry[] {
     if (parts.length < 9) {
       continue;
     }
-    const perms = parts[0]!;
+    const perms = parts[0];
+    if (perms === undefined) {
+      continue;
+    }
     const name = parts.slice(8).join(" ");
     if (name === "." || name === "..") {
       continue;

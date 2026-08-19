@@ -124,7 +124,9 @@ describe("coreweave ComputeSDK provider", () => {
 
     // ComputeSDK owns callback streaming (daemond + getUrl). Our adapter must not
     // treat onStdout as a signal to use commands.start.
-    await expect(sandbox.runCommand("printf ok", { onStdout: () => undefined })).rejects.toThrow();
+    await expect(sandbox.runCommand("printf ok", { onStdout: () => undefined })).rejects.toThrow(
+      /not valid JSON/,
+    );
     expect(tracking.startCommands).toHaveLength(0);
     expect(tracking.execCommands.length).toBeGreaterThan(0);
   });
@@ -256,11 +258,13 @@ describe("coreweave ComputeSDK provider", () => {
 
   it("does not type profileNames on config or create", () => {
     const config: CoreWeaveConfig = { ownerTag: "t1" };
+    expect(config).not.toHaveProperty("profileNames");
     // @ts-expect-error profileNames is not a CoreWeaveConfig field.
     void config.profileNames;
 
     type CreateArg = Parameters<ReturnType<typeof coreweave>["sandbox"]["create"]>[0];
     const createOptions = { runnerIds: ["runner-a"] } satisfies CreateArg;
+    expect(createOptions).not.toHaveProperty("profileNames");
     // @ts-expect-error profileNames is not a create field.
     void createOptions.profileNames;
   });
