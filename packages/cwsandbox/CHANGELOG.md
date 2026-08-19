@@ -11,9 +11,8 @@ SPDX-PackageName: cwsandbox
 - Cut the public SDK from Sandbox v1beta2 to v1 (`CreateSandbox`, one
   `SandboxService`, pinned BSR commit `95e41f6a01534851b3e000549a1b2144`)
 - Replace `ports` / `egressMode` / `ingressMode` / `exposedPorts` with
-  `services` and `network.denyEgress` / `network.denyIngress`
-- Reject `ports`, `profileIds`, `profileNames`, and `includeStopped` with
-  `{field} is not supported in v1`
+  `services` and `network.denyEgress` / `network.denyIngress`. Removed names
+  are omitted from v1 types and are not mapped.
 - List terminals with `showTerminated`; inspect now exposes `serviceUrls`
   instead of `profileId` / `serviceAddress` / applied network modes
 - Remove incomplete public `snapshotOnStop` from `stop()` until file-system

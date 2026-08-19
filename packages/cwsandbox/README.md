@@ -12,12 +12,11 @@ TypeScript SDK for CoreWeave Sandbox.
 > (TanStack now, Vercel AI planned) version lockstep with this package; the first
 > npm cut is core only.
 >
-> This package speaks Sandbox **v1**. `ports`, `egressMode` / `ingressMode`,
-> `profileIds` / `profileNames`, and `includeStopped` throw
-> `CWSandboxValidationError` (`{field} is not supported in v1`). Use `services`,
-> `network.denyEgress` / `network.denyIngress`, `runnerIds`, and
-> `showTerminated`. Templates (`runFromTemplate`) are the successor for
-> profile-style placement and are not wrapped in this SDK yet.
+> This package speaks Sandbox **v1**. Use `services`, `network.denyEgress` /
+> `network.denyIngress`, `runnerIds`, and `showTerminated`. Profiles, `ports`,
+> and `includeStopped` are not part of this API. Templates (`runFromTemplate`)
+> are the successor for profile-style placement and are not wrapped in this SDK
+> yet.
 
 For platform concepts and product guides, see the
 [CoreWeave Sandbox documentation](https://docs.coreweave.com/products/coreweave-sandbox/client).

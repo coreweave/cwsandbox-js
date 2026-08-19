@@ -69,6 +69,7 @@ Create options of note:
 
 - `name` → sandbox annotation `name` (not a tag)
 - `timeout` (ms) → `maxLifetimeSeconds` only (not create `timeoutMs`)
+- `services` / `network` forwarded to the core SDK (HTTPS assignment is create-time)
 - Tags always include `computesdk` + `ownerTag`
 
 ## Capability mapping
@@ -82,10 +83,11 @@ Supported:
 - Shell-backed mkdir, portable `ls -la` readdir, exists, and remove
 - Resource mapping from ComputeSDK `cpu` / `memoryMiB`
 - `getInfo`: not-found → `stopped`; other inspect errors rethrown
+- `getUrl({ port })` returns the assigned `serviceUrls` entry for that port
 
 Explicitly unsupported for now:
 
-- `getUrl` when create did not assign a `serviceUrls` entry
+- `getUrl` when create did not assign a `serviceUrls` entry for that port
 - ComputeSDK `onStdout` / `onStderr` streaming (requires `getUrl` / daemond;
   callbacks alone do not select the streamed exec path)
 - Templates and snapshots

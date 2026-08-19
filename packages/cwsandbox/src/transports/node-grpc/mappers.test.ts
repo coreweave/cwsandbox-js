@@ -284,6 +284,21 @@ describe("node transport mappers", () => {
       });
     });
 
+    it("preserves explicit false deny flags on proto network options", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        network: {
+          denyEgress: false,
+          denyIngress: false,
+        },
+      });
+
+      expect(request.sandbox?.spec?.network).toMatchObject({
+        denyEgress: false,
+        denyIngress: false,
+      });
+    });
+
     it("maps runner IDs onto CKS mode", () => {
       const request = toProtoCreateRequest({
         command: ["python"],

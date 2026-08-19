@@ -70,7 +70,9 @@ export interface CoreWeaveConfig {
 type CoreWeaveCreateOptions = CreateSandboxOptions & {
   readonly image?: string;
   readonly maxLifetimeSeconds?: number;
+  readonly network?: SandboxRunOptions["network"];
   readonly runnerIds?: readonly string[];
+  readonly services?: SandboxRunOptions["services"];
 };
 
 export interface CoreWeaveSandbox {
@@ -217,6 +219,8 @@ function toCreateOptions(
     ...(options?.envs !== undefined ? { environmentVariables: options.envs } : {}),
     ...(options?.signal !== undefined ? { signal: options.signal } : {}),
     ...(runnerIds !== undefined && runnerIds.length > 0 ? { runnerIds } : {}),
+    ...(options?.services !== undefined ? { services: options.services } : {}),
+    ...(options?.network !== undefined ? { network: options.network } : {}),
   };
 }
 
@@ -411,15 +415,13 @@ export const coreweave = defineProvider<CoreWeaveSandbox, CoreWeaveConfig>({
         }
       },
 
-      getUrl: async (handle) => {
+      getUrl: async (handle, { port }) => {
         const inspected = await handle.sandbox.inspect();
-        const url = inspected.serviceUrls?.[0]?.url;
-        if (url === undefined || url === "") {
-          throw new Error(
-            "coreweave: getUrl requires a service URL assigned at create time (services + Endpoint).",
-          );
+        const match = inspected.serviceUrls?.find((service) => service.port === port);
+        if (match === undefined || match.url === "") {
+          throw new Error(`coreweave: getUrl has no assigned URL for port ${port}`);
         }
-        return url;
+        return match.url;
       },
 
       filesystem: {

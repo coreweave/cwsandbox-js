@@ -51,7 +51,6 @@ function validateCommandOptions(options: ExecOptions | StartCommandOptions): voi
 }
 
 export function validateSandboxRunOptions(options: SandboxRunOptions): void {
-  rejectUnsupportedFields(options, ["ports", "profileIds", "profileNames"]);
   validateRequestOptions(options);
   validateAnnotations(options.annotations);
   validateNonNegativeFinite(options.maxLifetimeSeconds, "maxLifetimeSeconds");
@@ -81,7 +80,6 @@ export function validateDeleteOptions(options: DeleteOptions): void {
 }
 
 export function validateListSandboxesOptions(options: ListSandboxesOptions): void {
-  rejectUnsupportedFields(options, ["includeStopped", "profileIds", "profileNames"]);
   validateRequestOptions(options);
   validateNonNegativeInteger(options.pageSize, "pageSize");
   validateOptionalBoolean(options.showTerminated, "showTerminated");

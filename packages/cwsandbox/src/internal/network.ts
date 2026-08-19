@@ -4,7 +4,6 @@
 
 import { CWSandboxValidationError } from "../errors.js";
 import type { Endpoint, NetworkOptions, Service } from "../public/network.js";
-import { rejectUnsupportedFields } from "./removed.js";
 
 const ENDPOINT_AUTHS = new Set(["open"]);
 const ENDPOINT_KINDS = new Set(["https"]);
@@ -15,7 +14,6 @@ export function validateNetworkOptions(
   services: readonly Service[] | undefined,
   network: NetworkOptions | undefined,
 ): void {
-  rejectUnsupportedFields(network ?? {}, ["egressMode", "exposedPorts", "ingressMode"]);
   validateServices(services);
   validateDenyFlags(network);
 }

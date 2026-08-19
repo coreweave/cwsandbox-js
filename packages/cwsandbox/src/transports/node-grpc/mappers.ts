@@ -113,13 +113,16 @@ function toProtoContainer(request: StartSandboxRequest): ReturnType<typeof Conta
 function toProtoNetwork(
   network: NetworkOptions | undefined,
 ): ReturnType<typeof ProtoNetworkOptions.create> | undefined {
-  if (network === undefined || (network.denyEgress !== true && network.denyIngress !== true)) {
+  if (network === undefined) {
+    return undefined;
+  }
+  if (network.denyEgress === undefined && network.denyIngress === undefined) {
     return undefined;
   }
 
   return ProtoNetworkOptions.create({
-    ...(network.denyEgress === true ? { denyEgress: true } : {}),
-    ...(network.denyIngress === true ? { denyIngress: true } : {}),
+    ...(network.denyEgress !== undefined ? { denyEgress: network.denyEgress } : {}),
+    ...(network.denyIngress !== undefined ? { denyIngress: network.denyIngress } : {}),
   });
 }
 

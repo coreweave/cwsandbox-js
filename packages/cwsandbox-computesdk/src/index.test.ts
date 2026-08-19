@@ -18,11 +18,12 @@ import {
   type SandboxLogs,
   type SandboxRunOptions,
   type SandboxStatus,
+  type ServiceUrl,
   type StartCommandOptions,
 } from "@coreweave/cwsandbox";
 import { describe, expect, it } from "vitest";
 
-import { coreweave, type CoreWeaveConfig } from "./index.js";
+import { coreweave } from "./index.js";
 
 const encoder = new TextEncoder();
 
@@ -229,14 +230,16 @@ describe("coreweave ComputeSDK provider", () => {
     expect(tracking.deletedSandboxIds).toEqual(["sandbox-1", "sandbox-2"]);
   });
 
-  it("fails clearly for getUrl", async () => {
+  it("fails clearly for getUrl without assigned service URLs", async () => {
     const provider = coreweave({ client: createTrackingClient().client, ownerTag: "t1" });
     const sandbox = await provider.sandbox.create({});
 
-    await expect(sandbox.getUrl({ port: 8080 })).rejects.toThrow(/getUrl requires a service URL/);
+    await expect(sandbox.getUrl({ port: 8080 })).rejects.toThrow(
+      /getUrl has no assigned URL for port 8080/,
+    );
   });
 
-  it("forwards runnerIds and does not forward profileNames", async () => {
+  it("forwards runnerIds from config and create", async () => {
     const tracking = createTrackingClient();
     const fromConfig = coreweave({
       client: tracking.client,
@@ -247,26 +250,48 @@ describe("coreweave ComputeSDK provider", () => {
     await fromConfig.sandbox.create({});
 
     expect(tracking.createOptions[0]?.runnerIds).toEqual(["runner-a"]);
-    expect(tracking.createOptions[0]).not.toHaveProperty("profileNames");
 
     const fromCreate = coreweave({ client: tracking.client, ownerTag: "t1" });
     await fromCreate.sandbox.create({ runnerIds: ["runner-b"] });
 
     expect(tracking.createOptions[1]?.runnerIds).toEqual(["runner-b"]);
-    expect(tracking.createOptions[1]).not.toHaveProperty("profileNames");
   });
 
-  it("does not type profileNames on config or create", () => {
-    const config: CoreWeaveConfig = { ownerTag: "t1" };
-    expect(config).not.toHaveProperty("profileNames");
-    // @ts-expect-error profileNames is not a CoreWeaveConfig field.
-    void config.profileNames;
+  it("forwards services and selects getUrl by port", async () => {
+    const tracking = createTrackingClient({
+      serviceUrls: [
+        { name: "http-a", port: 8000, url: "https://a.example" },
+        { name: "http-b", port: 8001, url: "https://b.example" },
+      ],
+    });
+    const provider = coreweave({ client: tracking.client, ownerTag: "t1" });
+    const services = [
+      {
+        endpoint: { auth: "open" as const, kind: "https" as const },
+        name: "http-a",
+        port: 8000,
+        visibility: "public" as const,
+      },
+      {
+        endpoint: { auth: "open" as const, kind: "https" as const },
+        name: "http-b",
+        port: 8001,
+        visibility: "public" as const,
+      },
+    ];
 
-    type CreateArg = Parameters<ReturnType<typeof coreweave>["sandbox"]["create"]>[0];
-    const createOptions = { runnerIds: ["runner-a"] } satisfies CreateArg;
-    expect(createOptions).not.toHaveProperty("profileNames");
-    // @ts-expect-error profileNames is not a create field.
-    void createOptions.profileNames;
+    const sandbox = await provider.sandbox.create({
+      network: { denyEgress: false },
+      services,
+    });
+
+    expect(tracking.createOptions[0]?.services).toEqual(services);
+    expect(tracking.createOptions[0]?.network).toEqual({ denyEgress: false });
+    await expect(sandbox.getUrl({ port: 8001 })).resolves.toBe("https://b.example");
+    await expect(sandbox.getUrl({ port: 8000 })).resolves.toBe("https://a.example");
+    await expect(sandbox.getUrl({ port: 9999 })).rejects.toThrow(
+      /getUrl has no assigned URL for port 9999/,
+    );
   });
 
   it("rejects invalid ownerTag", async () => {
@@ -285,6 +310,7 @@ interface WriteRequest {
 interface TrackingClientOptions {
   readonly inspectError?: Error;
   readonly runStdout?: string;
+  readonly serviceUrls?: readonly ServiceUrl[];
 }
 
 interface TrackingClient {
@@ -372,7 +398,11 @@ function createTrackingClient(options: TrackingClientOptions = {}): TrackingClie
         if (options.inspectError !== undefined) {
           throw options.inspectError;
         }
-        return { sandboxId, status };
+        return {
+          sandboxId,
+          ...(options.serviceUrls === undefined ? {} : { serviceUrls: options.serviceUrls }),
+          status,
+        };
       },
       logs,
       resourceLimits: undefined,
