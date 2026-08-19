@@ -327,16 +327,19 @@ describe("createGrpcFileAdapter readStream deadline", () => {
     const adapter = createGrpcFileAdapter(harness.clients);
     harness.onCall(0, () => undefined);
 
-    const pending = expect(
-      drainReadStream(adapter.readStream({ path: "/tmp/a.bin", sandboxId: "sbx", timeoutMs: 100 })),
-    ).rejects.toMatchObject({
+    const drain = drainReadStream(
+      adapter.readStream({ path: "/tmp/a.bin", sandboxId: "sbx", timeoutMs: 100 }),
+    );
+    const drive = (async () => {
+      await waitForCall(harness, 0);
+      await vi.advanceTimersByTimeAsync(100);
+    })();
+    await expect(drain).rejects.toMatchObject({
       name: "CWSandboxTimeoutError",
       operation: "Read file",
       sandboxId: "sbx",
     });
-    await waitForCall(harness, 0);
-    await vi.advanceTimersByTimeAsync(100);
-    await pending;
+    await drive;
     expect(harness.calls).toHaveLength(1);
   });
 
@@ -347,18 +350,19 @@ describe("createGrpcFileAdapter readStream deadline", () => {
     const controller = new AbortController();
     const reason = new Error("stop-stat");
 
-    const pending = expect(
-      drainReadStream(
-        adapter.readStream({
-          path: "/tmp/a.bin",
-          sandboxId: "sbx",
-          signal: controller.signal,
-        }),
-      ),
-    ).rejects.toBe(reason);
-    await waitForCall(harness, 0);
-    controller.abort(reason);
-    await pending;
+    const drain = drainReadStream(
+      adapter.readStream({
+        path: "/tmp/a.bin",
+        sandboxId: "sbx",
+        signal: controller.signal,
+      }),
+    );
+    const drive = (async () => {
+      await waitForCall(harness, 0);
+      controller.abort(reason);
+    })();
+    await expect(drain).rejects.toBe(reason);
+    await drive;
     expect(harness.calls).toHaveLength(1);
   });
 
@@ -369,19 +373,20 @@ describe("createGrpcFileAdapter readStream deadline", () => {
     const controller = new AbortController();
     const reason = new Error("stop-cat");
 
-    const pending = expect(
-      drainReadStream(
-        adapter.readStream({
-          expectedSize: 1,
-          path: "/tmp/a.bin",
-          sandboxId: "sbx",
-          signal: controller.signal,
-        }),
-      ),
-    ).rejects.toBe(reason);
-    await waitForCall(harness, 0);
-    controller.abort(reason);
-    await pending;
+    const drain = drainReadStream(
+      adapter.readStream({
+        expectedSize: 1,
+        path: "/tmp/a.bin",
+        sandboxId: "sbx",
+        signal: controller.signal,
+      }),
+    );
+    const drive = (async () => {
+      await waitForCall(harness, 0);
+      controller.abort(reason);
+    })();
+    await expect(drain).rejects.toBe(reason);
+    await drive;
     expect(harness.calls).toHaveLength(1);
   });
 
@@ -432,23 +437,24 @@ describe("createGrpcFileAdapter readStream deadline", () => {
     const adapter = createGrpcFileAdapter(harness.clients);
     harness.onCall(0, () => undefined);
 
-    const pending = expect(
-      drainReadStream(
-        adapter.readStream({
-          expectedSize: 10,
-          path: "/tmp/a.bin",
-          sandboxId: "sbx",
-          timeoutMs: 50,
-        }),
-      ),
-    ).rejects.toMatchObject({
+    const drain = drainReadStream(
+      adapter.readStream({
+        expectedSize: 10,
+        path: "/tmp/a.bin",
+        sandboxId: "sbx",
+        timeoutMs: 50,
+      }),
+    );
+    const drive = (async () => {
+      await waitForCall(harness, 0);
+      await vi.advanceTimersByTimeAsync(50);
+    })();
+    await expect(drain).rejects.toMatchObject({
       name: "CWSandboxTimeoutError",
       operation: "Read file",
       sandboxId: "sbx",
     });
-    await waitForCall(harness, 0);
-    await vi.advanceTimersByTimeAsync(50);
-    await pending;
+    await drive;
     expect(harness.calls).toHaveLength(1);
   });
 

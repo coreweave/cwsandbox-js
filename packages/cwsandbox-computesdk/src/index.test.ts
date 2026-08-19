@@ -239,11 +239,10 @@ describe("coreweave ComputeSDK provider", () => {
     const provider = coreweave({ client: createTrackingClient().client, ownerTag: "t1" });
     const sandbox = await provider.sandbox.create({});
 
-    const pending = expect(sandbox.getUrl({ port: 8080 })).rejects.toThrow(
-      /no assigned HTTPS URL for port 8080 after 60000ms/,
-    );
-    await vi.advanceTimersByTimeAsync(60_000);
-    await pending;
+    const url = sandbox.getUrl({ port: 8080 });
+    const drive = vi.advanceTimersByTimeAsync(60_000);
+    await expect(url).rejects.toThrow(/no assigned HTTPS URL for port 8080 after 60000ms/);
+    await drive;
   });
 
   it("forwards runnerIds from config and create", async () => {
@@ -315,9 +314,10 @@ describe("coreweave ComputeSDK provider", () => {
       ],
     });
 
-    const pending = expect(sandbox.getUrl({ port: 8001 })).resolves.toBe("https://b.example");
-    await vi.advanceTimersByTimeAsync(500);
-    await pending;
+    const url = sandbox.getUrl({ port: 8001 });
+    const drive = vi.advanceTimersByTimeAsync(500);
+    await expect(url).resolves.toBe("https://b.example");
+    await drive;
     expect(tracking.inspectCalls).toBeGreaterThan(1);
   });
 
@@ -332,11 +332,10 @@ describe("coreweave ComputeSDK provider", () => {
     const provider = coreweave({ client: tracking.client, ownerTag: "t1" });
     const sandbox = await provider.sandbox.create({});
 
-    const pending = expect(sandbox.getUrl({ port: 9999 })).rejects.toThrow(
-      /no assigned HTTPS URL for port 9999 after 60000ms/,
-    );
-    await vi.advanceTimersByTimeAsync(60_000);
-    await pending;
+    const url = sandbox.getUrl({ port: 9999 });
+    const drive = vi.advanceTimersByTimeAsync(60_000);
+    await expect(url).rejects.toThrow(/no assigned HTTPS URL for port 9999 after 60000ms/);
+    await drive;
   });
 
   it("fails getUrl with the inspect timeout when inspect never resolves", async () => {
@@ -345,9 +344,10 @@ describe("coreweave ComputeSDK provider", () => {
     const provider = coreweave({ client: tracking.client, ownerTag: "t1" });
     const sandbox = await provider.sandbox.create({});
 
-    const pending = expect(sandbox.getUrl({ port: 8080 })).rejects.toThrow(CWSandboxTimeoutError);
-    await vi.advanceTimersByTimeAsync(60_000);
-    await pending;
+    const url = sandbox.getUrl({ port: 8080 });
+    const drive = vi.advanceTimersByTimeAsync(60_000);
+    await expect(url).rejects.toThrow(CWSandboxTimeoutError);
+    await drive;
   });
 
   it("rejects invalid ownerTag", async () => {
