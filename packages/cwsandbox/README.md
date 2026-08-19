@@ -8,7 +8,7 @@ SPDX-PackageName: cwsandbox
 
 TypeScript SDK for CoreWeave Sandbox.
 
-> **Beta (`0.1.0-beta.0`):** public API may still change. Ecosystem adapters
+> **Beta:** public API may still change. Ecosystem adapters
 > (TanStack now, Vercel AI planned) version lockstep with this package; the first
 > npm cut is core only.
 >
