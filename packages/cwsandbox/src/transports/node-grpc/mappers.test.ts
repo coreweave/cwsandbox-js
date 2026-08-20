@@ -447,6 +447,61 @@ describe("node transport mappers", () => {
         status: "failed",
         statusReason: "Container failed to start.",
       });
+      expect(result).not.toHaveProperty("exitCode");
+    });
+
+    it("maps get responses with observed exitCode zero", () => {
+      const result = toSdkGetSandboxResult(
+        ProtoSandbox.create({
+          sandboxId: "sandbox-123",
+          status: {
+            exitCode: 0,
+            state: State.COMPLETED,
+          },
+        }),
+      );
+
+      expect(result).toEqual({
+        exitCode: 0,
+        sandboxId: "sandbox-123",
+        status: "completed",
+      });
+    });
+
+    it("maps get responses with observed nonzero exitCode", () => {
+      const result = toSdkGetSandboxResult(
+        ProtoSandbox.create({
+          sandboxId: "sandbox-123",
+          status: {
+            exitCode: 67,
+            state: State.COMPLETED,
+          },
+        }),
+      );
+
+      expect(result).toEqual({
+        exitCode: 67,
+        sandboxId: "sandbox-123",
+        status: "completed",
+      });
+    });
+
+    it("maps get responses with observed FAILED exitCode", () => {
+      const result = toSdkGetSandboxResult(
+        ProtoSandbox.create({
+          sandboxId: "sandbox-123",
+          status: {
+            exitCode: 67,
+            state: State.FAILED,
+          },
+        }),
+      );
+
+      expect(result).toEqual({
+        exitCode: 67,
+        sandboxId: "sandbox-123",
+        status: "failed",
+      });
     });
 
     it("prefers endpoint.url when service.url is empty", () => {

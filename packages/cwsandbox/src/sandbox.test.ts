@@ -398,6 +398,32 @@ describe("Sandbox", () => {
     expect(sandbox.exposedPorts).toEqual([{ name: "http", port: 8000, protocol: "TCP" }]);
   });
 
+  it("caches inspect exitCode including zero", async () => {
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          status: "running",
+        };
+      },
+      async get(request) {
+        return {
+          exitCode: 0,
+          sandboxId: request.sandboxId,
+          status: "completed",
+        };
+      },
+    };
+
+    const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
+    const info = await sandbox.inspect();
+
+    expect(info.exitCode).toBe(0);
+    expect(sandbox.exitCode).toBe(0);
+    expect(sandbox.status).toBe("completed");
+  });
+
   it("refreshes cached metadata while waiting", async () => {
     const transport: SandboxTransport = {
       ...createFakeTransport(),

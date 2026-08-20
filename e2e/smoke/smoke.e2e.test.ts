@@ -1250,6 +1250,34 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
       },
       testTimeoutMs,
     );
+
+    it(
+      "exposes sandbox PID-1 exitCode after a completed one-shot",
+      async () => {
+        await withDedicatedTaggedSandbox(
+          client,
+          {
+            create: (tag) =>
+              client.run(["python", "-c", "print('exitcode-smoke')"], {
+                tags: [tag],
+                waitUntilRunning: false,
+              }),
+          },
+          async (sandbox) => {
+            await expect(sandbox.wait({ targetStatus: "completed" })).resolves.toBe(sandbox);
+            expect(sandbox.status).toBe("completed");
+            expect(sandbox.exitCode).toBe(0);
+
+            const info = await sandbox.inspect();
+            expect(info.exitCode).toBe(0);
+
+            const got = await client.get(sandbox.sandboxId);
+            expect(got.exitCode).toBe(0);
+          },
+        );
+      },
+      testTimeoutMs,
+    );
   });
 
   function currentSandbox(): Sandbox {

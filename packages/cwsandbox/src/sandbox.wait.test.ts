@@ -179,6 +179,28 @@ describe("Sandbox status and wait", () => {
     ).resolves.toBe(sandbox);
   });
 
+  it("caches PID-1 exitCode after wait reaches completed", async () => {
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async get(request) {
+        return {
+          exitCode: 67,
+          sandboxId: request.sandboxId,
+          status: "completed",
+        };
+      },
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"], {
+      waitUntilRunning: false,
+    });
+
+    await expect(
+      sandbox.wait(fastWait({ targetStatus: "completed", timeoutMs: 100 })),
+    ).resolves.toBe(sandbox);
+    expect(sandbox.status).toBe("completed");
+    expect(sandbox.exitCode).toBe(67);
+  });
+
   it("waits until any terminal status when targetStatus is terminal", async () => {
     const sandbox = await createClient(createFakeTransport(["terminating", "failed"])).run(
       ["echo", "hello"],
@@ -447,4 +469,303 @@ describe("Sandbox status and wait", () => {
 
     expect(nowMs).toBeLessThanOrEqual(30_000);
   });
+
+  it("does not grace-repoll when COMPLETED already has exitCode 0", async () => {
+    const clock = advancingClock();
+    let getCalls = 0;
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async get(request) {
+        getCalls += 1;
+        return {
+          exitCode: 0,
+          sandboxId: request.sandboxId,
+          status: "completed",
+        };
+      },
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"], {
+      waitUntilRunning: false,
+    });
+
+    await expect(
+      sandbox.wait(
+        fastWait({
+          now: clock.now,
+          sleep: clock.sleep,
+          targetStatus: "completed",
+          timeoutMs: 60_000,
+        }),
+      ),
+    ).resolves.toBe(sandbox);
+    expect(getCalls).toBe(1);
+    expect(sandbox.exitCode).toBe(0);
+  });
+
+  it("grace-repolls COMPLETED until a late exitCode 0 arrives", async () => {
+    const clock = advancingClock();
+    let getCalls = 0;
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async get(request) {
+        getCalls += 1;
+        return {
+          ...(getCalls === 1 ? {} : { exitCode: 0 }),
+          sandboxId: request.sandboxId,
+          status: "completed",
+        };
+      },
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"], {
+      waitUntilRunning: false,
+    });
+
+    await expect(
+      sandbox.wait(
+        fastWait({
+          now: clock.now,
+          sleep: clock.sleep,
+          targetStatus: "completed",
+          timeoutMs: 60_000,
+        }),
+      ),
+    ).resolves.toBe(sandbox);
+    expect(getCalls).toBe(2);
+    expect(sandbox.exitCode).toBe(0);
+  });
+
+  it("keeps wait successful when COMPLETED never reports exitCode", async () => {
+    const clock = advancingClock();
+    let getCalls = 0;
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async get(request) {
+        getCalls += 1;
+        return {
+          sandboxId: request.sandboxId,
+          status: "completed",
+        };
+      },
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"], {
+      waitUntilRunning: false,
+    });
+
+    await expect(
+      sandbox.wait(
+        fastWait({
+          now: clock.now,
+          sleep: clock.sleep,
+          targetStatus: "completed",
+          timeoutMs: 60_000,
+        }),
+      ),
+    ).resolves.toBe(sandbox);
+    expect(getCalls).toBe(3);
+    expect(sandbox.exitCode).toBeUndefined();
+  });
+
+  it("does not grace-repoll FAILED without an exitCode", async () => {
+    const clock = advancingClock();
+    let getCalls = 0;
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async get(request) {
+        getCalls += 1;
+        return {
+          sandboxId: request.sandboxId,
+          status: "failed",
+        };
+      },
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"], {
+      waitUntilRunning: false,
+    });
+
+    await expect(
+      sandbox.wait(
+        fastWait({
+          now: clock.now,
+          sleep: clock.sleep,
+          targetStatus: "terminal",
+          timeoutMs: 60_000,
+        }),
+      ),
+    ).resolves.toBe(sandbox);
+    expect(getCalls).toBe(1);
+    expect(sandbox.exitCode).toBeUndefined();
+  });
+
+  it("skips exitCode grace-repoll on stop-owned waits", async () => {
+    const clock = advancingClock();
+    let getCalls = 0;
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async get(request) {
+        getCalls += 1;
+        return {
+          sandboxId: request.sandboxId,
+          status: "completed",
+        };
+      },
+    };
+    const runtime: SandboxRuntime = {
+      sandboxId: "sandbox-stop-owned",
+      transport,
+    };
+
+    await waitForSandbox(runtime, {
+      now: clock.now,
+      retryNotFoundAfterStop: true,
+      sleep: clock.sleep,
+      targetStatus: "terminal",
+      timeoutMs: 60_000,
+    });
+    expect(getCalls).toBe(1);
+  });
+
+  it("keeps in-hand COMPLETED when a grace Get returns FAILED with a code", async () => {
+    const clock = advancingClock();
+    let getCalls = 0;
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async get(request) {
+        getCalls += 1;
+        if (getCalls === 1) {
+          return {
+            sandboxId: request.sandboxId,
+            status: "completed",
+          };
+        }
+        return {
+          exitCode: 67,
+          sandboxId: request.sandboxId,
+          status: "failed",
+        };
+      },
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"], {
+      waitUntilRunning: false,
+    });
+
+    await expect(
+      sandbox.wait(
+        fastWait({
+          now: clock.now,
+          sleep: clock.sleep,
+          targetStatus: "completed",
+          timeoutMs: 60_000,
+        }),
+      ),
+    ).resolves.toBe(sandbox);
+    expect(getCalls).toBe(3);
+    expect(sandbox.status).toBe("completed");
+    expect(sandbox.exitCode).toBeUndefined();
+  });
+
+  it("keeps in-hand COMPLETED when a grace Get throws", async () => {
+    const clock = advancingClock();
+    let getCalls = 0;
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async get(request) {
+        getCalls += 1;
+        if (getCalls > 1) {
+          throw new CWSandboxNotFoundError("gone");
+        }
+        return {
+          sandboxId: request.sandboxId,
+          status: "completed",
+        };
+      },
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"], {
+      waitUntilRunning: false,
+    });
+
+    await expect(
+      sandbox.wait(
+        fastWait({
+          now: clock.now,
+          sleep: clock.sleep,
+          targetStatus: "completed",
+          timeoutMs: 60_000,
+        }),
+      ),
+    ).resolves.toBe(sandbox);
+    expect(getCalls).toBe(2);
+    expect(sandbox.status).toBe("completed");
+    expect(sandbox.exitCode).toBeUndefined();
+  });
+
+  it("does not throw timeout when the wait deadline expires during exitCode grace", async () => {
+    let nowMs = 0;
+    let getCalls = 0;
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async get(request) {
+        getCalls += 1;
+        return {
+          sandboxId: request.sandboxId,
+          status: "completed",
+        };
+      },
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"], {
+      waitUntilRunning: false,
+    });
+
+    await expect(
+      sandbox.wait(
+        fastWait({
+          now: () => nowMs,
+          sleep: async (timeoutMs) => {
+            nowMs += timeoutMs;
+          },
+          targetStatus: "completed",
+          timeoutMs: 1_000,
+        }),
+      ),
+    ).resolves.toBe(sandbox);
+    expect(getCalls).toBe(1);
+    expect(sandbox.status).toBe("completed");
+  });
+
+  it("grace-repolls COMPLETED during default wait-until-running", async () => {
+    const clock = advancingClock();
+    let getCalls = 0;
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async get(request) {
+        getCalls += 1;
+        return {
+          ...(getCalls === 1 ? {} : { exitCode: 0 }),
+          sandboxId: request.sandboxId,
+          status: "completed",
+        };
+      },
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"], {
+      waitUntilRunning: false,
+    });
+
+    await expect(
+      sandbox.wait(fastWait({ now: clock.now, sleep: clock.sleep, timeoutMs: 60_000 })),
+    ).resolves.toBe(sandbox);
+    expect(getCalls).toBe(2);
+    expect(sandbox.exitCode).toBe(0);
+  });
 });
+
+function advancingClock(): {
+  readonly now: () => number;
+  readonly sleep: (timeoutMs: number, signal: AbortSignal | undefined) => Promise<void>;
+} {
+  let nowMs = 0;
+  return {
+    now: () => nowMs,
+    sleep: async (timeoutMs) => {
+      nowMs += timeoutMs;
+    },
+  };
+}

@@ -84,6 +84,10 @@ export class Sandbox implements PublicSandbox {
     this.logs = createSandboxLogs(this.runtime);
   }
 
+  public get exitCode(): number | undefined {
+    return this.metadata.exitCode;
+  }
+
   public get exposedPorts(): readonly SandboxExposedPort[] | undefined {
     return this.metadata.exposedPorts?.map((port) => ({ ...port }));
   }
@@ -336,6 +340,7 @@ function cloneMetadata(metadata: SandboxMetadata | undefined): Partial<SandboxMe
   }
 
   return {
+    ...(metadata.exitCode === undefined ? {} : { exitCode: metadata.exitCode }),
     ...(metadata.resourceLimits === undefined
       ? {}
       : { resourceLimits: { ...metadata.resourceLimits } }),
