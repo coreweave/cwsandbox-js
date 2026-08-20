@@ -28,7 +28,7 @@ const DEFAULT_WAIT_TARGET_STATUS = "running";
 const NOT_FOUND_AFTER_STOP_RETRY_MS = 2_000;
 const TERMINAL_STATUSES = new Set<SandboxStatus>(["completed", "failed", "terminated"]);
 const WAIT_OPERATION = "Wait for sandbox";
-/** Python EXIT_CODE_GRACE_POLLS: runner batches exit_code on a ~5s flush. */
+
 const EXIT_CODE_GRACE_POLLS = 2;
 const EXIT_CODE_GRACE_POLL_INTERVAL_MS = 2_000;
 const EXIT_CODE_GRACE_RPC_TIMEOUT_MS = 2_000;
