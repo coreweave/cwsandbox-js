@@ -12,7 +12,7 @@
     "lint:fix": "oxlint --fix .",
     "format": "oxfmt --check .",
     "format:fix": "oxfmt .",
-    "quality": "turbo run //#lint //#format",
+    "quality": "turbo run //#lint //#format //#knip",
     "quality:fix": "turbo run //#lint:fix //#format:fix",
     "fix": "turbo run //#lint:fix //#format:fix",
     "typecheck": "turbo run typecheck",
@@ -24,13 +24,14 @@
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "smoke": "pnpm test:e2e",
     "smoke:stress": "tsx scripts/stress-smoke.ts",
+    "knip": "knip",
     "proto:update": "turbo run proto:update --filter=@coreweave/cwsandbox",
-    "check": "turbo run //#lint //#format build typecheck test test:types //#test:readme //#test:package //#test:pack"
+    "check": "turbo run //#lint //#format //#knip build typecheck test test:types //#test:readme //#test:package //#test:pack"
   },
   "devDependencies": {
-    "@bufbuild/buf": "^1.72.0",
     "@coreweave/cwsandbox": "workspace:*",
     "@types/node": "^22.20.1",
+    "knip": "^6.32.2",
     "oxfmt": "^0.60.0",
     "oxlint": "^1.79.0",
     "tsx": "^4.23.12",

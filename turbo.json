@@ -29,6 +29,7 @@
     "//#lint:fix": {
       "cache": false
     },
+    "//#knip": {},
     "//#format": {},
     "//#format:fix": {
       "dependsOn": ["//#lint:fix"],

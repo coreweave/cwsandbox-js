@@ -42,7 +42,6 @@ import {
   Visibility,
   type ExecResponse as ProtoExecResponse,
   type Sandbox as ProtoSandboxMessage,
-  type SandboxStatus as ProtoSandboxStatus,
   type ServiceStatus as ProtoServiceStatus,
 } from "./generated/coreweave/sandbox/v1/sandbox.js";
 import type { Timestamp as ProtoTimestamp } from "./generated/google/protobuf/timestamp.js";
@@ -493,5 +492,3 @@ function toByteCount(value: string, fallback: Uint8Array): number {
 
   return parsed === 0 && fallback.byteLength > 0 ? fallback.byteLength : parsed;
 }
-
-export type { ProtoSandboxStatus };
