@@ -8,9 +8,7 @@ import {
   CWSandboxExecutionError,
   DEFAULT_GRACEFUL_SHUTDOWN_SECONDS,
   DEFAULT_KEEP_ALIVE_COMMAND,
-  DEFAULT_SCRATCH_VOLUME_NAME,
   DEFAULT_SNAPSHOT_TIMEOUT_MS,
-  SNAPSHOT_OBSERVATION_SLACK_MS,
   type Command,
   type CommandInputWriter,
   type CommandProcess,
@@ -101,9 +99,7 @@ declare const client: SandboxClient;
 
 expectTypeOf(DEFAULT_KEEP_ALIVE_COMMAND).toExtend<CommandInput>();
 expectTypeOf(DEFAULT_GRACEFUL_SHUTDOWN_SECONDS).toEqualTypeOf<10>();
-expectTypeOf(DEFAULT_SCRATCH_VOLUME_NAME).toEqualTypeOf<"workspace">();
 expectTypeOf(DEFAULT_SNAPSHOT_TIMEOUT_MS).toEqualTypeOf<600_000>();
-expectTypeOf(SNAPSHOT_OBSERVATION_SLACK_MS).toEqualTypeOf<5_000>();
 const sandboxRunOptions: SandboxRunOptions = { waitUntilRunning: false };
 expectTypeOf(sandboxRunOptions.waitUntilRunning).toEqualTypeOf<boolean | undefined>();
 expectTypeOf(client.create()).toEqualTypeOf<ReturnType<SandboxClient["create"]>>();

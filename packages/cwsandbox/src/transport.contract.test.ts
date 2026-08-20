@@ -26,11 +26,8 @@ import type {
   WriteFileRequest,
 } from "./transport/file-adapter.js";
 import type {
-  CreateFileSystemSnapshotRequest,
-  DeleteFileSystemSnapshotRequest,
   DeleteSandboxRequest,
   ExecRequest,
-  GetFileSystemSnapshotRequest,
   GetSandboxRequest,
   StartCommandRequest,
   StartShellRequest,
@@ -45,12 +42,9 @@ interface AdapterCalls {
 }
 
 interface TransportCalls {
-  readonly createFileSystemSnapshot: CreateFileSystemSnapshotRequest[];
   readonly delete: DeleteSandboxRequest[];
-  readonly deleteFileSystemSnapshot: DeleteFileSystemSnapshotRequest[];
   readonly exec: ExecRequest[];
   readonly get: GetSandboxRequest[];
-  readonly getFileSystemSnapshot: GetFileSystemSnapshotRequest[];
   readonly list: ListSandboxesOptions[];
   readonly start: StartSandboxRequest[];
   readonly startCommand: StartCommandRequest[];
@@ -163,12 +157,9 @@ function createContractTransport(): {
   readonly transport: SandboxTransport;
 } {
   const calls: TransportCalls = {
-    createFileSystemSnapshot: [],
     delete: [],
-    deleteFileSystemSnapshot: [],
     exec: [],
     get: [],
-    getFileSystemSnapshot: [],
     list: [],
     start: [],
     startCommand: [],
@@ -203,14 +194,13 @@ function createContractTransport(): {
         calls.delete.push(request);
       },
       async createFileSystemSnapshot(request) {
-        calls.createFileSystemSnapshot.push(request);
         return {
           snapshotId: `snapshot-for-${request.sandboxId}`,
           state: "creating",
         };
       },
-      async deleteFileSystemSnapshot(request) {
-        calls.deleteFileSystemSnapshot.push(request);
+      async deleteFileSystemSnapshot() {
+        return undefined;
       },
       async exec(request): Promise<ProcessResult> {
         calls.exec.push(request);
@@ -224,7 +214,6 @@ function createContractTransport(): {
         };
       },
       async getFileSystemSnapshot(request) {
-        calls.getFileSystemSnapshot.push(request);
         return {
           snapshotId: request.snapshotId,
           state: "ready",

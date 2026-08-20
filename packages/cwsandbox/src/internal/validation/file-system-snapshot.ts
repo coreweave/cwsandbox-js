@@ -20,7 +20,7 @@ const RESERVED_MOUNT_PATH_PREFIXES = [
   "/etc",
 ] as const;
 
-export function posixClean(mountPath: string): string {
+function posixClean(mountPath: string): string {
   const cleaned = path.posix.normalize(mountPath);
   if (cleaned.length > 1 && cleaned.endsWith("/")) {
     return cleaned.slice(0, -1);

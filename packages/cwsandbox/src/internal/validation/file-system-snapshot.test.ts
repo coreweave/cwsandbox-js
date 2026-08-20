@@ -5,11 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import { CWSandboxValidationError } from "../../errors.js";
-import {
-  posixClean,
-  validateFileSystemSnapshotOptions,
-  validateMountPath,
-} from "./file-system-snapshot.js";
+import { validateFileSystemSnapshotOptions, validateMountPath } from "./file-system-snapshot.js";
 import { validateObjectPrefix, validateObjectStorageAccess } from "./object-storage.js";
 
 describe("validateMountPath", () => {
@@ -30,13 +26,6 @@ describe("validateMountPath", () => {
 
   it("rejects paths longer than 256 characters", () => {
     expect(() => validateMountPath(`/${"a".repeat(256)}`)).toThrow(/256/);
-  });
-});
-
-describe("posixClean", () => {
-  it("strips trailing slashes like Go path.Clean", () => {
-    expect(posixClean("/workspace/")).toBe("/workspace");
-    expect(posixClean("/")).toBe("/");
   });
 });
 
