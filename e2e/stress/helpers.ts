@@ -159,10 +159,6 @@ export function installStressSummary(clientRef: () => SandboxClient | undefined)
   }, stressConfig.timeoutMs);
 }
 
-export function registerStressManifest(manifest: StressManifest): void {
-  manifests.push(manifest);
-}
-
 export function recordBytes(value: number): void {
   summary.bytesStreamed += value;
 }

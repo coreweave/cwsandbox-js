@@ -39,8 +39,6 @@ export const FILE_ERROR_REASONS: ReadonlySet<string> = new Set([
 
 // Not-found reasons per context
 export const CWSANDBOX_SANDBOX_NOT_FOUND = "CWSANDBOX_SANDBOX_NOT_FOUND";
-export const CWSANDBOX_RUNNER_NOT_FOUND = "CWSANDBOX_RUNNER_NOT_FOUND";
-export const CWSANDBOX_PROFILE_NOT_FOUND = "CWSANDBOX_PROFILE_NOT_FOUND";
 
 // Timeout reasons
 export const CWSANDBOX_COMMAND_TIMEOUT = "CWSANDBOX_COMMAND_TIMEOUT";

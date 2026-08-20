@@ -10,19 +10,11 @@ import type {
 } from "../public/commands.js";
 import type { RequestOptions } from "../public/common.js";
 import type { LogStreamMode, LogStreamOptions } from "../public/logs.js";
-import type {
-  GetSandboxResult,
-  SandboxId,
-  SandboxRunOptions,
-  StartSandboxResult,
-  StopOptions,
-} from "../public/sandbox.js";
+import type { SandboxId, SandboxRunOptions, StopOptions } from "../public/sandbox.js";
 
 export interface StartSandboxRequest extends Omit<SandboxRunOptions, "waitUntilRunning"> {
   readonly command: Command;
 }
-
-export type { StartSandboxResult, GetSandboxResult };
 
 export interface GetSandboxRequest extends RequestOptions {
   readonly sandboxId: SandboxId;
