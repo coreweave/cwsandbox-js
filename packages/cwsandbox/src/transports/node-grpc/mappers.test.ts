@@ -7,9 +7,11 @@ import { describe, expect, it } from "vitest";
 import {
   EndpointAuth,
   EndpointKind,
+  FileSystemSnapshot,
   Sandbox as ProtoSandbox,
   SandboxMode,
   ServiceProtocol,
+  SnapshotState,
   State,
   Visibility,
   type ExecResponse,
@@ -20,6 +22,7 @@ import {
   toProtoCreateRequest,
   toProtoExecRequest,
   toProtoListSandboxesRequest,
+  toSdkFileSystemSnapshot,
   toSdkGetSandboxResult,
   toSdkListSandboxesResult,
   toSdkProcessResult,
@@ -385,6 +388,103 @@ describe("node transport mappers", () => {
 
       expect(primaryContainer(request)?.secretStores).toEqual([]);
     });
+
+    it("maps fileSystemSnapshot onto a workspace scratch volume and primary mount", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        fileSystemSnapshot: {
+          mountPath: "/workspace",
+          size: "10Gi",
+          restoreFromSnapshotId: "snap-123",
+        },
+      });
+
+      expect(request.sandbox?.spec?.volumes).toEqual([
+        {
+          name: "workspace",
+          source: {
+            oneofKind: "scratch",
+            scratch: {
+              medium: 0,
+              restoreFromSnapshotId: "snap-123",
+              size: "10Gi",
+            },
+          },
+        },
+      ]);
+      expect(primaryContainer(request)?.volumeMounts).toEqual([
+        {
+          mountPath: "/workspace",
+          readOnly: false,
+          subPath: "",
+          volume: "workspace",
+        },
+      ]);
+    });
+
+    it("omits empty restoreFromSnapshotId and size on the scratch volume", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        fileSystemSnapshot: {
+          mountPath: "/workspace",
+          restoreFromSnapshotId: "",
+          size: "",
+        },
+      });
+
+      expect(request.sandbox?.spec?.volumes?.[0]?.source).toEqual({
+        oneofKind: "scratch",
+        scratch: {
+          medium: 0,
+          restoreFromSnapshotId: "",
+          size: "",
+        },
+      });
+    });
+
+    it("maps objectStorageAccess onto spec", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        objectStorageAccess: {
+          buckets: ["bucket-a", "bucket-b"],
+          objectPrefix: "tenants/org-abc/cache/",
+          permission: "read-write",
+        },
+      });
+
+      expect(request.sandbox?.spec?.objectStorageAccess).toEqual({
+        buckets: ["bucket-a", "bucket-b"],
+        objectPrefix: "tenants/org-abc/cache/",
+        permission: 2,
+      });
+    });
+
+    it("maps read objectStorageAccess and omits empty objectPrefix", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        objectStorageAccess: {
+          buckets: ["bucket-a"],
+          objectPrefix: "",
+          permission: "read",
+        },
+      });
+
+      expect(request.sandbox?.spec?.objectStorageAccess).toEqual({
+        buckets: ["bucket-a"],
+        objectPrefix: "",
+        permission: 1,
+      });
+    });
+
+    it("omits volumes, mounts, and objectStorageAccess when unset", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+      });
+
+      expect(request.sandbox?.spec?.volumes).toEqual([]);
+      expect(primaryContainer(request)?.volumeMounts).toEqual([]);
+      expect(request.sandbox?.spec?.objectStorageAccess).toBeUndefined();
+    });
   });
 
   describe("create and get responses", () => {
@@ -694,6 +794,65 @@ describe("node transport mappers", () => {
       expect(timeoutMsToSeconds(1)).toBe(1);
       expect(timeoutMsToSeconds(1000)).toBe(1);
       expect(timeoutMsToSeconds(1001)).toBe(2);
+    });
+  });
+
+  describe("file-system snapshots", () => {
+    it("maps READY snapshots and safe sizeBytes", () => {
+      expect(
+        toSdkFileSystemSnapshot(
+          FileSystemSnapshot.create({
+            fileSystemSnapshotId: "snap-1",
+            sizeBytes: "4096",
+            state: SnapshotState.READY,
+            stateReason: "",
+          }),
+        ),
+      ).toEqual({
+        snapshotId: "snap-1",
+        sizeBytes: 4096,
+        state: "ready",
+      });
+    });
+
+    it("omits sizeBytes that are empty or not a safe integer", () => {
+      expect(
+        toSdkFileSystemSnapshot(
+          FileSystemSnapshot.create({
+            fileSystemSnapshotId: "snap-2",
+            sizeBytes: "",
+            state: SnapshotState.CREATING,
+          }),
+        ),
+      ).toEqual({
+        snapshotId: "snap-2",
+        state: "creating",
+      });
+      expect(
+        toSdkFileSystemSnapshot(
+          FileSystemSnapshot.create({
+            fileSystemSnapshotId: "snap-3",
+            sizeBytes: "9007199254740993",
+            state: SnapshotState.READY,
+          }),
+        ).sizeBytes,
+      ).toBeUndefined();
+    });
+
+    it("includes sizeBytes of 0 when the READY Get reports it", () => {
+      expect(
+        toSdkFileSystemSnapshot(
+          FileSystemSnapshot.create({
+            fileSystemSnapshotId: "snap-4",
+            sizeBytes: "0",
+            state: SnapshotState.READY,
+          }),
+        ),
+      ).toMatchObject({
+        sizeBytes: 0,
+        snapshotId: "snap-4",
+        state: "ready",
+      });
     });
   });
 });

@@ -40,13 +40,63 @@ export interface WaitOptions extends RequestOptions {
   readonly targetStatus?: WaitTargetStatus;
 }
 
+export type ObjectStoragePermission = "read" | "read-write";
+
+/**
+ * Temporary object-storage credentials for the sandbox (OSA / CAIOS).
+ * Independent of file-system snapshots.
+ */
+export interface SandboxObjectStorageAccess {
+  readonly buckets: readonly string[];
+  readonly permission: ObjectStoragePermission;
+  /**
+   * Optional prefix that scopes the minted credential. Must satisfy Gateway
+   * OSA prefix rules when set (alphanumeric start, trailing `/`, no `..`).
+   */
+  readonly objectPrefix?: string;
+}
+
+/**
+ * Convenience single-mount scratch volume for snapshot/restore.
+ *
+ * Maps to a scratch volume named `workspace` mounted at `mountPath` on the
+ * primary container. Snapshots archive that mount, not the whole container.
+ */
+export interface FileSystemSnapshotOptions {
+  /**
+   * Absolute directory to mount (not `/`). Must satisfy Gateway mount-path
+   * rules (canonical, ≤256 chars, not a reserved system prefix).
+   */
+  readonly mountPath: string;
+  /** Kubernetes resource quantity (e.g. `"10Gi"`). Omit for the platform default. */
+  readonly size?: string;
+  /** Restore this snapshot at start. Omit or empty for an empty volume. */
+  readonly restoreFromSnapshotId?: string;
+}
+
+export interface FileSystemSnapshotResult {
+  readonly snapshotId: string;
+  /** Archive size when the READY Get reports a safe integer; omitted otherwise. */
+  readonly sizeBytes?: number;
+}
+
+export interface DeleteSnapshotOptions extends RequestOptions {
+  /**
+   * When true, treat a missing snapshot (gRPC `NOT_FOUND` or trusted
+   * `CWSANDBOX_FSS_NOT_FOUND`) as success. Defaults to `false`.
+   */
+  readonly missingOk?: boolean;
+}
+
 export interface SandboxRunOptions extends RequestOptions {
   readonly annotations?: SandboxAnnotations;
   readonly containerImage?: string;
   readonly environmentVariables?: EnvironmentVariables;
+  readonly fileSystemSnapshot?: FileSystemSnapshotOptions;
   readonly maxLifetimeSeconds?: Seconds;
   readonly mountedFiles?: MountedFiles;
   readonly network?: NetworkOptions;
+  readonly objectStorageAccess?: SandboxObjectStorageAccess;
   readonly resources?: ResourceOptions;
   readonly runnerIds?: readonly string[];
   readonly services?: readonly Service[];
@@ -166,6 +216,13 @@ export interface Sandbox {
   getStatus(options?: RequestOptions): Promise<SandboxStatus>;
   shell(options?: ShellOptions): Promise<TerminalSession>;
   wait(options?: WaitOptions): Promise<Sandbox>;
+  /**
+   * Snapshot the sandbox's scratch volume and wait until READY or FAILED.
+   *
+   * Default `timeoutMs` is 600s (plus 5s internal observation slack). Snapshots
+   * outlive sandbox stop/delete; call `client.deleteSnapshot` to remove them.
+   */
+  snapshot(options?: RequestOptions): Promise<FileSystemSnapshotResult>;
   stop(options?: StopOptions): Promise<void>;
   delete(options?: DeleteOptions): Promise<void>;
   [Symbol.asyncDispose](): Promise<void>;

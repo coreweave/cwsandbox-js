@@ -6,8 +6,10 @@ import { RpcError } from "@protobuf-ts/runtime-rpc";
 
 import {
   CWSandboxAuthenticationError,
+  type CWSandboxError,
   CWSandboxFileError,
   CWSandboxNotFoundError,
+  CWSandboxNotImplementedError,
   CWSandboxResourceExhaustedError,
   CWSandboxTimeoutError,
   CWSandboxTransportError,
@@ -17,6 +19,8 @@ import {
 import {
   CWSANDBOX_COMMAND_TIMEOUT,
   CWSANDBOX_ERROR_DOMAIN,
+  CWSANDBOX_FSS_NOT_FOUND,
+  CWSANDBOX_FSS_NOT_SUPPORTED,
   CWSANDBOX_SANDBOX_NOT_FOUND,
   FILE_ERROR_REASONS,
   UNAVAILABLE_REASONS,
@@ -29,7 +33,7 @@ export interface GrpcErrorContext {
   readonly sandboxId?: string;
 }
 
-export function mapGrpcError(error: unknown, context: GrpcErrorContext): CWSandboxTransportError {
+export function mapGrpcError(error: unknown, context: GrpcErrorContext): CWSandboxError {
   if (error instanceof RpcError) {
     const details = grpcErrorOptions(error, context);
     const message = `${context.operation} failed: ${error.message}`;
@@ -47,8 +51,11 @@ export function mapGrpcError(error: unknown, context: GrpcErrorContext): CWSandb
           ...(typeof filepath === "string" ? { filepath } : {}),
         });
       }
-      if (reason === CWSANDBOX_SANDBOX_NOT_FOUND) {
+      if (reason === CWSANDBOX_SANDBOX_NOT_FOUND || reason === CWSANDBOX_FSS_NOT_FOUND) {
         return new CWSandboxNotFoundError(message, details);
+      }
+      if (reason === CWSANDBOX_FSS_NOT_SUPPORTED) {
+        return new CWSandboxNotImplementedError(message, { cause: error });
       }
       if (UNAVAILABLE_REASONS.has(reason)) {
         return new CWSandboxUnavailableError(message, details);

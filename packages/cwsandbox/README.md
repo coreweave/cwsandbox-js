@@ -164,6 +164,9 @@ pnpm example:tanstack:typecheck
 - `sandbox.wait(...)`, `sandbox.stop(...)`, and `sandbox.delete(...)` manage lifecycle.
   `stop()` requests shutdown and waits until the sandbox is terminal; use
   `wait({ targetStatus: "terminal" })` to observe completion without sending Stop.
+- `sandbox.snapshot()` archives the scratch volume and waits until READY (default 600s).
+  Snapshots outlive sandbox stop/delete; `client.deleteSnapshot(id, { missingOk: true })`
+  removes them.
 
 ## Quickstart
 
@@ -558,6 +561,62 @@ await client.run(["python", "/workspace/main.py"], {
 });
 ```
 
+### File-system snapshots
+
+`fileSystemSnapshot` mounts one scratch volume named `workspace` at `mountPath`.
+Snapshots archive that mount, not the whole container overlay.
+
+```ts
+const source = await client.create({
+  fileSystemSnapshot: {
+    mountPath: "/workspace",
+    size: "10Gi",
+  },
+});
+
+await source.exec(["sh", "-c", "echo hello > /workspace/data.txt"]);
+const { snapshotId, sizeBytes } = await source.snapshot();
+await source.delete({ missingOk: true });
+
+const restored = await client.create({
+  fileSystemSnapshot: {
+    mountPath: "/workspace",
+    restoreFromSnapshotId: snapshotId,
+  },
+});
+
+const result = await restored.exec(["cat", "/workspace/data.txt"]);
+console.log(result.stdout, sizeBytes);
+
+await restored.delete({ missingOk: true });
+await client.deleteSnapshot(snapshotId, { missingOk: true });
+```
+
+`snapshot()` waits until READY or FAILED. The public default wait is 600s (plus 5s
+internal observation slack). Pass `timeoutMs` to override the archive budget.
+Snapshots are not deleted when the sandbox stops; call `deleteSnapshot`.
+
+`stop({ snapshotOnStop })` is not supported. Capture with `sandbox.snapshot()`
+before stop or delete.
+
+### Object storage access
+
+Mint temporary object-storage credentials for the sandbox at create time
+(independent of snapshots):
+
+```ts
+await client.create({
+  objectStorageAccess: {
+    buckets: ["example-bucket"],
+    permission: "read-write",
+    objectPrefix: "tenants/org-abc/cache/",
+  },
+});
+```
+
+`objectPrefix` is optional. When set it must start alphanumeric, end with `/`,
+and must not contain `..` or `//`.
+
 ### Resources
 
 Flat CPU/memory resources map to guaranteed requests:
@@ -797,6 +856,7 @@ success (same for `stop({ missingOk: true })`):
 ```ts
 await client.delete("sandbox-id", { missingOk: true });
 await sandbox.stop({ missingOk: true });
+await client.deleteSnapshot("snapshot-id", { missingOk: true });
 ```
 
 Clean up interrupted **active** work by listing with the same tags you used at

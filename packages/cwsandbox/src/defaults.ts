@@ -16,3 +16,19 @@ export const DEFAULT_LIST_ALL_TIMEOUT_MS = 300_000;
 
 /** Maximum pages followed by `listSandboxes()` / `listAll()` before failing. */
 export const MAX_LIST_ALL_PAGES = 100;
+
+/** Scratch volume name for the convenience `fileSystemSnapshot` create option. */
+export const DEFAULT_SCRATCH_VOLUME_NAME = "workspace" as const;
+
+/**
+ * Public default `snapshot()` wait budget (Aviato archive timeout / Python
+ * `DEFAULT_FSS_STOP_TIMEOUT_SECONDS`).
+ */
+export const DEFAULT_SNAPSHOT_TIMEOUT_MS = 600_000 as const;
+
+/**
+ * Extra client deadline beyond the archive budget so Get can observe READY
+ * after an archive that finishes at t=600s (Python
+ * `DEFAULT_CLIENT_TIMEOUT_BUFFER_SECONDS`).
+ */
+export const SNAPSHOT_OBSERVATION_SLACK_MS = 5_000 as const;

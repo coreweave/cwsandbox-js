@@ -556,6 +556,83 @@ describe("SandboxClient", () => {
 
       await expect(createClient(transport).delete("sandbox-123")).rejects.toBe(error);
     });
+
+    it("deletes snapshots through the configured transport", async () => {
+      let deleteRequest: Parameters<SandboxTransport["deleteFileSystemSnapshot"]>[0] | undefined;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async deleteFileSystemSnapshot(request) {
+          deleteRequest = request;
+        },
+      };
+
+      await createClient(transport).deleteSnapshot("snap-123", { timeoutMs: 1234 });
+
+      expect(deleteRequest).toEqual({
+        snapshotId: "snap-123",
+        timeoutMs: 1234,
+      });
+    });
+
+    it("passes allowMissing when deleteSnapshot missingOk is true", async () => {
+      let deleteRequest: Parameters<SandboxTransport["deleteFileSystemSnapshot"]>[0] | undefined;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async deleteFileSystemSnapshot(request) {
+          deleteRequest = request;
+        },
+      };
+
+      await createClient(transport).deleteSnapshot("snap-123", { missingOk: true });
+
+      expect(deleteRequest).toEqual({
+        allowMissing: true,
+        snapshotId: "snap-123",
+      });
+    });
+
+    it("treats missing snapshots as already deleted when missingOk is true", async () => {
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async deleteFileSystemSnapshot(request) {
+          throw new CWSandboxNotFoundError(`Snapshot '${request.snapshotId}' not found.`);
+        },
+      };
+
+      await expect(
+        createClient(transport).deleteSnapshot("missing-snap", { missingOk: true }),
+      ).resolves.toBeUndefined();
+    });
+
+    it("raises not-found on deleteSnapshot when missingOk is false", async () => {
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async deleteFileSystemSnapshot(request) {
+          throw new CWSandboxNotFoundError(`Snapshot '${request.snapshotId}' not found.`);
+        },
+      };
+
+      await expect(createClient(transport).deleteSnapshot("missing-snap")).rejects.toBeInstanceOf(
+        CWSandboxNotFoundError,
+      );
+    });
+
+    it("does not swallow FSS_NOT_READY on deleteSnapshot when missingOk is true", async () => {
+      const error = new CWSandboxTransportError("still creating", {
+        domain: "cwsandbox.com",
+        reason: "CWSANDBOX_FSS_NOT_READY",
+      });
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async deleteFileSystemSnapshot() {
+          throw error;
+        },
+      };
+
+      await expect(
+        createClient(transport).deleteSnapshot("snap-creating", { missingOk: true }),
+      ).rejects.toBe(error);
+    });
   });
 
   describe("validation", () => {
@@ -611,6 +688,49 @@ describe("SandboxClient", () => {
           mountedFiles: [{ content: "print('hello')", path: "workspace/main.py" }],
         }),
       ).rejects.toThrow(CWSandboxValidationError);
+    });
+
+    it("rejects invalid fileSystemSnapshot mount paths before the transport", async () => {
+      let startCalls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async start() {
+          startCalls += 1;
+          throw new Error("transport should not be called");
+        },
+      };
+      const client = createClient(transport);
+
+      await expect(client.create({ fileSystemSnapshot: { mountPath: "/" } })).rejects.toThrow(
+        CWSandboxValidationError,
+      );
+      await expect(
+        client.create({ fileSystemSnapshot: { mountPath: "/etc/passwd" } }),
+      ).rejects.toThrow(CWSandboxValidationError);
+      expect(startCalls).toBe(0);
+    });
+
+    it("rejects invalid objectStorageAccess prefixes before the transport", async () => {
+      let startCalls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async start() {
+          startCalls += 1;
+          throw new Error("transport should not be called");
+        },
+      };
+      const client = createClient(transport);
+
+      await expect(
+        client.create({
+          objectStorageAccess: {
+            buckets: ["ok"],
+            objectPrefix: "tenants/org-abc/cache",
+            permission: "read",
+          },
+        }),
+      ).rejects.toThrow(CWSandboxValidationError);
+      expect(startCalls).toBe(0);
     });
 
     it("throws a typed validation error for duplicate mounted file paths", async () => {

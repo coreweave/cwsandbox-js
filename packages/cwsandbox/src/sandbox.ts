@@ -25,6 +25,7 @@ import type { SandboxLogs } from "./public/logs.js";
 import type { ServiceUrl } from "./public/network.js";
 import type {
   DeleteOptions,
+  FileSystemSnapshotResult,
   GetSandboxResult,
   Sandbox as PublicSandbox,
   SandboxId,
@@ -41,6 +42,10 @@ import { FileTransfer } from "./runtime/file-transfer.js";
 import { createSandboxFiles } from "./runtime/files.js";
 import { createSandboxLogs } from "./runtime/logs.js";
 import { startShell } from "./runtime/shell.js";
+import {
+  captureFileSystemSnapshot,
+  type CaptureFileSystemSnapshotOptions,
+} from "./runtime/snapshot.js";
 import { waitForSandbox, type WaitForSandboxOptions } from "./runtime/wait.js";
 import type { SandboxTransport } from "./transport.js";
 import type { FileAdapter } from "./transport/file-adapter.js";
@@ -156,6 +161,16 @@ export class Sandbox implements PublicSandbox {
       this.updateMetadata(metadata);
     });
     return this;
+  }
+
+  public async snapshot(options: RequestOptions = {}): Promise<FileSystemSnapshotResult> {
+    return captureFileSystemSnapshot(
+      this.runtime,
+      options as CaptureFileSystemSnapshotOptions,
+      (metadata) => {
+        this.updateMetadata(metadata);
+      },
+    );
   }
 
   public async stop(options: StopOptions = {}): Promise<void> {

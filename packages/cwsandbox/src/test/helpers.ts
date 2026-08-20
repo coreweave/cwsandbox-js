@@ -209,6 +209,21 @@ export function createFakeTransport(
     async delete() {
       return undefined;
     },
+    async createFileSystemSnapshot() {
+      return {
+        snapshotId: "snapshot-1",
+        state: "creating" as const,
+      };
+    },
+    async getFileSystemSnapshot(request) {
+      return {
+        snapshotId: request.snapshotId,
+        state: "ready" as const,
+      };
+    },
+    async deleteFileSystemSnapshot() {
+      return undefined;
+    },
     async exec(request) {
       return createProcessResult(request.command);
     },

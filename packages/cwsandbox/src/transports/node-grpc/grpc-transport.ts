@@ -17,8 +17,12 @@ import type {
 } from "../../public/sandbox.js";
 import type { SandboxTransport } from "../../transport.js";
 import type {
+  CreateFileSystemSnapshotRequest,
+  DeleteFileSystemSnapshotRequest,
   DeleteSandboxRequest,
   ExecRequest,
+  FileSystemSnapshotRecord,
+  GetFileSystemSnapshotRequest,
   GetSandboxRequest,
   StartCommandRequest,
   StartShellRequest,
@@ -28,12 +32,18 @@ import type {
 } from "../../transport/types.js";
 import { createGrpcClients, type GrpcClients, type GrpcMetadata } from "./channel.js";
 import { startGrpcCommand } from "./command-stream.js";
+import {
+  CreateFileSystemSnapshotRequest as ProtoCreateFileSystemSnapshotRequest,
+  DeleteFileSystemSnapshotRequest as ProtoDeleteFileSystemSnapshotRequest,
+  GetFileSystemSnapshotRequest as ProtoGetFileSystemSnapshotRequest,
+} from "./generated/coreweave/sandbox/v1/sandbox.js";
 import { startGrpcLogStream } from "./log-stream.js";
 import {
   toProtoCreateRequest,
   toProtoDeleteRequest,
   toProtoExecRequest,
   toProtoListSandboxesRequest,
+  toSdkFileSystemSnapshot,
   toSdkGetSandboxResult,
   toSdkListSandboxesResult,
   toSdkProcessResult,
@@ -101,6 +111,56 @@ export class GrpcSandboxTransport implements SandboxTransport {
       () =>
         this.client.deleteSandbox(toProtoDeleteRequest(request), toRpcOptions(request)).response,
       request.sandboxId,
+    );
+  }
+
+  public async createFileSystemSnapshot(
+    request: CreateFileSystemSnapshotRequest,
+  ): Promise<FileSystemSnapshotRecord> {
+    const response = await withGrpcErrorMapping(
+      "Create file-system snapshot",
+      () =>
+        this.client.createFileSystemSnapshot(
+          ProtoCreateFileSystemSnapshotRequest.create({
+            requestId: request.requestId,
+            sandboxId: request.sandboxId,
+          }),
+          toRpcOptions(request),
+        ).response,
+      request.sandboxId,
+    );
+
+    return toSdkFileSystemSnapshot(response);
+  }
+
+  public async getFileSystemSnapshot(
+    request: GetFileSystemSnapshotRequest,
+  ): Promise<FileSystemSnapshotRecord> {
+    const response = await withGrpcErrorMapping(
+      "Get file-system snapshot",
+      () =>
+        this.client.getFileSystemSnapshot(
+          ProtoGetFileSystemSnapshotRequest.create({
+            fileSystemSnapshotId: request.snapshotId,
+          }),
+          toRpcOptions(request),
+        ).response,
+    );
+
+    return toSdkFileSystemSnapshot(response);
+  }
+
+  public async deleteFileSystemSnapshot(request: DeleteFileSystemSnapshotRequest): Promise<void> {
+    await withGrpcErrorMapping(
+      "Delete file-system snapshot",
+      () =>
+        this.client.deleteFileSystemSnapshot(
+          ProtoDeleteFileSystemSnapshotRequest.create({
+            allowMissing: request.allowMissing === true,
+            fileSystemSnapshotId: request.snapshotId,
+          }),
+          toRpcOptions(request),
+        ).response,
     );
   }
 

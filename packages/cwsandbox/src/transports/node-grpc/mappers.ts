@@ -4,6 +4,7 @@
 
 import { randomUUID } from "node:crypto";
 
+import { DEFAULT_SCRATCH_VOLUME_NAME } from "../../defaults.js";
 import { commandForWorkingDirectory } from "../../internal/commands.js";
 import { normalizeFileContent, normalizeMountedFiles } from "../../internal/mounted-files.js";
 import { isAdvancedResources } from "../../internal/resources.js";
@@ -12,15 +13,22 @@ import type { Command, ProcessResult } from "../../public/commands.js";
 import type { NetworkOptions, Service, ServiceUrl } from "../../public/network.js";
 import type { ResourceOptions, ResourceSpec } from "../../public/resources.js";
 import type {
+  FileSystemSnapshotOptions,
   GetSandboxResult,
   ListSandboxesOptions,
   ListSandboxesResult,
   SandboxExposedPort,
   SandboxInfo,
+  SandboxObjectStorageAccess,
   SandboxStatus,
   StartSandboxResult,
 } from "../../public/sandbox.js";
-import type { ExecRequest, StartSandboxRequest } from "../../transport/types.js";
+import type {
+  ExecRequest,
+  FileSystemSnapshotRecord,
+  FileSystemSnapshotState,
+  StartSandboxRequest,
+} from "../../transport/types.js";
 import {
   Container,
   CreateSandboxRequest,
@@ -30,17 +38,24 @@ import {
   ExecRequest as ProtoExecRequest,
   ListSandboxesRequest,
   NetworkOptions as ProtoNetworkOptions,
+  ObjectStorageAccess,
+  ObjectStoragePermission,
   ResourceRequirements,
   Resources,
   Sandbox as ProtoSandbox,
   SandboxMode,
   SandboxSpec,
+  SandboxVolume,
+  ScratchVolume,
   Service as ProtoService,
   ServiceProtocol,
+  SnapshotState,
   State,
   StreamLogsRequest as ProtoStreamLogsRequest,
   Visibility,
+  VolumeMount,
   type ExecResponse as ProtoExecResponse,
+  type FileSystemSnapshot as ProtoFileSystemSnapshot,
   type Sandbox as ProtoSandboxMessage,
   type ServiceStatus as ProtoServiceStatus,
 } from "./generated/coreweave/sandbox/v1/sandbox.js";
@@ -66,6 +81,8 @@ export function timeoutMsToSeconds(timeoutMs: number | undefined): number {
 export function toProtoCreateRequest(request: StartSandboxRequest): CreateSandboxRequest {
   const runnerIds = [...(request.runnerIds ?? [])];
   const network = toProtoNetwork(request.network);
+  const volumes = toProtoVolumes(request.fileSystemSnapshot);
+  const objectStorageAccess = toProtoObjectStorageAccess(request.objectStorageAccess);
   return CreateSandboxRequest.create({
     requestId: randomUUID(),
     sandbox: ProtoSandbox.create({
@@ -76,10 +93,12 @@ export function toProtoCreateRequest(request: StartSandboxRequest): CreateSandbo
           ? {}
           : { maxLifetimeSeconds: request.maxLifetimeSeconds }),
         ...(network === undefined ? {} : { network }),
+        ...(objectStorageAccess === undefined ? {} : { objectStorageAccess }),
         ...(runnerIds.length === 0 ? {} : { mode: SandboxMode.CKS, runnerIds }),
         primaryContainer: PRIMARY_CONTAINER,
         services: toProtoServices(request.services),
         tags: [...(request.tags ?? [])],
+        ...(volumes === undefined ? {} : { volumes }),
       }),
     }),
   });
@@ -87,6 +106,7 @@ export function toProtoCreateRequest(request: StartSandboxRequest): CreateSandbo
 
 function toProtoContainer(request: StartSandboxRequest): ReturnType<typeof Container.create> {
   const resourceRequirements = toProtoResourceRequirements(request.resources);
+  const volumeMounts = toProtoVolumeMounts(request.fileSystemSnapshot);
   return Container.create({
     args: commandArgs(request.command),
     command: commandName(request.command),
@@ -106,6 +126,69 @@ function toProtoContainer(request: StartSandboxRequest): ReturnType<typeof Conta
       })),
       storeName: group.store,
     })),
+    ...(volumeMounts === undefined ? {} : { volumeMounts }),
+  });
+}
+
+function toProtoVolumes(
+  options: FileSystemSnapshotOptions | undefined,
+): ReturnType<typeof SandboxVolume.create>[] | undefined {
+  if (options === undefined) {
+    return undefined;
+  }
+
+  const size = options.size === undefined || options.size === "" ? undefined : options.size;
+  const restoreFromSnapshotId =
+    options.restoreFromSnapshotId === undefined || options.restoreFromSnapshotId === ""
+      ? undefined
+      : options.restoreFromSnapshotId;
+  return [
+    SandboxVolume.create({
+      name: DEFAULT_SCRATCH_VOLUME_NAME,
+      source: {
+        oneofKind: "scratch",
+        scratch: ScratchVolume.create({
+          ...(size === undefined ? {} : { size }),
+          ...(restoreFromSnapshotId === undefined ? {} : { restoreFromSnapshotId }),
+        }),
+      },
+    }),
+  ];
+}
+
+function toProtoVolumeMounts(
+  options: FileSystemSnapshotOptions | undefined,
+): ReturnType<typeof VolumeMount.create>[] | undefined {
+  if (options === undefined) {
+    return undefined;
+  }
+
+  return [
+    VolumeMount.create({
+      mountPath: options.mountPath,
+      volume: DEFAULT_SCRATCH_VOLUME_NAME,
+    }),
+  ];
+}
+
+function toProtoObjectStorageAccess(
+  access: SandboxObjectStorageAccess | undefined,
+): ReturnType<typeof ObjectStorageAccess.create> | undefined {
+  if (access === undefined) {
+    return undefined;
+  }
+
+  const objectPrefix =
+    access.objectPrefix === undefined || access.objectPrefix === ""
+      ? undefined
+      : access.objectPrefix;
+  return ObjectStorageAccess.create({
+    buckets: [...access.buckets],
+    permission:
+      access.permission === "read-write"
+        ? ObjectStoragePermission.READ_WRITE
+        : ObjectStoragePermission.READ,
+    ...(objectPrefix === undefined ? {} : { objectPrefix }),
   });
 }
 
@@ -435,6 +518,50 @@ export function toSdkSandboxStatus(status: State): SandboxStatus {
       throw new Error(`Unhandled sandbox status: ${_exhaustiveCheck}`);
     }
   }
+}
+
+export function toSdkFileSystemSnapshot(
+  snapshot: ProtoFileSystemSnapshot,
+): FileSystemSnapshotRecord {
+  const sizeBytes = parseSizeBytes(snapshot.sizeBytes);
+  return {
+    snapshotId: snapshot.fileSystemSnapshotId,
+    state: toSdkSnapshotState(snapshot.state),
+    ...(snapshot.stateReason === "" ? {} : { stateReason: snapshot.stateReason }),
+    ...(sizeBytes === undefined ? {} : { sizeBytes }),
+  };
+}
+
+function toSdkSnapshotState(state: SnapshotState): FileSystemSnapshotState {
+  switch (state) {
+    case SnapshotState.CREATING:
+      return "creating";
+    case SnapshotState.READY:
+      return "ready";
+    case SnapshotState.FAILED:
+      return "failed";
+    case SnapshotState.DELETING:
+      return "deleting";
+    case SnapshotState.UNSPECIFIED:
+      return "unspecified";
+    default: {
+      const _exhaustiveCheck: never = state;
+      throw new Error(`Unhandled snapshot state: ${_exhaustiveCheck}`);
+    }
+  }
+}
+
+function parseSizeBytes(value: string): number | undefined {
+  if (value === "") {
+    return undefined;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || String(parsed) !== value) {
+    return undefined;
+  }
+
+  return parsed;
 }
 
 function toProtoState(status: SandboxStatus | undefined): State {
