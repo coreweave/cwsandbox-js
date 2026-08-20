@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
+import { randomUUID } from "node:crypto";
+
 import type { SandboxClient } from "@coreweave/cwsandbox";
 import { createSandboxClientFromEnv } from "@coreweave/cwsandbox/node";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -22,10 +24,12 @@ describeWithCredentials("live file-system snapshot smoke", { sequential: true },
   it(
     "writes on a scratch mount, snapshots, restores, and deletes the snapshot",
     async () => {
+      const payload = `hello from snapshot smoke ${randomUUID()}`;
       const snapshotIds: string[] = [];
 
       try {
         let snapshotId: string | undefined;
+        let sourceSandboxId: string | undefined;
 
         await withDedicatedTaggedSandbox(
           client,
@@ -42,10 +46,13 @@ describeWithCredentials("live file-system snapshot smoke", { sequential: true },
             waitUntilRunning: true,
           },
           async (source) => {
+            sourceSandboxId = source.sandboxId;
+            console.log(`Started sandbox: ${source.sandboxId}`);
+
             const write = await source.exec([
               "sh",
               "-c",
-              `echo 'hello from snapshot smoke' > ${MOUNT_PATH}/data.txt`,
+              `echo '${payload}' > ${MOUNT_PATH}/data.txt`,
             ]);
             logProcessResult("seed scratch mount", write);
             expect(write.exitCode).toBe(0);
@@ -57,15 +64,18 @@ describeWithCredentials("live file-system snapshot smoke", { sequential: true },
             console.log("created snapshot", {
               snapshotId: snapshot.snapshotId,
               sizeBytes: snapshot.sizeBytes,
+              sourceSandboxId: source.sandboxId,
             });
           },
         );
 
         expect(snapshotId).toBeDefined();
-        if (snapshotId === undefined) {
+        expect(sourceSandboxId).toBeDefined();
+        if (snapshotId === undefined || sourceSandboxId === undefined) {
           return;
         }
         const restoreFromSnapshotId = snapshotId;
+        const expectedSourceSandboxId = sourceSandboxId;
 
         await withDedicatedTaggedSandbox(
           client,
@@ -82,10 +92,13 @@ describeWithCredentials("live file-system snapshot smoke", { sequential: true },
             waitUntilRunning: true,
           },
           async (restored) => {
+            console.log(`Started sandbox: ${restored.sandboxId}`);
+            expect(restored.sandboxId).not.toBe(expectedSourceSandboxId);
+
             const read = await restored.exec(["cat", `${MOUNT_PATH}/data.txt`]);
             logProcessResult("restored scratch mount", read);
             expect(read.exitCode).toBe(0);
-            expect(read.stdout).toContain("hello from snapshot smoke");
+            expect(read.stdout).toContain(payload);
           },
         );
 
