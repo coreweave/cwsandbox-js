@@ -303,6 +303,8 @@ describe("mapGrpcError", () => {
     expect(error).toBeInstanceOf(CWSandboxNotImplementedError);
     expect(error).not.toBeInstanceOf(CWSandboxTransportError);
     expect(error).toBeInstanceOf(CWSandboxError);
+    expect((error as CWSandboxNotImplementedError).reason).toBe(CWSANDBOX_FSS_NOT_SUPPORTED);
+    expect((error as CWSandboxNotImplementedError).domain).toBe(CWSANDBOX_ERROR_DOMAIN);
   });
 
   it("maps trusted CWSANDBOX_FSS_NOT_READY to a terminal transport error", () => {

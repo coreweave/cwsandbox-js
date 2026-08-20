@@ -9,7 +9,7 @@
  * - create({ fileSystemSnapshot }) with a workspace scratch mount
  * - sandbox.snapshot() waiting until READY
  * - restore via restoreFromSnapshotId
- * - client.deleteSnapshot({ missingOk: true })
+ * - client.deleteSnapshot(snapshotId, { missingOk: true })
  *
  * Snapshots archive the scratch mount, not the whole container overlay.
  * FSS is gated per-organization; unsupported orgs raise CWSandboxNotImplementedError.

@@ -55,7 +55,7 @@ export function mapGrpcError(error: unknown, context: GrpcErrorContext): CWSandb
         return new CWSandboxNotFoundError(message, details);
       }
       if (reason === CWSANDBOX_FSS_NOT_SUPPORTED) {
-        return new CWSandboxNotImplementedError(message, { cause: error });
+        return new CWSandboxNotImplementedError(message, details);
       }
       if (UNAVAILABLE_REASONS.has(reason)) {
         return new CWSandboxUnavailableError(message, details);
