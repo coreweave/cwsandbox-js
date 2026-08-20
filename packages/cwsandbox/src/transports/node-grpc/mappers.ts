@@ -316,6 +316,7 @@ function toSdkSandboxMetadata(sandbox: ProtoSandboxMessage): StartSandboxResult 
   const startedAt = toDate(status?.startTime);
 
   return {
+    ...(status?.exitCode === undefined ? {} : { exitCode: status.exitCode }),
     ...(exposedPorts === undefined ? {} : { exposedPorts }),
     ...(resourceLimits === undefined ? {} : { resourceLimits }),
     ...(resourceRequests === undefined ? {} : { resourceRequests }),

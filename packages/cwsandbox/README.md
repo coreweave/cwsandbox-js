@@ -212,6 +212,7 @@ To watch an already-stopping sandbox without sending Stop:
 ```ts
 await sandbox.wait({ targetStatus: "terminal", timeoutMs: 60_000 });
 console.log(sandbox.status); // completed | failed | terminated
+console.log(sandbox.exitCode); // PID-1 exit code when the backend observed it
 ```
 
 `wait()` still defaults to a 60s timeout (including `targetStatus: "terminal"`).
@@ -230,10 +231,12 @@ failures (`unavailable`, request deadline, `resource_exhausted`) are retried wit
 an internal ~30s budget; the wait’s absolute `timeoutMs` deadline also clamps that
 burst so retries cannot overrun the waiter. `NOT_FOUND` is not retried on
 observe-only waits. When the server includes AIP-193 `RetryInfo`, the SDK honors
-`retryDelayMs` (capped at 10s). Poll pacing and retry budget are not public
-options — bound waits with `timeoutMs` / `signal` / `targetStatus` (the former
-fixed `intervalMs` wait option is removed in beta; Python has no wait poll-interval
-knob either).
+`retryDelayMs` (capped at 10s). If wait observes `completed` without `exitCode`, it
+makes up to two short extra Gets (~2s apart) so a late runner stamp can land;
+client `stop()` skips that window because gateway-initiated stops never stamp a
+code. Poll pacing and retry budget are not public options — bound waits with
+`timeoutMs` / `signal` / `targetStatus` (the former fixed `intervalMs` wait option
+is removed in beta; Python has no wait poll-interval knob either).
 
 Modern runtimes can also use explicit resource management:
 
@@ -702,6 +705,7 @@ const info = await sandbox.inspect();
 const sandboxTrace = {
   sandboxId: info.sandboxId,
   status: info.status,
+  exitCode: info.exitCode, // PID-1 / primary-container code, not a command result
   startedAt: info.startedAt?.toISOString(),
   serviceUrls: info.serviceUrls,
   runnerId: info.runnerId,

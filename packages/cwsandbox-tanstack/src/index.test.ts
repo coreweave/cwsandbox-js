@@ -192,6 +192,7 @@ function createTrackingClient(): TrackingClient {
         execOptions.push(options.cwd === undefined ? {} : { cwd: options.cwd });
         return createProcessResult(normalized, { stdout: "ok" });
       },
+      exitCode: undefined,
       exposedPorts: undefined,
       files,
       getStatus: async () => status,

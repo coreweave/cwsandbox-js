@@ -29,6 +29,10 @@ const NOT_FOUND_AFTER_STOP_RETRY_MS = 2_000;
 const TERMINAL_STATUSES = new Set<SandboxStatus>(["completed", "failed", "terminated"]);
 const WAIT_OPERATION = "Wait for sandbox";
 
+const EXIT_CODE_GRACE_POLLS = 2;
+const EXIT_CODE_GRACE_POLL_INTERVAL_MS = 2_000;
+const EXIT_CODE_GRACE_RPC_TIMEOUT_MS = 2_000;
+
 export interface WaitForSandboxOptions extends WaitOptions {
   /**
    * Initial happy-path poll interval in ms. Defaults to Python-parity 200ms and
@@ -121,6 +125,21 @@ export async function waitForSandbox(
     }
 
     onStatus?.(result);
+    const reachedTarget = isWaitTargetReached(result.status, targetStatus);
+    const completedDuringRunningWait = targetStatus === "running" && result.status === "completed";
+    if (reachedTarget || completedDuringRunningWait) {
+      result = await graceRepollForExitCode(
+        runtime,
+        result,
+        options,
+        deadline,
+        now,
+        sleepFn,
+        onStatus,
+      );
+      onStatus?.(result);
+    }
+
     const { status } = result;
     if (isWaitTargetReached(status, targetStatus)) {
       return;
@@ -183,6 +202,83 @@ export async function waitForSandbox(
 
 function nextPollIntervalMs(intervalMs: number): number {
   return Math.min(intervalMs * DEFAULT_POLL_BACKOFF_FACTOR, DEFAULT_MAX_POLL_INTERVAL_MS);
+}
+
+function shouldGraceRepollExitCode(
+  result: GetSandboxResult,
+  options: WaitForSandboxOptions,
+): boolean {
+  return (
+    options.retryNotFoundAfterStop !== true &&
+    result.status === "completed" &&
+    result.exitCode === undefined
+  );
+}
+
+/**
+ * Best-effort enrichment when wait observes COMPLETED before the runner's
+ * batched exit_code stamp. Stop-owned waits skip this: gateway-initiated
+ * stops never stamp a code.
+ */
+async function graceRepollForExitCode(
+  runtime: SandboxRuntime,
+  result: GetSandboxResult,
+  options: WaitForSandboxOptions,
+  deadline: number | undefined,
+  now: () => number,
+  sleepFn: NonNullable<WaitForSandboxOptions["sleep"]>,
+  onStatus: ((metadata: GetSandboxResult) => void) | undefined,
+): Promise<GetSandboxResult> {
+  if (!shouldGraceRepollExitCode(result, options)) {
+    return result;
+  }
+
+  let current = result;
+  for (let attempt = 0; attempt < EXIT_CODE_GRACE_POLLS; attempt += 1) {
+    throwIfAborted(options.signal);
+    if (!shouldGraceRepollExitCode(current, options)) {
+      return current;
+    }
+
+    if (deadline !== undefined) {
+      const remainingMs = deadline - now();
+      if (remainingMs <= 0) {
+        return current;
+      }
+      await sleepFn(Math.min(EXIT_CODE_GRACE_POLL_INTERVAL_MS, remainingMs), options.signal);
+      if (now() >= deadline) {
+        return current;
+      }
+    } else {
+      await sleepFn(EXIT_CODE_GRACE_POLL_INTERVAL_MS, options.signal);
+    }
+
+    throwIfAborted(options.signal);
+    if (!shouldGraceRepollExitCode(current, options)) {
+      return current;
+    }
+
+    try {
+      const remainingMs =
+        deadline === undefined ? EXIT_CODE_GRACE_RPC_TIMEOUT_MS : deadline - now();
+      if (remainingMs <= 0) {
+        return current;
+      }
+      const bonus = await runtime.transport.get({
+        sandboxId: runtime.sandboxId,
+        timeoutMs: Math.min(EXIT_CODE_GRACE_RPC_TIMEOUT_MS, remainingMs),
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+      });
+      if (bonus.status === "completed") {
+        current = bonus;
+        onStatus?.(current);
+      }
+    } catch {
+      return current;
+    }
+  }
+
+  return current;
 }
 
 function isWaitTargetReached(

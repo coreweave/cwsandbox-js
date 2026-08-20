@@ -283,6 +283,7 @@ expectTypeOf(networkOptions).toExtend<NetworkOptions>();
 
 const sandbox = await client.run(["echo"]);
 expectTypeOf(sandbox.status).toEqualTypeOf<SandboxStatus | undefined>();
+expectTypeOf(sandbox.exitCode).toEqualTypeOf<number | undefined>();
 expectTypeOf(sandbox.startedAt).toEqualTypeOf<Date | undefined>();
 expectTypeOf(sandbox.runnerId).toEqualTypeOf<string | undefined>();
 expectTypeOf(sandbox.runnerGroupId).toEqualTypeOf<string | undefined>();
