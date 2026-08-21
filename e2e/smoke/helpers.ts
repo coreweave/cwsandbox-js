@@ -168,6 +168,7 @@ export const DNS_EGRESS_WILD = "*.pypi.org";
 export const DNS_EGRESS_WILD_HOST = "test.pypi.org";
 export const DNS_EGRESS_UNGRANTED = "example.com";
 export const dnsEgressSmokeTimeoutMs = 180_000;
+export const dnsEgressWaitTimeoutMs = 150_000;
 
 const DNS_NAME_IN_MESSAGE = /dns[_]?name/i;
 const DNS_EGRESS_SKIP_REASONS = new Set([
@@ -178,6 +179,7 @@ const DNS_EGRESS_SKIP_REASONS = new Set([
 export function startOptionsForDnsNameEgress(): SandboxRunOptions {
   return {
     maxLifetimeSeconds: 300,
+    timeoutMs: dnsEgressWaitTimeoutMs,
     network: {
       egress: [{ dnsName: DNS_EGRESS_EXACT }, { dnsName: DNS_EGRESS_WILD }],
     },
