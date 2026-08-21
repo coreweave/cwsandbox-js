@@ -14,13 +14,16 @@ import {
 } from "./internal/validation/index.js";
 import type { SandboxClient as SandboxClientInterface } from "./public/client.js";
 import type { CommandInput } from "./public/commands.js";
+import type { RequestOptions } from "./public/common.js";
 import type {
   DeleteOptions,
   DeleteSnapshotOptions,
+  FileSystemSnapshotResult,
   FromIdOptions,
   GetSandboxResult,
   ListSandboxesOptions,
   ListSandboxesResult,
+  ListSnapshotsOptions,
   Sandbox as PublicSandbox,
   SandboxId,
   SandboxInfo,
@@ -28,6 +31,7 @@ import type {
   SandboxRunOptions,
 } from "./public/sandbox.js";
 import { SandboxList } from "./runtime/sandbox-list.js";
+import { getSnapshotRecord, listSnapshotRecords } from "./runtime/snapshot-inspect.js";
 import { Sandbox as SandboxImpl } from "./sandbox.js";
 import type { SandboxTransport } from "./transport.js";
 import type { FileAdapter } from "./transport/file-adapter.js";
@@ -147,6 +151,19 @@ export class SandboxClient implements SandboxClientInterface {
       }),
       missingOk === true,
     );
+  }
+
+  public async getSnapshot(
+    snapshotId: string,
+    options: RequestOptions = {},
+  ): Promise<FileSystemSnapshotResult> {
+    return getSnapshotRecord(this.transport, snapshotId, options);
+  }
+
+  public async listSnapshots(
+    options: ListSnapshotsOptions = {},
+  ): Promise<readonly FileSystemSnapshotResult[]> {
+    return listSnapshotRecords(this.transport, options);
   }
 
   public async withSandbox<TResult>(

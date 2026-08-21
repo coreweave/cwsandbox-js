@@ -443,6 +443,11 @@ expectTypeOf(client.delete("sandbox-123")).toEqualTypeOf<Promise<void>>();
 expectTypeOf(client.delete("sandbox-123", { missingOk: true })).toEqualTypeOf<Promise<void>>();
 expectTypeOf(client.deleteSnapshot("snap-123")).toEqualTypeOf<Promise<void>>();
 expectTypeOf(client.deleteSnapshot("snap-123", { missingOk: true })).toEqualTypeOf<Promise<void>>();
+expectTypeOf(client.getSnapshot("snap-123")).toEqualTypeOf<Promise<FileSystemSnapshotResult>>();
+expectTypeOf(client.listSnapshots()).toEqualTypeOf<Promise<readonly FileSystemSnapshotResult[]>>();
+expectTypeOf(client.listSnapshots({ sourceSandboxId: "sbx-1", state: "ready" })).toEqualTypeOf<
+  Promise<readonly FileSystemSnapshotResult[]>
+>();
 expectTypeOf(sandbox.snapshot()).toEqualTypeOf<Promise<FileSystemSnapshotResult>>();
 expectTypeOf(sandbox.snapshot({ timeoutMs: 1_000 })).toEqualTypeOf<
   Promise<FileSystemSnapshotResult>
@@ -453,6 +458,13 @@ client.listSandboxes({ pageToken: "page-1" });
 
 // @ts-expect-error listAll owns pagination and does not accept pageToken.
 client.listAll({ pageToken: "page-1" });
+
+// @ts-expect-error listSnapshots collects all pages and does not accept pageToken.
+client.listSnapshots({ pageToken: "page-1" });
+
+// @ts-expect-error listSnapshots does not accept pageSize.
+client.listSnapshots({ pageSize: 10 });
+
 expectTypeOf(sandbox.stop({ gracefulShutdownSeconds: 5 })).toEqualTypeOf<Promise<void>>();
 // @ts-expect-error ports is not supported in v1.
 void client.run(["python"], { ports: [8000] });

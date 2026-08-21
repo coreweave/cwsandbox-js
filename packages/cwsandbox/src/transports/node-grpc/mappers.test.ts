@@ -12,10 +12,12 @@ import {
   SandboxMode,
   ServiceProtocol,
   SnapshotState,
+  SnapshotTrigger,
   State,
   Visibility,
   type ExecResponse,
 } from "./generated/coreweave/sandbox/v1/sandbox.js";
+import { Timestamp } from "./generated/google/protobuf/timestamp.js";
 import {
   DEFAULT_CONTAINER_IMAGE,
   timeoutMsToSeconds,
@@ -812,6 +814,7 @@ describe("node transport mappers", () => {
         snapshotId: "snap-1",
         sizeBytes: 4096,
         state: "ready",
+        trigger: "unspecified",
       });
     });
 
@@ -827,6 +830,7 @@ describe("node transport mappers", () => {
       ).toEqual({
         snapshotId: "snap-2",
         state: "creating",
+        trigger: "unspecified",
       });
       expect(
         toSdkFileSystemSnapshot(
@@ -853,6 +857,64 @@ describe("node transport mappers", () => {
         snapshotId: "snap-4",
         state: "ready",
       });
+    });
+
+    it("maps remaining Get/List fields and omits empty strings", () => {
+      const createdAt = Timestamp.create({ nanos: 0, seconds: "1700000000" });
+      expect(
+        toSdkFileSystemSnapshot(
+          FileSystemSnapshot.create({
+            completeTime: Timestamp.create({ nanos: 0, seconds: "1700000060" }),
+            createTime: createdAt,
+            fileSystemSnapshotId: "snap-full",
+            objectBucket: "org-fss",
+            requestId: "req-1",
+            sizeBytes: "12",
+            sourceSandboxId: "sbx-1",
+            sourceVolumeName: "workspace",
+            state: SnapshotState.READY,
+            stateReason: "ok",
+            trigger: SnapshotTrigger.MANUAL,
+            updatedAt: Timestamp.create({ nanos: 1_000_000, seconds: "1700000030" }),
+          }),
+        ),
+      ).toEqual({
+        completedAt: new Date(1_700_000_060_000),
+        createdAt: new Date(1_700_000_000_000),
+        objectBucket: "org-fss",
+        requestId: "req-1",
+        sizeBytes: 12,
+        snapshotId: "snap-full",
+        sourceSandboxId: "sbx-1",
+        sourceVolumeName: "workspace",
+        state: "ready",
+        stateReason: "ok",
+        trigger: "manual",
+        updatedAt: new Date(1_700_000_030_001),
+      });
+    });
+
+    it("throws on unknown trigger values", () => {
+      expect(() =>
+        toSdkFileSystemSnapshot(
+          FileSystemSnapshot.create({
+            fileSystemSnapshotId: "snap-unknown",
+            state: SnapshotState.READY,
+            trigger: 99 as SnapshotTrigger,
+          }),
+        ),
+      ).toThrow(/Unhandled snapshot trigger/);
+    });
+
+    it("throws on unknown state values", () => {
+      expect(() =>
+        toSdkFileSystemSnapshot(
+          FileSystemSnapshot.create({
+            fileSystemSnapshotId: "snap-unknown-state",
+            state: 99 as SnapshotState,
+          }),
+        ),
+      ).toThrow(/Unhandled snapshot state/);
     });
   });
 });

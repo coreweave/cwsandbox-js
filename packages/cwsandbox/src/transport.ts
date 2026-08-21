@@ -23,6 +23,8 @@ import type {
   FileSystemSnapshotRecord,
   GetFileSystemSnapshotRequest,
   GetSandboxRequest,
+  ListFileSystemSnapshotsRequest,
+  ListFileSystemSnapshotsResult,
   StartSandboxRequest,
   StartCommandRequest,
   StartShellRequest,
@@ -39,6 +41,9 @@ export interface SandboxTransport {
     request: CreateFileSystemSnapshotRequest,
   ): Promise<FileSystemSnapshotRecord>;
   getFileSystemSnapshot(request: GetFileSystemSnapshotRequest): Promise<FileSystemSnapshotRecord>;
+  listFileSystemSnapshots(
+    request: ListFileSystemSnapshotsRequest,
+  ): Promise<ListFileSystemSnapshotsResult>;
   deleteFileSystemSnapshot(request: DeleteFileSystemSnapshotRequest): Promise<void>;
   exec(request: ExecRequest): Promise<ProcessResult>;
   startCommand(request: StartCommandRequest & { readonly stdin?: false }): Promise<CommandProcess>;

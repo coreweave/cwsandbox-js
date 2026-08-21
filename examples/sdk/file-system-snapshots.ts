@@ -7,7 +7,8 @@
  *
  * Demonstrates:
  * - create({ fileSystemSnapshot }) with a workspace scratch mount
- * - sandbox.snapshot() waiting until READY
+ * - sandbox.snapshot() waiting until READY (returns the Get record, not only the ID)
+ * - client.getSnapshot / client.listSnapshots after the source sandbox is gone
  * - restore via restoreFromSnapshotId
  * - client.deleteSnapshot(snapshotId, { missingOk: true })
  *
@@ -42,7 +43,7 @@ async function main(): Promise<void> {
       snapshotId = snapshot.snapshotId;
       snapshotIds.push(snapshot.snapshotId);
       console.log(
-        `Created snapshot ${snapshot.snapshotId}${snapshot.sizeBytes === undefined ? "" : ` (${snapshot.sizeBytes} bytes)`}`,
+        `Created snapshot ${snapshot.snapshotId} state=${snapshot.state}${snapshot.sizeBytes === undefined ? "" : ` (${snapshot.sizeBytes} bytes)`}`,
       );
     } finally {
       await source.delete({ missingOk: true });
@@ -51,6 +52,12 @@ async function main(): Promise<void> {
     if (snapshotId === undefined) {
       return;
     }
+
+    const inspected = await client.getSnapshot(snapshotId);
+    const listed = await client.listSnapshots({ sourceSandboxId: inspected.sourceSandboxId });
+    console.log(
+      `Inspected snapshot ${inspected.snapshotId} state=${inspected.state}; list matched ${listed.filter((row) => row.snapshotId === snapshotId).length}`,
+    );
 
     const restored = await client.create({
       fileSystemSnapshot: {

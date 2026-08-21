@@ -5,13 +5,16 @@
 /** Re-exported to break circular imports: SandboxList lives in runtime. */
 import type { SandboxList } from "../runtime/sandbox-list.js";
 import type { CommandInput } from "./commands.js";
+import type { RequestOptions } from "./common.js";
 import type {
   DeleteOptions,
   DeleteSnapshotOptions,
+  FileSystemSnapshotResult,
   FromIdOptions,
   GetSandboxResult,
   ListSandboxesOptions,
   ListSandboxesResult,
+  ListSnapshotsOptions,
   Sandbox,
   SandboxId,
   SandboxListOptions,
@@ -30,6 +33,8 @@ export interface SandboxClient {
   listSandboxes(options?: SandboxListOptions): SandboxList;
   listAll(options?: SandboxListOptions): Promise<readonly Sandbox[]>;
   delete(sandboxId: SandboxId, options?: DeleteOptions): Promise<void>;
+  getSnapshot(snapshotId: string, options?: RequestOptions): Promise<FileSystemSnapshotResult>;
+  listSnapshots(options?: ListSnapshotsOptions): Promise<readonly FileSystemSnapshotResult[]>;
   deleteSnapshot(snapshotId: string, options?: DeleteSnapshotOptions): Promise<void>;
   withSandbox<TResult>(
     callback: WithSandboxCallback<TResult>,

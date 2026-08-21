@@ -15,6 +15,7 @@ import type {
 import {
   createCommandProcess,
   createFakeFileAdapter,
+  createFakeSnapshot,
   createLogStream,
   createProcessResult,
   createTerminalSession,
@@ -194,10 +195,7 @@ function createContractTransport(): {
         calls.delete.push(request);
       },
       async createFileSystemSnapshot(request) {
-        return {
-          snapshotId: `snapshot-for-${request.sandboxId}`,
-          state: "creating",
-        };
+        return createFakeSnapshot(`snapshot-for-${request.sandboxId}`, { state: "creating" });
       },
       async deleteFileSystemSnapshot() {
         return undefined;
@@ -214,10 +212,10 @@ function createContractTransport(): {
         };
       },
       async getFileSystemSnapshot(request) {
-        return {
-          snapshotId: request.snapshotId,
-          state: "ready",
-        };
+        return createFakeSnapshot(request.snapshotId);
+      },
+      async listFileSystemSnapshots() {
+        return { snapshots: [] };
       },
       async list(options) {
         calls.list.push(options);

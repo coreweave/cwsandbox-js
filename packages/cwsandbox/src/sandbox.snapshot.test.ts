@@ -12,7 +12,7 @@ import {
 } from "./errors.js";
 import type { SandboxRuntime } from "./runtime/context.js";
 import { captureFileSystemSnapshot } from "./runtime/snapshot.js";
-import { createClient, createFakeTransport } from "./test/helpers.js";
+import { createClient, createFakeSnapshot, createFakeTransport } from "./test/helpers.js";
 import type { SandboxTransport } from "./transport.js";
 import type { FileSystemSnapshotRecord } from "./transport/types.js";
 
@@ -39,15 +39,17 @@ describe("sandbox.snapshot", () => {
         expect(request.requestId).toMatch(
           /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
         );
-        return { snapshotId: "snap-1", state: "creating" };
+        return createFakeSnapshot("snap-1", { state: "creating" });
       },
       async getFileSystemSnapshot(request) {
         expect(request.snapshotId).toBe("snap-1");
-        return {
-          snapshotId: "snap-1",
+        return createFakeSnapshot("snap-1", {
+          objectBucket: "org-fss",
           sizeBytes: 2048,
+          sourceSandboxId: "sandbox-for-echo",
           state: states.shift() ?? "ready",
-        };
+          trigger: "manual",
+        });
       },
     };
     const sandbox = await createClient(transport).run(["echo", "hello"], {
@@ -55,8 +57,12 @@ describe("sandbox.snapshot", () => {
     });
 
     await expect(sandbox.snapshot({ timeoutMs: 5_000 })).resolves.toEqual({
-      snapshotId: "snap-1",
+      objectBucket: "org-fss",
       sizeBytes: 2048,
+      snapshotId: "snap-1",
+      sourceSandboxId: "sandbox-for-echo",
+      state: "ready",
+      trigger: "manual",
     });
   });
 
@@ -66,10 +72,10 @@ describe("sandbox.snapshot", () => {
       ...createFakeTransport(["running"]),
       async createFileSystemSnapshot(request) {
         createRequest = request;
-        return { snapshotId: "snap-create", sizeBytes: 999, state: "creating" };
+        return createFakeSnapshot("snap-create", { sizeBytes: 999, state: "creating" });
       },
       async getFileSystemSnapshot() {
-        return { snapshotId: "snap-create", sizeBytes: 12, state: "ready" };
+        return createFakeSnapshot("snap-create", { sizeBytes: 12 });
       },
     };
     const sandbox = await createClient(transport).run(["echo", "hello"], {
@@ -79,6 +85,8 @@ describe("sandbox.snapshot", () => {
     await expect(sandbox.snapshot()).resolves.toEqual({
       snapshotId: "snap-create",
       sizeBytes: 12,
+      state: "ready",
+      trigger: "unspecified",
     });
     expect(createRequest).toMatchObject({
       sandboxId: "sandbox-for-echo",
@@ -90,14 +98,13 @@ describe("sandbox.snapshot", () => {
     const transport: SandboxTransport = {
       ...createFakeTransport(["running"]),
       async createFileSystemSnapshot() {
-        return { snapshotId: "snap-fail", state: "creating" };
+        return createFakeSnapshot("snap-fail", { state: "creating" });
       },
       async getFileSystemSnapshot() {
-        return {
-          snapshotId: "snap-fail",
+        return createFakeSnapshot("snap-fail", {
           state: "failed",
           stateReason: "archive exploded",
-        };
+        });
       },
     };
     const sandbox = await createClient(transport).run(["echo", "hello"], {
@@ -122,10 +129,10 @@ describe("sandbox.snapshot", () => {
     const transport: SandboxTransport = {
       ...createFakeTransport(["running"]),
       async createFileSystemSnapshot() {
-        return { snapshotId: "snap-slow", state: "creating" };
+        return createFakeSnapshot("snap-slow", { state: "creating" });
       },
       async getFileSystemSnapshot() {
-        return { snapshotId: "snap-slow", state: "creating" };
+        return createFakeSnapshot("snap-slow", { state: "creating" });
       },
     };
     const runtime: SandboxRuntime = {
@@ -165,14 +172,14 @@ describe("sandbox.snapshot", () => {
     const transport: SandboxTransport = {
       ...createFakeTransport(["running"]),
       async createFileSystemSnapshot() {
-        return { snapshotId: "snap-retry", state: "creating" };
+        return createFakeSnapshot("snap-retry", { state: "creating" });
       },
       async getFileSystemSnapshot() {
         getCalls += 1;
         if (getCalls === 1) {
           throw new CWSandboxUnavailableError("get unavailable");
         }
-        return { snapshotId: "snap-retry", state: "ready", sizeBytes: 8 };
+        return createFakeSnapshot("snap-retry", { sizeBytes: 8 });
       },
     };
     const sandbox = await createClient(transport).run(["echo", "hello"], {
@@ -182,6 +189,8 @@ describe("sandbox.snapshot", () => {
     await expect(sandbox.snapshot({ timeoutMs: 5_000 })).resolves.toEqual({
       snapshotId: "snap-retry",
       sizeBytes: 8,
+      state: "ready",
+      trigger: "unspecified",
     });
     expect(getCalls).toBe(2);
   });
@@ -195,7 +204,7 @@ describe("sandbox.snapshot", () => {
     const transport: SandboxTransport = {
       ...createFakeTransport(["running"]),
       async createFileSystemSnapshot() {
-        return { snapshotId: "snap-not-ready", state: "creating" };
+        return createFakeSnapshot("snap-not-ready", { state: "creating" });
       },
       async getFileSystemSnapshot() {
         getCalls += 1;
@@ -216,5 +225,25 @@ describe("sandbox.snapshot", () => {
     await expect(sandbox.snapshot({ timeoutMs: Number.NaN })).rejects.toThrow(
       CWSandboxValidationError,
     );
+  });
+
+  it("poll Gets use the 15s poll RPC timeout, not the archive wait", async () => {
+    const getTimeouts: number[] = [];
+    const transport: SandboxTransport = {
+      ...createFakeTransport(["running"]),
+      async createFileSystemSnapshot() {
+        return createFakeSnapshot("snap-poll", { state: "creating" });
+      },
+      async getFileSystemSnapshot(request) {
+        getTimeouts.push(request.timeoutMs ?? -1);
+        return createFakeSnapshot("snap-poll");
+      },
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"], {
+      waitUntilRunning: false,
+    });
+
+    await sandbox.snapshot({ timeoutMs: 60_000 });
+    expect(getTimeouts[0]).toBe(15_000);
   });
 });

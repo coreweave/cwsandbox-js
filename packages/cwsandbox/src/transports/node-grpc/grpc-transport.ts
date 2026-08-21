@@ -24,6 +24,8 @@ import type {
   FileSystemSnapshotRecord,
   GetFileSystemSnapshotRequest,
   GetSandboxRequest,
+  ListFileSystemSnapshotsRequest,
+  ListFileSystemSnapshotsResult,
   StartCommandRequest,
   StartShellRequest,
   StartSandboxRequest,
@@ -36,6 +38,7 @@ import {
   CreateFileSystemSnapshotRequest as ProtoCreateFileSystemSnapshotRequest,
   DeleteFileSystemSnapshotRequest as ProtoDeleteFileSystemSnapshotRequest,
   GetFileSystemSnapshotRequest as ProtoGetFileSystemSnapshotRequest,
+  ListFileSystemSnapshotsRequest as ProtoListFileSystemSnapshotsRequest,
 } from "./generated/coreweave/sandbox/v1/sandbox.js";
 import { startGrpcLogStream } from "./log-stream.js";
 import {
@@ -148,6 +151,26 @@ export class GrpcSandboxTransport implements SandboxTransport {
     );
 
     return toSdkFileSystemSnapshot(response);
+  }
+
+  public async listFileSystemSnapshots(
+    request: ListFileSystemSnapshotsRequest,
+  ): Promise<ListFileSystemSnapshotsResult> {
+    const response = await withGrpcErrorMapping(
+      "List file-system snapshots",
+      () =>
+        this.client.listFileSystemSnapshots(
+          ProtoListFileSystemSnapshotsRequest.create(
+            request.pageToken === undefined ? {} : { pageToken: request.pageToken },
+          ),
+          toRpcOptions(request),
+        ).response,
+    );
+
+    return {
+      snapshots: response.fileSystemSnapshots.map(toSdkFileSystemSnapshot),
+      ...(response.nextPageToken === "" ? {} : { nextPageToken: response.nextPageToken }),
+    };
   }
 
   public async deleteFileSystemSnapshot(request: DeleteFileSystemSnapshotRequest): Promise<void> {

@@ -14,6 +14,8 @@ import type { NetworkOptions, Service, ServiceUrl } from "../../public/network.j
 import type { ResourceOptions, ResourceSpec } from "../../public/resources.js";
 import type {
   FileSystemSnapshotOptions,
+  FileSystemSnapshotState,
+  FileSystemSnapshotTrigger,
   GetSandboxResult,
   ListSandboxesOptions,
   ListSandboxesResult,
@@ -26,7 +28,6 @@ import type {
 import type {
   ExecRequest,
   FileSystemSnapshotRecord,
-  FileSystemSnapshotState,
   StartSandboxRequest,
 } from "../../transport/types.js";
 import {
@@ -50,6 +51,7 @@ import {
   Service as ProtoService,
   ServiceProtocol,
   SnapshotState,
+  SnapshotTrigger,
   State,
   StreamLogsRequest as ProtoStreamLogsRequest,
   Visibility,
@@ -524,11 +526,22 @@ export function toSdkFileSystemSnapshot(
   snapshot: ProtoFileSystemSnapshot,
 ): FileSystemSnapshotRecord {
   const sizeBytes = parseSizeBytes(snapshot.sizeBytes);
+  const createdAt = toDate(snapshot.createTime);
+  const updatedAt = toDate(snapshot.updatedAt);
+  const completedAt = toDate(snapshot.completeTime);
   return {
     snapshotId: snapshot.fileSystemSnapshotId,
     state: toSdkSnapshotState(snapshot.state),
+    trigger: toSdkSnapshotTrigger(snapshot.trigger),
     ...(snapshot.stateReason === "" ? {} : { stateReason: snapshot.stateReason }),
     ...(sizeBytes === undefined ? {} : { sizeBytes }),
+    ...(snapshot.objectBucket === "" ? {} : { objectBucket: snapshot.objectBucket }),
+    ...(snapshot.sourceSandboxId === "" ? {} : { sourceSandboxId: snapshot.sourceSandboxId }),
+    ...(snapshot.sourceVolumeName === "" ? {} : { sourceVolumeName: snapshot.sourceVolumeName }),
+    ...(snapshot.requestId === "" ? {} : { requestId: snapshot.requestId }),
+    ...(createdAt === undefined ? {} : { createdAt }),
+    ...(updatedAt === undefined ? {} : { updatedAt }),
+    ...(completedAt === undefined ? {} : { completedAt }),
   };
 }
 
@@ -547,6 +560,21 @@ function toSdkSnapshotState(state: SnapshotState): FileSystemSnapshotState {
     default: {
       const _exhaustiveCheck: never = state;
       throw new Error(`Unhandled snapshot state: ${_exhaustiveCheck}`);
+    }
+  }
+}
+
+function toSdkSnapshotTrigger(trigger: SnapshotTrigger): FileSystemSnapshotTrigger {
+  switch (trigger) {
+    case SnapshotTrigger.MANUAL:
+      return "manual";
+    case SnapshotTrigger.ON_DELETE:
+      return "on_delete";
+    case SnapshotTrigger.UNSPECIFIED:
+      return "unspecified";
+    default: {
+      const _exhaustiveCheck: never = trigger;
+      throw new Error(`Unhandled snapshot trigger: ${_exhaustiveCheck}`);
     }
   }
 }

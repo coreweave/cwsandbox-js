@@ -17,7 +17,12 @@ import {
   type SandboxRunOptions,
 } from "./index.js";
 import { Sandbox } from "./sandbox.js";
-import { createClient, createFakeTransport, createTrackingTransport } from "./test/helpers.js";
+import {
+  createClient,
+  createFakeSnapshot,
+  createFakeTransport,
+  createTrackingTransport,
+} from "./test/helpers.js";
 import type { SandboxTransport } from "./transport.js";
 
 describe("SandboxClient", () => {
@@ -633,6 +638,102 @@ describe("SandboxClient", () => {
         createClient(transport).deleteSnapshot("snap-creating", { missingOk: true }),
       ).rejects.toBe(error);
     });
+
+    it("gets a snapshot record without waiting for READY", async () => {
+      let getRequest: Parameters<SandboxTransport["getFileSystemSnapshot"]>[0] | undefined;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async getFileSystemSnapshot(request) {
+          getRequest = request;
+          return createFakeSnapshot(request.snapshotId, { state: "creating", trigger: "manual" });
+        },
+      };
+
+      await expect(createClient(transport).getSnapshot("snap-creating")).resolves.toEqual({
+        snapshotId: "snap-creating",
+        state: "creating",
+        trigger: "manual",
+      });
+      expect(getRequest).toEqual({
+        snapshotId: "snap-creating",
+        timeoutMs: DEFAULT_LIST_ALL_TIMEOUT_MS,
+      });
+    });
+
+    it("raises not-found on getSnapshot", async () => {
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async getFileSystemSnapshot(request) {
+          throw new CWSandboxNotFoundError(`Snapshot '${request.snapshotId}' not found.`);
+        },
+      };
+
+      await expect(createClient(transport).getSnapshot("missing-snap")).rejects.toBeInstanceOf(
+        CWSandboxNotFoundError,
+      );
+    });
+
+    it("does not retry inspect Get on TimeoutError", async () => {
+      let getCalls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async getFileSystemSnapshot() {
+          getCalls += 1;
+          throw new CWSandboxTimeoutError("inspect deadline");
+        },
+      };
+
+      await expect(createClient(transport).getSnapshot("snap-timeout")).rejects.toThrow(
+        CWSandboxTimeoutError,
+      );
+      expect(getCalls).toBe(1);
+    });
+
+    it("collects every listSnapshots page then filters client-side", async () => {
+      const listRequests: Parameters<SandboxTransport["listFileSystemSnapshots"]>[0][] = [];
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async listFileSystemSnapshots(request) {
+          listRequests.push(request);
+          if (request.pageToken === undefined) {
+            return {
+              nextPageToken: "page-2",
+              snapshots: [
+                createFakeSnapshot("snap-a", {
+                  sourceSandboxId: "sbx-1",
+                  state: "ready",
+                }),
+                createFakeSnapshot("snap-b", {
+                  sourceSandboxId: "sbx-2",
+                  state: "failed",
+                }),
+              ],
+            };
+          }
+          return {
+            snapshots: [
+              createFakeSnapshot("snap-c", {
+                sourceSandboxId: "sbx-1",
+                state: "creating",
+              }),
+            ],
+          };
+        },
+      };
+
+      await expect(
+        createClient(transport).listSnapshots({ sourceSandboxId: "sbx-1", state: "ready" }),
+      ).resolves.toEqual([
+        createFakeSnapshot("snap-a", { sourceSandboxId: "sbx-1", state: "ready" }),
+      ]);
+      expect(listRequests).toHaveLength(2);
+      expect(listRequests[0]).not.toHaveProperty("sourceSandboxId");
+      expect(listRequests[0]).not.toHaveProperty("pageSize");
+      expect(listRequests[0]).not.toHaveProperty("state");
+      expect(listRequests[1]).toMatchObject({ pageToken: "page-2" });
+      expect(listRequests[1]).not.toHaveProperty("sourceSandboxId");
+      expect(listRequests[1]).not.toHaveProperty("pageSize");
+    });
   });
 
   describe("validation", () => {
@@ -667,6 +768,22 @@ describe("SandboxClient", () => {
       ).rejects.toThrow(/profileNames is not supported in v1/);
 
       expect(listCalls).toBe(0);
+    });
+
+    it("rejects empty snapshot ids and invalid listSnapshots filters", async () => {
+      const client = createClient();
+
+      await expect(client.getSnapshot("")).rejects.toThrow(CWSandboxValidationError);
+      await expect(client.getSnapshot("   ")).rejects.toThrow(CWSandboxValidationError);
+      await expect(client.listSnapshots({ state: "bogus" as "ready" })).rejects.toThrow(
+        CWSandboxValidationError,
+      );
+      await expect(client.listSnapshots({ pageToken: "next" } as never)).rejects.toThrow(
+        /pageToken is not supported in v1/,
+      );
+      await expect(client.listSnapshots({ pageSize: 10 } as never)).rejects.toThrow(
+        /pageSize is not supported in v1/,
+      );
     });
 
     it("throws a typed validation error for empty run commands", async () => {

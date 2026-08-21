@@ -8,9 +8,13 @@ SPDX-PackageName: cwsandbox
 
 ## Unreleased
 
-- Add `fileSystemSnapshot` create option, `sandbox.snapshot()`, and
-  `client.deleteSnapshot(snapshotId, { missingOk })` for scratch-volume archives (not)
-  container overlay). Default snapshot wait is 600s plus 5s observation slack.
+- Add `fileSystemSnapshot` create option, `sandbox.snapshot()`,
+  `client.getSnapshot`, `client.listSnapshots`, and
+  `client.deleteSnapshot(snapshotId, { missingOk })` for scratch-volume archives
+  (not container overlay). Default snapshot wait is 600s plus 5s observation
+  slack. `snapshot()` returns the READY Get record (Python `snapshot()` returns
+  only the ID; use `get_snapshot` there). `listSnapshots` collects all pages
+  and filters `sourceSandboxId` / `state` client-side.
 - Add `objectStorageAccess` on create for temporary object-storage credentials.
 
 ## 0.2.0-beta.0
