@@ -262,6 +262,12 @@ function createTrackingClient(): TrackingClient {
     async deleteSnapshot() {
       throw new Error("deleteSnapshot not used in these tests.");
     },
+    async getSnapshot() {
+      throw new Error("getSnapshot not used in these tests.");
+    },
+    async listSnapshots() {
+      throw new Error("listSnapshots not used in these tests.");
+    },
     async withSandbox(_commandOrCallback, _callbackOrOptions) {
       throw new Error("withSandbox not used in these tests.");
     },

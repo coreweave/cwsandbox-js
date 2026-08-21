@@ -10,15 +10,22 @@ import type {
 } from "../public/commands.js";
 import type { RequestOptions } from "../public/common.js";
 import type { LogStreamMode, LogStreamOptions } from "../public/logs.js";
-import type { SandboxId, SandboxRunOptions, StopOptions } from "../public/sandbox.js";
+import type {
+  FileSystemSnapshotResult,
+  SandboxId,
+  SandboxRunOptions,
+  StopOptions,
+} from "../public/sandbox.js";
 
-export type FileSystemSnapshotState = "creating" | "ready" | "failed" | "deleting" | "unspecified";
+export type FileSystemSnapshotRecord = FileSystemSnapshotResult;
 
-export interface FileSystemSnapshotRecord {
-  readonly snapshotId: string;
-  readonly state: FileSystemSnapshotState;
-  readonly stateReason?: string;
-  readonly sizeBytes?: number;
+export interface ListFileSystemSnapshotsRequest extends RequestOptions {
+  readonly pageToken?: string;
+}
+
+export interface ListFileSystemSnapshotsResult {
+  readonly nextPageToken?: string;
+  readonly snapshots: readonly FileSystemSnapshotRecord[];
 }
 
 export interface StartSandboxRequest extends Omit<SandboxRunOptions, "waitUntilRunning"> {

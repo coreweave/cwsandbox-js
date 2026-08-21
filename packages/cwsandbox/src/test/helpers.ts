@@ -9,6 +9,7 @@ import type {
   CommandInputWriter,
   CommandProcess,
   CommandProcessWithStdin,
+  FileSystemSnapshotResult,
   LogEntryStream,
   LogRawStream,
   LogStream,
@@ -22,6 +23,18 @@ import type { FileAdapter } from "../transport/file-adapter.js";
 import type { StartCommandRequest } from "../transport/types.js";
 
 const textEncoder = new TextEncoder();
+
+export function createFakeSnapshot(
+  snapshotId: string,
+  overrides: Partial<FileSystemSnapshotResult> = {},
+): FileSystemSnapshotResult {
+  return {
+    snapshotId,
+    state: "ready",
+    trigger: "unspecified",
+    ...overrides,
+  };
+}
 
 export function createProcessResult(
   command: Command,
@@ -210,16 +223,13 @@ export function createFakeTransport(
       return undefined;
     },
     async createFileSystemSnapshot() {
-      return {
-        snapshotId: "snapshot-1",
-        state: "creating" as const,
-      };
+      return createFakeSnapshot("snapshot-1", { state: "creating" });
     },
     async getFileSystemSnapshot(request) {
-      return {
-        snapshotId: request.snapshotId,
-        state: "ready" as const,
-      };
+      return createFakeSnapshot(request.snapshotId);
+    },
+    async listFileSystemSnapshots() {
+      return { snapshots: [] };
     },
     async deleteFileSystemSnapshot() {
       return undefined;

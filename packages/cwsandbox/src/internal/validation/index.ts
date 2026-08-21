@@ -10,6 +10,7 @@ import type {
   DeleteOptions,
   DeleteSnapshotOptions,
   ListSandboxesOptions,
+  ListSnapshotsOptions,
   SandboxRunOptions,
   StopOptions,
   WaitOptions,
@@ -100,6 +101,29 @@ export function validateDeleteOptions(options: DeleteOptions): void {
 export function validateDeleteSnapshotOptions(options: DeleteSnapshotOptions): void {
   validateRequestOptions(options);
   validateOptionalBoolean(options.missingOk, "missingOk");
+}
+
+export function validateSnapshotId(snapshotId: string): void {
+  if (typeof snapshotId !== "string" || snapshotId.trim() === "") {
+    throw new CWSandboxValidationError("snapshotId must not be empty.");
+  }
+}
+
+const FILE_SYSTEM_SNAPSHOT_STATES: ReadonlySet<string> = new Set([
+  "creating",
+  "ready",
+  "failed",
+  "deleting",
+  "unspecified",
+]);
+
+export function validateListSnapshotsOptions(options: ListSnapshotsOptions): void {
+  rejectRemovedKeys(options, ["pageToken", "pageSize"]);
+  validateRequestOptions(options);
+  validateOptionalNonBlankString(options.sourceSandboxId, "sourceSandboxId");
+  if (options.state !== undefined && !FILE_SYSTEM_SNAPSHOT_STATES.has(options.state)) {
+    throw new CWSandboxValidationError("state must be a file-system snapshot state.");
+  }
 }
 
 export function validateListSandboxesOptions(options: ListSandboxesOptions): void {

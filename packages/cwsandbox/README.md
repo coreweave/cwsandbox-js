@@ -575,8 +575,11 @@ const source = await client.create({
 });
 
 await source.exec(["sh", "-c", "echo hello > /workspace/data.txt"]);
-const { snapshotId, sizeBytes } = await source.snapshot();
+const { snapshotId, sizeBytes, state, objectBucket } = await source.snapshot();
 await source.delete({ missingOk: true });
+
+const inspected = await client.getSnapshot(snapshotId);
+const listed = await client.listSnapshots({ sourceSandboxId: source.sandboxId });
 
 const restored = await client.create({
   fileSystemSnapshot: {
@@ -586,15 +589,21 @@ const restored = await client.create({
 });
 
 const result = await restored.exec(["cat", "/workspace/data.txt"]);
-console.log(result.stdout, sizeBytes);
+console.log(result.stdout, sizeBytes, state, objectBucket, listed.length, inspected.state);
 
 await restored.delete({ missingOk: true });
 await client.deleteSnapshot(snapshotId, { missingOk: true });
 ```
 
-`snapshot()` waits until READY or FAILED. The public default wait is 600s (plus 5s
-internal observation slack). Pass `timeoutMs` to override the archive budget.
-Snapshots are not deleted when the sandbox stops; call `deleteSnapshot`.
+`snapshot()` waits until READY or FAILED and returns the READY Get record
+(`state`, `trigger`, optional `objectBucket` / timestamps), not only the ID.
+Python `snapshot()` returns the ID; call `get_snapshot` there for the record.
+The public default wait is 600s (plus 5s internal observation slack). Pass
+`timeoutMs` to override the archive budget. Snapshots are not deleted when the
+sandbox stops; call `deleteSnapshot`. Inspect without waiting with
+`client.getSnapshot(snapshotId)` and `client.listSnapshots({ sourceSandboxId, state })`.
+`listSnapshots` collects every page and filters client-side (it does not send
+`sourceSandboxId` on the List RPC).
 
 `stop({ snapshotOnStop })` is not supported. Capture with `sandbox.snapshot()`
 before stop or delete.

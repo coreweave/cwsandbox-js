@@ -61,10 +61,14 @@ describeWithCredentials("live file-system snapshot smoke", { sequential: true },
             snapshotId = snapshot.snapshotId;
             snapshotIds.push(snapshot.snapshotId);
             expect(snapshot.snapshotId).toMatch(/\S/);
+            expect(snapshot.state).toBe("ready");
             console.log("created snapshot", {
+              objectBucket: snapshot.objectBucket,
               snapshotId: snapshot.snapshotId,
               sizeBytes: snapshot.sizeBytes,
               sourceSandboxId: source.sandboxId,
+              state: snapshot.state,
+              trigger: snapshot.trigger,
             });
           },
         );
@@ -76,6 +80,14 @@ describeWithCredentials("live file-system snapshot smoke", { sequential: true },
         }
         const restoreFromSnapshotId = snapshotId;
         const expectedSourceSandboxId = sourceSandboxId;
+
+        const inspected = await client.getSnapshot(restoreFromSnapshotId);
+        expect(inspected.snapshotId).toBe(restoreFromSnapshotId);
+        expect(inspected.state).toBe("ready");
+        expect(inspected.sourceSandboxId).toBe(expectedSourceSandboxId);
+
+        const listed = await client.listSnapshots({ sourceSandboxId: expectedSourceSandboxId });
+        expect(listed.some((row) => row.snapshotId === restoreFromSnapshotId)).toBe(true);
 
         await withDedicatedTaggedSandbox(
           client,

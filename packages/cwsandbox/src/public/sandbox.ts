@@ -74,10 +74,32 @@ export interface FileSystemSnapshotOptions {
   readonly restoreFromSnapshotId?: string;
 }
 
+export type FileSystemSnapshotState = "creating" | "ready" | "failed" | "deleting" | "unspecified";
+
+export type FileSystemSnapshotTrigger = "unspecified" | "manual" | "on_delete";
+
+/** Org-scoped file-system snapshot record from Get/List, and from `snapshot()` once READY. */
 export interface FileSystemSnapshotResult {
   readonly snapshotId: string;
-  /** Archive size when the READY Get reports a safe integer; omitted otherwise. */
+  readonly state: FileSystemSnapshotState;
+  readonly trigger: FileSystemSnapshotTrigger;
+  /** Archive size when Get reports a safe integer; omitted otherwise. */
   readonly sizeBytes?: number;
+  readonly stateReason?: string;
+  readonly objectBucket?: string;
+  readonly sourceSandboxId?: string;
+  readonly sourceVolumeName?: string;
+  readonly requestId?: string;
+  readonly createdAt?: Date;
+  readonly updatedAt?: Date;
+  readonly completedAt?: Date;
+}
+
+export interface ListSnapshotsOptions extends RequestOptions {
+  /** Client-side filter after a full collect. Not sent on the List RPC. */
+  readonly sourceSandboxId?: string;
+  /** Client-side filter after a full collect (Python `status`). */
+  readonly state?: FileSystemSnapshotState;
 }
 
 export interface DeleteSnapshotOptions extends RequestOptions {
@@ -219,8 +241,10 @@ export interface Sandbox {
   /**
    * Snapshot the sandbox's scratch volume and wait until READY or FAILED.
    *
-   * Default `timeoutMs` is 600s (plus 5s internal observation slack). Snapshots
-   * outlive sandbox stop/delete; call `client.deleteSnapshot` to remove them.
+   * Returns the READY Get record (not only the ID). Default `timeoutMs` is 600s
+   * (plus 5s internal observation slack). Snapshots outlive sandbox stop/delete;
+   * call `client.deleteSnapshot` to remove them. Inspect without waiting with
+   * `client.getSnapshot` / `client.listSnapshots`.
    */
   snapshot(options?: RequestOptions): Promise<FileSystemSnapshotResult>;
   stop(options?: StopOptions): Promise<void>;

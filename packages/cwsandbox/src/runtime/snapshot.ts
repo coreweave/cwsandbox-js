@@ -130,10 +130,7 @@ async function waitForSnapshotReady(
 
     const record = await getSnapshot(runtime, snapshotId, options, now, deadline);
     if (record.state === "ready") {
-      return {
-        snapshotId: record.snapshotId,
-        ...(record.sizeBytes === undefined ? {} : { sizeBytes: record.sizeBytes }),
-      };
+      return record;
     }
     if (record.state === "failed") {
       const reason = record.stateReason === undefined ? "" : `: ${record.stateReason}`;
