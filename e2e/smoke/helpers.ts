@@ -7,18 +7,20 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type {
-  CommandInput,
-  ExecOptions,
-  ProcessResult,
-  Sandbox,
-  SandboxClient,
-  SandboxExposedPort,
-  SandboxRunOptions,
-  SandboxStatus,
-  SandboxTag,
-  Service,
-  ServiceUrl,
+import {
+  CWSandboxTransportError,
+  CWSandboxValidationError,
+  type CommandInput,
+  type ExecOptions,
+  type ProcessResult,
+  type Sandbox,
+  type SandboxClient,
+  type SandboxExposedPort,
+  type SandboxRunOptions,
+  type SandboxStatus,
+  type SandboxTag,
+  type Service,
+  type ServiceUrl,
 } from "@coreweave/cwsandbox";
 import { expect } from "vitest";
 
@@ -159,6 +161,59 @@ export function startOptionsForNoInternetNetwork(): SandboxRunOptions {
       denyEgress: true,
     },
   };
+}
+
+export const DNS_EGRESS_EXACT = "pypi.org";
+export const DNS_EGRESS_WILD = "*.pypi.org";
+export const DNS_EGRESS_WILD_HOST = "test.pypi.org";
+export const DNS_EGRESS_UNGRANTED = "example.com";
+export const dnsEgressSmokeTimeoutMs = 180_000;
+
+const DNS_NAME_IN_MESSAGE = /dns[_]?name/i;
+const DNS_EGRESS_SKIP_REASONS = new Set([
+  "CWSANDBOX_NO_SUITABLE_RUNNER",
+  "CWSANDBOX_PLACEMENT_CONSTRAINT_UNSATISFIED",
+]);
+
+export function startOptionsForDnsNameEgress(): SandboxRunOptions {
+  return {
+    maxLifetimeSeconds: 300,
+    network: {
+      egress: [{ dnsName: DNS_EGRESS_EXACT }, { dnsName: DNS_EGRESS_WILD }],
+    },
+  };
+}
+
+export async function httpsGetExitCode(
+  sandbox: Sandbox,
+  url: string,
+  timeoutSeconds: number,
+): Promise<number> {
+  const result = await sandbox.commands.run(
+    [
+      "python",
+      "-c",
+      "import sys, urllib.request; urllib.request.urlopen(sys.argv[1], timeout=float(sys.argv[2]))",
+      url,
+      String(timeoutSeconds),
+    ],
+    { timeoutMs: (timeoutSeconds + 15) * 1000 },
+  );
+  logProcessResult(`https ${url}`, result);
+  return result.exitCode ?? -1;
+}
+
+export function shouldSkipDnsEgress(error: unknown): boolean {
+  if (error instanceof CWSandboxValidationError) {
+    return DNS_NAME_IN_MESSAGE.test(error.message);
+  }
+  if (error instanceof CWSandboxTransportError) {
+    if (error.reason !== undefined && DNS_EGRESS_SKIP_REASONS.has(error.reason)) {
+      return true;
+    }
+    return DNS_NAME_IN_MESSAGE.test(error.message);
+  }
+  return false;
 }
 
 export function uniqueSmokeTag(): SandboxTag {

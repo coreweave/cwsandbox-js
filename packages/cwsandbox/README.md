@@ -13,10 +13,10 @@ TypeScript SDK for CoreWeave Sandbox.
 > npm cut is core only.
 >
 > This package speaks Sandbox **v1**. Use `services`, `network.denyEgress` /
-> `network.denyIngress`, `runnerIds`, and `showTerminated`. Profiles, `ports`,
-> and `includeStopped` are not part of this API. Templates (`runFromTemplate`)
-> are the successor for profile-style placement and are not wrapped in this SDK
-> yet.
+> `network.denyIngress`, `network.egress`, `runnerIds`, and `showTerminated`.
+> Profiles, `ports`, and `includeStopped` are not part of this API. Templates
+> (`runFromTemplate`) are the successor for profile-style placement and are
+> not wrapped in this SDK yet.
 
 For platform concepts and product guides, see the
 [CoreWeave Sandbox documentation](https://docs.coreweave.com/products/coreweave-sandbox/client).
@@ -750,6 +750,22 @@ await client.run(["python"], {
 });
 ```
 
+Grant specific hostnames over HTTPS (TCP 443). A one-label wildcard
+(`*.pypi.org`) does not include the apex (`pypi.org`); grant both when the
+example needs PyPI. `"*"` is a policy ceiling, not a sandbox grant, and
+`denyEgress: true` cannot combine with a non-empty `egress` list:
+
+```ts
+const sandbox = await client.run(["python"], {
+  network: {
+    egress: [{ dnsName: "pypi.org" }, { dnsName: "*.pypi.org" }],
+  },
+});
+
+console.log(sandbox.dnsEgressNames);
+console.log((await sandbox.inspect()).dnsEgressNames);
+```
+
 Declare listen-only services, or request a public HTTPS assignment with
 `endpoint: { kind: "https", auth: "open" }` and `visibility: "public"`:
 
@@ -995,7 +1011,7 @@ Useful root commands:
 - `pnpm smoke:stress -- --heavy` runs the larger manual stress smoke suite.
 - `pnpm smoke:stress -- --cleanup --tag <stress-tag>` deletes sandboxes from an interrupted stress run.
 
-`pnpm check` is offline and credential-free, including README example typechecks. `pnpm smoke` and stress smoke commands skip CoreWeave-auth tests when `CWSANDBOX_API_KEY` is not set, and skip W&B-auth tests when no `WANDB_API_KEY` or W&B `.netrc` credential resolves. The default smoke suite uses default internet egress and `network.denyEgress` for the no-internet check. Stress smoke is intentionally not part of `pnpm check`; it creates live sandboxes and uses bounded workloads to exercise larger logs, streams, stdin, files, pagination, and cleanup paths.
+`pnpm check` is offline and credential-free, including README example typechecks. `pnpm smoke` and stress smoke commands skip CoreWeave-auth tests when `CWSANDBOX_API_KEY` is not set, and skip W&B-auth tests when no `WANDB_API_KEY` or W&B `.netrc` credential resolves. The default smoke suite uses default internet egress and `network.denyEgress` for the no-internet check. Hostname-grant smoke probes `pypi.org` and `*.pypi.org` over HTTPS and skips when the fleet cannot admit names. Stress smoke is intentionally not part of `pnpm check`; it creates live sandboxes and uses bounded workloads to exercise larger logs, streams, stdin, files, pagination, and cleanup paths.
 
 ## License
 

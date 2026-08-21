@@ -8,6 +8,11 @@ SPDX-PackageName: cwsandbox
 
 ## Unreleased
 
+- Add `network.egress` create-time DNS-name HTTPS grants (`{ dnsName }`) and
+  echo granted names as `dnsEgressNames` from status. Exact names or a single
+  leftmost wildcard; `"*"` is not a sandbox grant and cannot combine with
+  `denyEgress`.
+
 - Add `fileSystemSnapshot` create option, `sandbox.snapshot()`,
   `client.getSnapshot`, `client.listSnapshots`, and
   `client.deleteSnapshot(snapshotId, { missingOk })` for scratch-volume archives

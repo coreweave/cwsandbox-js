@@ -1103,6 +1103,29 @@ describe("SandboxClient", () => {
       expect(startCalls).toBe(0);
     });
 
+    it("rejects dnsName egress grants before the transport", async () => {
+      let startCalls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async start() {
+          startCalls += 1;
+          throw new Error("transport should not be called");
+        },
+      };
+      const client = createClient(transport);
+
+      await expect(
+        client.run(["python"], { network: { egress: [{ dnsName: "*" }] } }),
+      ).rejects.toThrow(CWSandboxValidationError);
+      await expect(
+        client.run(["python"], {
+          network: { denyEgress: true, egress: [{ dnsName: "pypi.org" }] },
+        }),
+      ).rejects.toThrow(/cannot be combined/);
+
+      expect(startCalls).toBe(0);
+    });
+
     it("throws a typed validation error for invalid max lifetime values", async () => {
       const client = createClient();
 

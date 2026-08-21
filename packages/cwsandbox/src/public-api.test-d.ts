@@ -38,6 +38,7 @@ import {
   type MountedFiles,
   type Endpoint,
   type NetworkOptions,
+  type EgressRule,
   type ObjectStoragePermission,
   type ProcessResult,
   type ResourceRequestsAndLimits,
@@ -160,6 +161,13 @@ expectTypeOf(
       denyEgress: true,
     },
     services: [{ port: 8000 }],
+  }),
+).toEqualTypeOf<ReturnType<SandboxClient["run"]>>();
+expectTypeOf(
+  client.run(["python"], {
+    network: {
+      egress: [{ dnsName: "pypi.org" }, { dnsName: "*.pypi.org" }],
+    },
   }),
 ).toEqualTypeOf<ReturnType<SandboxClient["run"]>>();
 expectTypeOf(
@@ -289,6 +297,7 @@ const sandboxTag: SandboxTag = "project-demo";
 const sandboxExposedPort: SandboxExposedPort = { name: "http", port: 8000, protocol: "TCP" };
 const sandboxResourceSpec: SandboxResourceSpec = { cpu: "1", memory: "1Gi" };
 const sandboxMetadata: SandboxMetadata = {
+  dnsEgressNames: ["pypi.org"],
   exposedPorts: [sandboxExposedPort],
   resourceLimits: sandboxResourceSpec,
   resourceRequests: sandboxResourceSpec,
@@ -308,6 +317,10 @@ const startSandboxResult: StartSandboxResult = sandboxMetadata;
 const networkOptions: NetworkOptions = {
   denyEgress: true,
 };
+const egressRule: EgressRule = { dnsName: "pypi.org" };
+const egressNetwork: NetworkOptions = {
+  egress: [egressRule],
+};
 expectTypeOf(endpoint).toExtend<Endpoint>();
 expectTypeOf(service).toExtend<Service>();
 expectTypeOf(serviceUrl).toExtend<ServiceUrl>();
@@ -319,6 +332,8 @@ expectTypeOf(sandboxMetadata).toExtend<SandboxMetadata>();
 expectTypeOf(sandboxInfo).toExtend<SandboxInfo>();
 expectTypeOf(startSandboxResult).toExtend<StartSandboxResult>();
 expectTypeOf(networkOptions).toExtend<NetworkOptions>();
+expectTypeOf(egressNetwork).toExtend<NetworkOptions>();
+expectTypeOf(egressRule).toExtend<EgressRule>();
 
 const sandbox = await client.run(["echo"]);
 expectTypeOf(sandbox.status).toEqualTypeOf<SandboxStatus | undefined>();
@@ -327,6 +342,7 @@ expectTypeOf(sandbox.startedAt).toEqualTypeOf<Date | undefined>();
 expectTypeOf(sandbox.runnerId).toEqualTypeOf<string | undefined>();
 expectTypeOf(sandbox.runnerGroupId).toEqualTypeOf<string | undefined>();
 expectTypeOf(sandbox.serviceUrls).toEqualTypeOf<readonly ServiceUrl[] | undefined>();
+expectTypeOf(sandbox.dnsEgressNames).toEqualTypeOf<readonly string[] | undefined>();
 expectTypeOf(sandbox.exposedPorts).toEqualTypeOf<readonly SandboxExposedPort[] | undefined>();
 expectTypeOf(sandbox.resourceRequests).toEqualTypeOf<SandboxResourceSpec | undefined>();
 expectTypeOf(sandbox.resourceLimits).toEqualTypeOf<SandboxResourceSpec | undefined>();
