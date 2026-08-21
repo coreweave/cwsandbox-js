@@ -8,6 +8,9 @@ import {
   CWSandboxAuthenticationError,
   CWSandboxNotFoundError,
   CWSandboxResourceExhaustedError,
+  CWSandboxSnapshotBucketMismatchError,
+  CWSandboxSnapshotQuotaExceededError,
+  CWSandboxSnapshotSizeExceededError,
   CWSandboxTimeoutError,
   CWSandboxTransportError,
   CWSandboxUnavailableError,
@@ -36,6 +39,9 @@ describe("classifyPollError", () => {
   it("classifies other errors as fatal", () => {
     expect(classifyPollError(new CWSandboxAuthenticationError("nope"))).toBe("fatal");
     expect(classifyPollError(new CWSandboxTransportError("other"))).toBe("fatal");
+    expect(classifyPollError(new CWSandboxSnapshotSizeExceededError("too big"))).toBe("fatal");
+    expect(classifyPollError(new CWSandboxSnapshotQuotaExceededError("quota"))).toBe("fatal");
+    expect(classifyPollError(new CWSandboxSnapshotBucketMismatchError("bucket"))).toBe("fatal");
     expect(classifyPollError(new Error("plain"))).toBe("fatal");
   });
 });

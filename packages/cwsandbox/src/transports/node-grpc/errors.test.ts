@@ -12,6 +12,9 @@ import {
   CWSandboxNotFoundError,
   CWSandboxNotImplementedError,
   CWSandboxResourceExhaustedError,
+  CWSandboxSnapshotBucketMismatchError,
+  CWSandboxSnapshotQuotaExceededError,
+  CWSandboxSnapshotSizeExceededError,
   CWSandboxTimeoutError,
   CWSandboxTransportError,
   CWSandboxUnavailableError,
@@ -23,9 +26,12 @@ import {
   CWSANDBOX_FILE_NOT_FOUND,
   CWSANDBOX_FILE_TOO_LARGE,
   CWSANDBOX_FSS_BACKEND_THROTTLED,
+  CWSANDBOX_FSS_BUCKET_MISMATCH,
   CWSANDBOX_FSS_NOT_FOUND,
   CWSANDBOX_FSS_NOT_READY,
   CWSANDBOX_FSS_NOT_SUPPORTED,
+  CWSANDBOX_FSS_QUOTA_EXCEEDED,
+  CWSANDBOX_FSS_SIZE_EXCEEDED,
   CWSANDBOX_SANDBOX_NOT_FOUND,
 } from "../../internal/error-info.js";
 import { mapGrpcError as mapGrpcErrorImpl, type GrpcErrorContext } from "./errors.js";
@@ -337,5 +343,89 @@ describe("mapGrpcError", () => {
 
     expect(error).toBeInstanceOf(CWSandboxUnavailableError);
     expect(error.reason).toBe(CWSANDBOX_FSS_BACKEND_THROTTLED);
+  });
+
+  it.each([
+    {
+      reason: CWSANDBOX_FSS_SIZE_EXCEEDED,
+      code: "INVALID_ARGUMENT",
+      ErrorClass: CWSandboxSnapshotSizeExceededError,
+    },
+    {
+      reason: CWSANDBOX_FSS_QUOTA_EXCEEDED,
+      code: "FAILED_PRECONDITION",
+      ErrorClass: CWSandboxSnapshotQuotaExceededError,
+    },
+    {
+      reason: CWSANDBOX_FSS_BUCKET_MISMATCH,
+      code: "FAILED_PRECONDITION",
+      ErrorClass: CWSandboxSnapshotBucketMismatchError,
+    },
+  ] as const)(
+    "maps trusted $reason on $code to the dedicated snapshot class",
+    ({ reason, code, ErrorClass }) => {
+      const cause = new RpcError(
+        "refused",
+        code,
+        statusDetailsMeta({
+          errorInfos: [{ reason }],
+        }),
+      );
+
+      const error = mapGrpcError(cause, { operation: "Create file-system snapshot" });
+
+      expect(error).toBeInstanceOf(ErrorClass);
+      expect(error).toBeInstanceOf(CWSandboxTransportError);
+      expect(error).not.toBeInstanceOf(CWSandboxResourceExhaustedError);
+      expect(error.code).toBe("transport_error");
+      expect(error.reason).toBe(reason);
+      expect(error.domain).toBe(CWSANDBOX_ERROR_DOMAIN);
+    },
+  );
+
+  it.each([
+    CWSANDBOX_FSS_SIZE_EXCEEDED,
+    CWSANDBOX_FSS_QUOTA_EXCEEDED,
+    CWSANDBOX_FSS_BUCKET_MISMATCH,
+  ])("does not remap %s under an untrusted domain", (reason) => {
+    const cause = new RpcError(
+      "spoof",
+      "INTERNAL",
+      statusDetailsMeta({
+        errorInfos: [
+          {
+            domain: "evil.example.com",
+            reason,
+          },
+        ],
+      }),
+    );
+
+    const error = mapGrpcError(cause, { operation: "Create file-system snapshot" });
+
+    expect(error).toBeInstanceOf(CWSandboxTransportError);
+    expect(error).not.toBeInstanceOf(CWSandboxSnapshotSizeExceededError);
+    expect(error).not.toBeInstanceOf(CWSandboxSnapshotQuotaExceededError);
+    expect(error).not.toBeInstanceOf(CWSandboxSnapshotBucketMismatchError);
+    expect(error.reason).toBe(reason);
+    expect(error.domain).toBe("evil.example.com");
+  });
+
+  it("does not remap an unknown trusted FSS reason", () => {
+    const cause = new RpcError(
+      "internal",
+      "INTERNAL",
+      statusDetailsMeta({
+        errorInfos: [{ reason: "CWSANDBOX_FSS_RESTORE_FAILED" }],
+      }),
+    );
+
+    const error = mapGrpcError(cause, { operation: "Create file-system snapshot" });
+
+    expect(error).toBeInstanceOf(CWSandboxTransportError);
+    expect(error).not.toBeInstanceOf(CWSandboxSnapshotSizeExceededError);
+    expect(error).not.toBeInstanceOf(CWSandboxSnapshotQuotaExceededError);
+    expect(error).not.toBeInstanceOf(CWSandboxSnapshotBucketMismatchError);
+    expect(error.reason).toBe("CWSANDBOX_FSS_RESTORE_FAILED");
   });
 });
