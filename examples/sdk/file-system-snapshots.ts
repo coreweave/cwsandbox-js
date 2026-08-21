@@ -25,6 +25,7 @@ async function main(): Promise<void> {
   const client = createSandboxClientFromEnv();
   const snapshotIds: string[] = [];
   let snapshotId: string | undefined;
+  let sourceSandboxId: string | undefined;
 
   try {
     const source = await client.create({
@@ -34,6 +35,7 @@ async function main(): Promise<void> {
       },
       tags: ["example-file-system-snapshots"],
     });
+    sourceSandboxId = source.sandboxId;
 
     try {
       await source.exec(["sh", "-c", `echo 'hello from source' > ${MOUNT_PATH}/data.txt`]);
@@ -49,12 +51,12 @@ async function main(): Promise<void> {
       await source.delete({ missingOk: true });
     }
 
-    if (snapshotId === undefined) {
+    if (snapshotId === undefined || sourceSandboxId === undefined) {
       return;
     }
 
     const inspected = await client.getSnapshot(snapshotId);
-    const listed = await client.listSnapshots({ sourceSandboxId: inspected.sourceSandboxId });
+    const listed = await client.listSnapshots({ sourceSandboxId });
     console.log(
       `Inspected snapshot ${inspected.snapshotId} state=${inspected.state}; list matched ${listed.filter((row) => row.snapshotId === snapshotId).length}`,
     );
