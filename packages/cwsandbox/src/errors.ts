@@ -258,6 +258,39 @@ export class CWSandboxFileError extends CWSandboxTransportError {
   }
 }
 
+/**
+ * Requested scratch mount size exceeds the allowed maximum.
+ * Emitted for trusted `CWSANDBOX_FSS_SIZE_EXCEEDED`.
+ */
+export class CWSandboxSnapshotSizeExceededError extends CWSandboxTransportError {
+  public constructor(message: string, options: CWSandboxTransportErrorOptions = {}) {
+    super(message, options, "transport_error");
+    this.name = "CWSandboxSnapshotSizeExceededError";
+  }
+}
+
+/**
+ * Organization snapshot quota (count or storage) is exhausted.
+ * Emitted for trusted `CWSANDBOX_FSS_QUOTA_EXCEEDED`. Fatal; not resource-exhausted.
+ */
+export class CWSandboxSnapshotQuotaExceededError extends CWSandboxTransportError {
+  public constructor(message: string, options: CWSandboxTransportErrorOptions = {}) {
+    super(message, options, "transport_error");
+    this.name = "CWSandboxSnapshotQuotaExceededError";
+  }
+}
+
+/**
+ * Snapshot object bucket differs from the org's current FSS bucket.
+ * Emitted for trusted `CWSANDBOX_FSS_BUCKET_MISMATCH`.
+ */
+export class CWSandboxSnapshotBucketMismatchError extends CWSandboxTransportError {
+  public constructor(message: string, options: CWSandboxTransportErrorOptions = {}) {
+    super(message, options, "transport_error");
+    this.name = "CWSandboxSnapshotBucketMismatchError";
+  }
+}
+
 export class CWSandboxValidationError extends CWSandboxError {
   public constructor(message: string, options?: ErrorOptions) {
     super(message, "validation_error", options);

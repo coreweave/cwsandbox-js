@@ -10,6 +10,10 @@ import {
   CWSandboxExecutionError,
   CWSandboxFileError,
   CWSandboxNotImplementedError,
+  CWSandboxResourceExhaustedError,
+  CWSandboxSnapshotBucketMismatchError,
+  CWSandboxSnapshotQuotaExceededError,
+  CWSandboxSnapshotSizeExceededError,
   CWSandboxStreamBackpressureError,
   CWSandboxStreamTruncatedError,
   CWSandboxTerminalStateUnavailableError,
@@ -111,6 +115,28 @@ describe("SDK error boundaries", () => {
     expect(fromOption).toBeInstanceOf(CWSandboxTransportError);
     expect(fromOption.filepath).toBe("/from/option");
     expect(fromMeta.filepath).toBe("/from/meta");
+  });
+
+  it.each([
+    ["CWSANDBOX_FSS_SIZE_EXCEEDED", CWSandboxSnapshotSizeExceededError],
+    ["CWSANDBOX_FSS_QUOTA_EXCEEDED", CWSandboxSnapshotQuotaExceededError],
+    ["CWSANDBOX_FSS_BUCKET_MISMATCH", CWSandboxSnapshotBucketMismatchError],
+  ] as const)("copies AIP-193 fields onto %s snapshot transport errors", (reason, ErrorClass) => {
+    const cause = new Error("backend");
+    const error = new ErrorClass("snapshot refused", {
+      cause,
+      domain: "cwsandbox.com",
+      metadata: { org: "org-123" },
+      reason,
+    });
+
+    expect(error).toBeInstanceOf(CWSandboxTransportError);
+    expect(error).not.toBeInstanceOf(CWSandboxResourceExhaustedError);
+    expect(error.code).toBe("transport_error");
+    expect(error.reason).toBe(reason);
+    expect(error.domain).toBe("cwsandbox.com");
+    expect(error.metadata).toEqual({ org: "org-123" });
+    expect(error.cause).toBe(cause);
   });
 
   it("places stream backpressure in the execution-error family", () => {

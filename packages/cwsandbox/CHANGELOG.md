@@ -16,6 +16,13 @@ SPDX-PackageName: cwsandbox
   only the ID; use `get_snapshot` there). `listSnapshots` collects all pages
   and filters `sourceSandboxId` / `state` client-side.
 - Add `objectStorageAccess` on create for temporary object-storage credentials.
+- Map trusted `CWSANDBOX_FSS_SIZE_EXCEEDED`, `CWSANDBOX_FSS_QUOTA_EXCEEDED`,
+  and `CWSANDBOX_FSS_BUCKET_MISMATCH` to dedicated
+  `CWSandboxTransportError` subclasses (`CWSandboxSnapshotSizeExceededError`,
+  `CWSandboxSnapshotQuotaExceededError`,
+  `CWSandboxSnapshotBucketMismatchError`). `CWSANDBOX_FSS_NOT_READY` stays a
+  generic transport error; throttle / inflight / bucket-provisioning stay
+  unavailable.
 
 ## 0.2.0-beta.0
 
