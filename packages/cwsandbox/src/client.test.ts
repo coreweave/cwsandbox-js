@@ -827,6 +827,41 @@ describe("SandboxClient", () => {
       expect(startCalls).toBe(0);
     });
 
+    it("rejects fileSystemSnapshot and volumes together before the transport", async () => {
+      let startCalls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async start() {
+          startCalls += 1;
+          throw new Error("transport should not be called");
+        },
+      };
+      const client = createClient(transport);
+
+      await expect(
+        client.create({
+          fileSystemSnapshot: { mountPath: "/workspace" },
+          volumes: [{ mountPath: "/data", name: "data" }],
+        }),
+      ).rejects.toThrow(/fileSystemSnapshot and volumes cannot be used together/);
+      expect(startCalls).toBe(0);
+    });
+
+    it("rejects an empty volumes array before the transport", async () => {
+      let startCalls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async start() {
+          startCalls += 1;
+          throw new Error("transport should not be called");
+        },
+      };
+      const client = createClient(transport);
+
+      await expect(client.create({ volumes: [] })).rejects.toThrow(/volumes must not be empty/);
+      expect(startCalls).toBe(0);
+    });
+
     it("rejects invalid objectStorageAccess prefixes before the transport", async () => {
       let startCalls = 0;
       const transport: SandboxTransport = {

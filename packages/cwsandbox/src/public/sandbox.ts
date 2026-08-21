@@ -57,10 +57,32 @@ export interface SandboxObjectStorageAccess {
 }
 
 /**
+ * Named scratch volume for snapshot/restore. Prefer `volumes` when the sandbox
+ * needs a non-`workspace` name or more than one mount.
+ *
+ * Snapshots archive these mounts, not the whole container. `snapshot()` cannot
+ * choose among multiple scratches created in this process.
+ */
+export interface ScratchVolumeOptions {
+  /** Unique name within the sandbox (Gateway: 1-63 `[A-Za-z0-9_-]`). */
+  readonly name: string;
+  /**
+   * Absolute directory to mount (not `/`). Must satisfy Gateway mount-path
+   * rules (canonical, ≤256 chars, not a reserved system prefix).
+   */
+  readonly mountPath: string;
+  /** Kubernetes resource quantity (e.g. `"10Gi"`). Omit for the platform default. */
+  readonly size?: string;
+  /** Restore this snapshot at start. Omit or empty for an empty volume. */
+  readonly restoreFromSnapshotId?: string;
+}
+
+/**
  * Convenience single-mount scratch volume for snapshot/restore.
  *
  * Maps to a scratch volume named `workspace` mounted at `mountPath` on the
  * primary container. Snapshots archive that mount, not the whole container.
+ * Mutually exclusive with `volumes`.
  */
 export interface FileSystemSnapshotOptions {
   /**
@@ -115,6 +137,12 @@ export interface SandboxRunOptions extends RequestOptions {
   readonly containerImage?: string;
   readonly environmentVariables?: EnvironmentVariables;
   readonly fileSystemSnapshot?: FileSystemSnapshotOptions;
+  /**
+   * Named scratch volumes. Mutually exclusive with `fileSystemSnapshot`.
+   * Must be non-empty. `snapshot()` fails client-side when this process
+   * created more than one scratch.
+   */
+  readonly volumes?: readonly ScratchVolumeOptions[];
   readonly maxLifetimeSeconds?: Seconds;
   readonly mountedFiles?: MountedFiles;
   readonly network?: NetworkOptions;

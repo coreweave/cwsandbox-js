@@ -8,4 +8,6 @@ import type { SandboxTransport } from "../transport.js";
 export interface SandboxRuntime {
   readonly sandboxId: SandboxId;
   readonly transport: SandboxTransport;
+  /** Scratch names from this-process create only. Omitted for fromId / list. */
+  readonly scratchVolumeNames?: readonly string[];
 }

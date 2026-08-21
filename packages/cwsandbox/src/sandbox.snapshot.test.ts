@@ -94,6 +94,62 @@ describe("sandbox.snapshot", () => {
     expect(createRequest).not.toHaveProperty("scratchVolumeName");
   });
 
+  it("omits scratchVolumeName after a convenience fileSystemSnapshot create", async () => {
+    let createRequest: Parameters<SandboxTransport["createFileSystemSnapshot"]>[0] | undefined;
+    const transport: SandboxTransport = {
+      ...createFakeTransport(["running"]),
+      async createFileSystemSnapshot(request) {
+        createRequest = request;
+        return createFakeSnapshot("snap-fss");
+      },
+    };
+    const sandbox = await createClient(transport).create({
+      fileSystemSnapshot: { mountPath: "/workspace" },
+      waitUntilRunning: false,
+    });
+
+    await expect(sandbox.snapshot()).resolves.toMatchObject({ snapshotId: "snap-fss" });
+    expect(createRequest).not.toHaveProperty("scratchVolumeName");
+  });
+
+  it("rejects snapshot() before the RPC when this process created multiple scratches", async () => {
+    let createCalls = 0;
+    const transport: SandboxTransport = {
+      ...createFakeTransport(["running"]),
+      async createFileSystemSnapshot() {
+        createCalls += 1;
+        return createFakeSnapshot("snap-multi");
+      },
+    };
+    const sandbox = await createClient(transport).create({
+      waitUntilRunning: false,
+      volumes: [
+        { mountPath: "/workspace", name: "workspace" },
+        { mountPath: "/cache", name: "cache" },
+      ],
+    });
+
+    await expect(sandbox.snapshot()).rejects.toThrow(
+      /snapshot\(\) cannot choose among multiple scratch volumes \(workspace, cache\)/,
+    );
+    expect(createCalls).toBe(0);
+  });
+
+  it("omits scratchVolumeName after fromId", async () => {
+    let createRequest: Parameters<SandboxTransport["createFileSystemSnapshot"]>[0] | undefined;
+    const transport: SandboxTransport = {
+      ...createFakeTransport(["running"]),
+      async createFileSystemSnapshot(request) {
+        createRequest = request;
+        return createFakeSnapshot("snap-from-id");
+      },
+    };
+    const sandbox = await createClient(transport).fromId("existing-sandbox");
+
+    await expect(sandbox.snapshot()).resolves.toMatchObject({ snapshotId: "snap-from-id" });
+    expect(createRequest).not.toHaveProperty("scratchVolumeName");
+  });
+
   it("throws when the snapshot reaches FAILED", async () => {
     const transport: SandboxTransport = {
       ...createFakeTransport(["running"]),

@@ -57,6 +57,7 @@ interface SandboxOptions {
   readonly fileAdapter: FileAdapter;
   readonly metadata?: SandboxMetadata;
   readonly sandboxId: SandboxId;
+  readonly scratchVolumeNames?: readonly string[];
   readonly transport: SandboxTransport;
 }
 
@@ -83,6 +84,9 @@ export class Sandbox implements PublicSandbox {
     this.runtime = {
       sandboxId: this.sandboxId,
       transport: options.transport,
+      ...(options.scratchVolumeNames === undefined
+        ? {}
+        : { scratchVolumeNames: options.scratchVolumeNames }),
     };
     this.commands = createSandboxCommands(this.runtime);
     this.files = createSandboxFiles(fileTransfer);

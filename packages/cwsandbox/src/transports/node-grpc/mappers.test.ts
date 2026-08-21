@@ -444,6 +444,63 @@ describe("node transport mappers", () => {
       });
     });
 
+    it("maps volumes onto named scratch volumes and primary mounts", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        volumes: [
+          {
+            mountPath: "/workspace",
+            name: "workspace",
+            size: "10Gi",
+          },
+          {
+            mountPath: "/cache",
+            name: "cache",
+            restoreFromSnapshotId: "snap-cache",
+          },
+        ],
+      });
+
+      expect(request.sandbox?.spec?.volumes).toEqual([
+        {
+          name: "workspace",
+          source: {
+            oneofKind: "scratch",
+            scratch: {
+              medium: 0,
+              restoreFromSnapshotId: "",
+              size: "10Gi",
+            },
+          },
+        },
+        {
+          name: "cache",
+          source: {
+            oneofKind: "scratch",
+            scratch: {
+              medium: 0,
+              restoreFromSnapshotId: "snap-cache",
+              size: "",
+            },
+          },
+        },
+      ]);
+      expect(primaryContainer(request)?.volumeMounts).toEqual([
+        {
+          mountPath: "/workspace",
+          readOnly: false,
+          subPath: "",
+          volume: "workspace",
+        },
+        {
+          mountPath: "/cache",
+          readOnly: false,
+          subPath: "",
+          volume: "cache",
+        },
+      ]);
+    });
+
     it("maps objectStorageAccess onto spec", () => {
       const request = toProtoCreateRequest({
         command: ["python"],
