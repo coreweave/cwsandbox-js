@@ -24,7 +24,8 @@
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
     "test": "vitest run --config vitest.config.ts",
-    "typecheck": "tsc --noEmit --project tsconfig.json"
+    "typecheck": "tsc --noEmit --project tsconfig.json",
+    "smoke": "pnpm --workspace-root test:e2e -- e2e/smoke/tanstack.e2e.test.ts"
   },
   "dependencies": {
     "@coreweave/cwsandbox": "workspace:*"

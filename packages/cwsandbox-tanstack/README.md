@@ -58,6 +58,30 @@ Explicitly unsupported for now:
 Unsupported capabilities are advertised as `false` and throw TanStack's
 `UnsupportedCapabilityError` if called.
 
+## Development
+
+```bash
+pnpm --filter @coreweave/cwsandbox-tanstack test
+CWSANDBOX_API_KEY=... pnpm smoke
+CWSANDBOX_API_KEY=... pnpm --filter @coreweave/cwsandbox-tanstack smoke
+```
+
+Root `pnpm smoke` runs this adapter smoke with the rest of the live suite.
+The package `smoke` script runs only this file. Both skip without
+`CWSANDBOX_API_KEY` and are not part of `pnpm check`.
+
+Live smoke (billable) covers:
+
+- create with per-create / handle / process env merge
+- `process.exec` with `cwd`
+- filesystem mkdir / write / read / readBytes / list / exists / rename / remove
+- `process.spawn` with stdin and `wait`
+- `resume` by id
+- destroy (`resume` of a missing id is `null` only on `NOT_FOUND`, unit-tested; GetSandbox still succeeds while terminating)
+
+Git helpers are exec-backed and need `git` on the sandbox image; they are not
+part of this smoke (default image is the core SDK `python:3.11`).
+
 ## License
 
 This package is licensed under the Apache-2.0 license.

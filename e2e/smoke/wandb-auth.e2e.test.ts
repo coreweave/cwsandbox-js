@@ -82,6 +82,52 @@ describeWithWandbSecrets("live W&B sandbox secrets smoke", { sequential: true },
     },
     testTimeoutMs,
   );
+
+  it(
+    "does not leak the injected secret into a sibling environment variable",
+    async () => {
+      const secret = smokeConfig.wandbSecretsSmoke;
+      expect(secret).toBeDefined();
+      if (secret === undefined) {
+        return;
+      }
+
+      const siblingName = "CWSANDBOX_JS_SMOKE_SIBLING";
+      const siblingValue = "public-marker";
+      const client = createSandboxClientFromEnv();
+      const result = await client.withSandbox(
+        async (sandbox) => {
+          const processResult = await sandbox.commands.run(["printenv", siblingName]);
+          console.log(`wandb secret isolation exit code: ${processResult.exitCode}`);
+          console.log(`wandb secret isolation stdout: ${JSON.stringify(processResult.stdout)}`);
+          console.log(`wandb secret isolation stderr: ${JSON.stringify(processResult.stderr)}`);
+          return processResult;
+        },
+        {
+          environmentVariables: {
+            [siblingName]: siblingValue,
+          },
+          secrets: [
+            {
+              envVar: secret.envVar,
+              name: secret.name,
+              store: secret.store,
+            },
+          ],
+          tags: [uniqueSmokeTag()],
+        },
+      );
+
+      expect(result.exitCode).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(result.stdout.trim()).toBe(siblingValue);
+      expect(
+        result.stdout.includes(secret.expected),
+        "sibling env var leaked the injected secret (values redacted)",
+      ).toBe(false);
+    },
+    testTimeoutMs,
+  );
 });
 
 if (!smokeConfig.hasWandbCredentials) {

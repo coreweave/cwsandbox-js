@@ -98,16 +98,24 @@ Explicitly unsupported for now:
 
 ```bash
 pnpm --filter @coreweave/cwsandbox-computesdk test
+CWSANDBOX_API_KEY=... pnpm smoke
 CWSANDBOX_API_KEY=... pnpm --filter @coreweave/cwsandbox-computesdk smoke
 ```
 
-Live smoke (billable, not part of `pnpm check`) covers:
+Root `pnpm smoke` runs this adapter smoke with the rest of the live suite.
+The package `smoke` script runs only this file. Both skip without
+`CWSANDBOX_API_KEY` and are not part of `pnpm check`.
+
+Live smoke (billable) covers:
 
 - create with resource knobs + name annotation
 - short unary `runCommand`
 - `cwd` / `env`
 - long-timeout streamed exec (`timeout > 240s` → SDK `commands.start`)
 - nested filesystem write/read + `readdir` (parent mkdir via adapter)
+- quoted paths (`exists` / `mkdir` / `remove`)
+- `list` scoped to `computesdk` + `ownerTag`
+- `getById` reconnect
 - `getInfo` status `running`
 - `getUrl({ port })` after public HTTPS create (waits up to 60s for assignment)
 - destroy
