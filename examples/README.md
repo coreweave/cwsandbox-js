@@ -51,6 +51,7 @@ One workspace package with self-contained scripts (same deps). Typecheck is part
 | `parallel-batch-job.ts`     | batch `Promise` fan-out            | `pnpm --dir examples/sdk parallel-batch-job`                 |
 | `interactive-streaming.ts`  | `run` + log follow                 | `pnpm --dir examples/sdk interactive-streaming`              |
 | `wandb-integration.ts`      | `@coreweave/cwsandbox/wandb` auth  | `pnpm --dir examples/sdk wandb-integration`                  |
+| `file-system-snapshots.ts`  | scratch-mount snapshot / restore   | `pnpm --dir examples/sdk file-system-snapshots`              |
 
 Typecheck (also covered by root `pnpm check`):
 
@@ -72,7 +73,6 @@ later issue-filing pass — do not add stub scripts until the SDK surface exists
 
 | Deferred              | Python analog                                                        | Notes                                |
 | --------------------- | -------------------------------------------------------------------- | ------------------------------------ |
-| File-system snapshots | `file_system_snapshots.py`                                           | FSS mount / snapshot / restore       |
 | Discovery             | `discover_infrastructure.py`                                         | runners / profiles                   |
 | Session multi-sandbox | `session_adopt_orphans.py`, Session usage in `multiple_sandboxes.py` | JS uses client + tags today          |
 | RemoteFunction        | `function_decorator.py`                                              | `@session.function()`                |

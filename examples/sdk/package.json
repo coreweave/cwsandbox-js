@@ -22,6 +22,7 @@
     "parallel-batch-job": "tsx parallel-batch-job.ts",
     "interactive-streaming": "tsx interactive-streaming.ts",
     "wandb-integration": "tsx wandb-integration.ts",
+    "file-system-snapshots": "tsx file-system-snapshots.ts",
     "typecheck": "tsc --noEmit --project tsconfig.json"
   },
   "dependencies": {

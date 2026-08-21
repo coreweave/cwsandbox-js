@@ -7,6 +7,7 @@ import type { SandboxList } from "../runtime/sandbox-list.js";
 import type { CommandInput } from "./commands.js";
 import type {
   DeleteOptions,
+  DeleteSnapshotOptions,
   FromIdOptions,
   GetSandboxResult,
   ListSandboxesOptions,
@@ -29,6 +30,7 @@ export interface SandboxClient {
   listSandboxes(options?: SandboxListOptions): SandboxList;
   listAll(options?: SandboxListOptions): Promise<readonly Sandbox[]>;
   delete(sandboxId: SandboxId, options?: DeleteOptions): Promise<void>;
+  deleteSnapshot(snapshotId: string, options?: DeleteSnapshotOptions): Promise<void>;
   withSandbox<TResult>(
     callback: WithSandboxCallback<TResult>,
     options?: SandboxRunOptions,

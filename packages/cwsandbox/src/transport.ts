@@ -16,8 +16,12 @@ import type {
   StartSandboxResult,
 } from "./public/sandbox.js";
 import type {
+  CreateFileSystemSnapshotRequest,
+  DeleteFileSystemSnapshotRequest,
   DeleteSandboxRequest,
   ExecRequest,
+  FileSystemSnapshotRecord,
+  GetFileSystemSnapshotRequest,
   GetSandboxRequest,
   StartSandboxRequest,
   StartCommandRequest,
@@ -31,6 +35,11 @@ export interface SandboxTransport {
   get(request: GetSandboxRequest): Promise<GetSandboxResult>;
   list(options: ListSandboxesOptions): Promise<ListSandboxesResult>;
   delete(request: DeleteSandboxRequest): Promise<void>;
+  createFileSystemSnapshot(
+    request: CreateFileSystemSnapshotRequest,
+  ): Promise<FileSystemSnapshotRecord>;
+  getFileSystemSnapshot(request: GetFileSystemSnapshotRequest): Promise<FileSystemSnapshotRecord>;
+  deleteFileSystemSnapshot(request: DeleteFileSystemSnapshotRequest): Promise<void>;
   exec(request: ExecRequest): Promise<ProcessResult>;
   startCommand(request: StartCommandRequest & { readonly stdin?: false }): Promise<CommandProcess>;
   startCommand(

@@ -8,6 +8,7 @@ import {
   CWSandboxExecutionError,
   DEFAULT_GRACEFUL_SHUTDOWN_SECONDS,
   DEFAULT_KEEP_ALIVE_COMMAND,
+  DEFAULT_SNAPSHOT_TIMEOUT_MS,
   type Command,
   type CommandInputWriter,
   type CommandProcess,
@@ -19,6 +20,8 @@ import {
   type FileTextReadResult,
   type FileWrite,
   type FileWrites,
+  type FileSystemSnapshotOptions,
+  type FileSystemSnapshotResult,
   type GetSandboxResult,
   type LogEntry,
   type LogEntryStream,
@@ -34,6 +37,7 @@ import {
   type MountedFiles,
   type Endpoint,
   type NetworkOptions,
+  type ObjectStoragePermission,
   type ProcessResult,
   type ResourceRequestsAndLimits,
   type Sandbox,
@@ -44,6 +48,7 @@ import {
   type SandboxList,
   type SandboxListOptions,
   type SandboxMetadata,
+  type SandboxObjectStorageAccess,
   type SandboxResourceSpec,
   type SandboxRunOptions,
   type SandboxStatus,
@@ -94,6 +99,7 @@ declare const client: SandboxClient;
 
 expectTypeOf(DEFAULT_KEEP_ALIVE_COMMAND).toExtend<CommandInput>();
 expectTypeOf(DEFAULT_GRACEFUL_SHUTDOWN_SECONDS).toEqualTypeOf<10>();
+expectTypeOf(DEFAULT_SNAPSHOT_TIMEOUT_MS).toEqualTypeOf<600_000>();
 const sandboxRunOptions: SandboxRunOptions = { waitUntilRunning: false };
 expectTypeOf(sandboxRunOptions.waitUntilRunning).toEqualTypeOf<boolean | undefined>();
 expectTypeOf(client.create()).toEqualTypeOf<ReturnType<SandboxClient["create"]>>();
@@ -222,6 +228,29 @@ expectTypeOf(
     secrets: [{ store: "wandb-team-secrets", name: "SMOKE_SECRET" }],
   }),
 ).toEqualTypeOf<ReturnType<SandboxClient["create"]>>();
+const fileSystemSnapshot: FileSystemSnapshotOptions = {
+  mountPath: "/workspace",
+  size: "10Gi",
+};
+const objectStorageAccess: SandboxObjectStorageAccess = {
+  buckets: ["example-bucket"],
+  permission: "read-write",
+};
+expectTypeOf(
+  client.create({
+    fileSystemSnapshot,
+    objectStorageAccess,
+  }),
+).toEqualTypeOf<ReturnType<SandboxClient["create"]>>();
+expectTypeOf(
+  client.create({
+    fileSystemSnapshot: {
+      mountPath: "/workspace",
+      restoreFromSnapshotId: "snap-123",
+    },
+  }),
+).toEqualTypeOf<ReturnType<SandboxClient["create"]>>();
+expectTypeOf<ObjectStoragePermission>().toEqualTypeOf<"read" | "read-write">();
 
 const command: string[] = ["echo"];
 expectTypeOf(client.run(command)).toEqualTypeOf<ReturnType<SandboxClient["run"]>>();
@@ -412,6 +441,12 @@ expectTypeOf(client.listSandboxes()).toEqualTypeOf<SandboxList>();
 expectTypeOf(client.listAll()).toEqualTypeOf<Promise<readonly Sandbox[]>>();
 expectTypeOf(client.delete("sandbox-123")).toEqualTypeOf<Promise<void>>();
 expectTypeOf(client.delete("sandbox-123", { missingOk: true })).toEqualTypeOf<Promise<void>>();
+expectTypeOf(client.deleteSnapshot("snap-123")).toEqualTypeOf<Promise<void>>();
+expectTypeOf(client.deleteSnapshot("snap-123", { missingOk: true })).toEqualTypeOf<Promise<void>>();
+expectTypeOf(sandbox.snapshot()).toEqualTypeOf<Promise<FileSystemSnapshotResult>>();
+expectTypeOf(sandbox.snapshot({ timeoutMs: 1_000 })).toEqualTypeOf<
+  Promise<FileSystemSnapshotResult>
+>();
 
 // @ts-expect-error listSandboxes owns pagination and does not accept pageToken.
 client.listSandboxes({ pageToken: "page-1" });
@@ -425,8 +460,13 @@ void client.run(["python"], { ports: [8000] });
 // @ts-expect-error s3Mount is not supported in v1.
 void client.run(["python"], { s3Mount: { bucket: "b" } });
 
-// @ts-expect-error maxTimeoutSeconds is not supported in v1.
-void client.run(["python"], { maxTimeoutSeconds: 30 });
+void client.create({
+  fileSystemSnapshot: {
+    mountPath: "/workspace",
+    // @ts-expect-error restore uses restoreFromSnapshotId, not snapshotId.
+    snapshotId: "snap-123",
+  },
+});
 
 // @ts-expect-error profileIds is not supported in v1.
 void client.run(["python"], { profileIds: ["profile-id"] });
@@ -452,7 +492,7 @@ void client.listAll({ profileIds: ["profile-id"] });
 // @ts-expect-error profileNames is not supported in v1.
 void client.listAll({ profileNames: ["default"] });
 
-// @ts-expect-error snapshotOnStop is hidden until FSS is supported.
+// @ts-expect-error snapshotOnStop remains unsupported; use sandbox.snapshot().
 sandbox.stop({ snapshotOnStop: true });
 expectTypeOf(sandbox.stop({ missingOk: true })).toEqualTypeOf<Promise<void>>();
 expectTypeOf(sandbox.delete()).toEqualTypeOf<Promise<void>>();

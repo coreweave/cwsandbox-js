@@ -9,6 +9,7 @@ import {
   CWSandboxError,
   CWSandboxExecutionError,
   CWSandboxFileError,
+  CWSandboxNotImplementedError,
   CWSandboxStreamBackpressureError,
   CWSandboxStreamTruncatedError,
   CWSandboxTerminalStateUnavailableError,
@@ -65,6 +66,24 @@ describe("SDK error boundaries", () => {
     expect(error.domain).toBe("cwsandbox.com");
     expect(error.metadata).toEqual({ filepath: "/tmp/x" });
     expect(error.retryDelayMs).toBe(1500);
+  });
+
+  it("copies AIP-193 fields onto not-implemented errors without becoming a transport error", () => {
+    const cause = new Error("org disabled");
+    const error = new CWSandboxNotImplementedError("FSS is not enabled.", {
+      cause,
+      domain: "cwsandbox.com",
+      metadata: { org: "org-123" },
+      reason: "CWSANDBOX_FSS_NOT_SUPPORTED",
+    });
+
+    expect(error).toBeInstanceOf(CWSandboxError);
+    expect(error).not.toBeInstanceOf(CWSandboxTransportError);
+    expect(error.code).toBe("not_implemented");
+    expect(error.reason).toBe("CWSANDBOX_FSS_NOT_SUPPORTED");
+    expect(error.domain).toBe("cwsandbox.com");
+    expect(error.metadata).toEqual({ org: "org-123" });
+    expect(error.cause).toBe(cause);
   });
 
   it("exposes terminal-state unavailable as a typed transport error", () => {

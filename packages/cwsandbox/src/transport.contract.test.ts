@@ -193,6 +193,15 @@ function createContractTransport(): {
       async delete(request) {
         calls.delete.push(request);
       },
+      async createFileSystemSnapshot(request) {
+        return {
+          snapshotId: `snapshot-for-${request.sandboxId}`,
+          state: "creating",
+        };
+      },
+      async deleteFileSystemSnapshot() {
+        return undefined;
+      },
       async exec(request): Promise<ProcessResult> {
         calls.exec.push(request);
         return createProcessResult(request.command);
@@ -202,6 +211,12 @@ function createContractTransport(): {
         return {
           sandboxId: request.sandboxId,
           status: stopped ? "terminated" : "running",
+        };
+      },
+      async getFileSystemSnapshot(request) {
+        return {
+          snapshotId: request.snapshotId,
+          state: "ready",
         };
       },
       async list(options) {

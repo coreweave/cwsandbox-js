@@ -8,6 +8,7 @@ import type { RequestOptions } from "../../public/common.js";
 import type { LogReadOptions, LogStreamOptions } from "../../public/logs.js";
 import type {
   DeleteOptions,
+  DeleteSnapshotOptions,
   ListSandboxesOptions,
   SandboxRunOptions,
   StopOptions,
@@ -18,6 +19,8 @@ import { validateNetworkOptions } from "../network.js";
 import { validateResources } from "../resources.js";
 import { validateSecrets } from "../secrets.js";
 import { validateAnnotations } from "./annotations.js";
+import { validateFileSystemSnapshotOptions } from "./file-system-snapshot.js";
+import { validateObjectStorageAccess } from "./object-storage.js";
 import { validateUniqueStringList } from "./string-list.js";
 import { validateTags } from "./tags.js";
 
@@ -64,6 +67,8 @@ export function validateSandboxRunOptions(options: SandboxRunOptions): void {
   validateAnnotations(options.annotations);
   validateNonNegativeFinite(options.maxLifetimeSeconds, "maxLifetimeSeconds");
   validateMountedFiles(options.mountedFiles);
+  validateFileSystemSnapshotOptions(options.fileSystemSnapshot, options.mountedFiles);
+  validateObjectStorageAccess(options.objectStorageAccess);
   validateNetworkOptions(options.services, options.network);
   validateResources(options.resources);
   validateSecrets(options.secrets, options.environmentVariables);
@@ -79,7 +84,7 @@ export function validateWaitOptions(options: WaitOptions): void {
 export function validateStopOptions(options: StopOptions): void {
   if ((options as Record<string, unknown>)["snapshotOnStop"] !== undefined) {
     throw new CWSandboxValidationError(
-      "snapshotOnStop is not supported until file-system snapshots (FSS) are available",
+      "snapshotOnStop is not supported; use sandbox.snapshot() to capture a file-system snapshot",
     );
   }
   validateRequestOptions(options);
@@ -88,6 +93,11 @@ export function validateStopOptions(options: StopOptions): void {
 }
 
 export function validateDeleteOptions(options: DeleteOptions): void {
+  validateRequestOptions(options);
+  validateOptionalBoolean(options.missingOk, "missingOk");
+}
+
+export function validateDeleteSnapshotOptions(options: DeleteSnapshotOptions): void {
   validateRequestOptions(options);
   validateOptionalBoolean(options.missingOk, "missingOk");
 }

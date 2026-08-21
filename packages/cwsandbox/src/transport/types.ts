@@ -12,6 +12,15 @@ import type { RequestOptions } from "../public/common.js";
 import type { LogStreamMode, LogStreamOptions } from "../public/logs.js";
 import type { SandboxId, SandboxRunOptions, StopOptions } from "../public/sandbox.js";
 
+export type FileSystemSnapshotState = "creating" | "ready" | "failed" | "deleting" | "unspecified";
+
+export interface FileSystemSnapshotRecord {
+  readonly snapshotId: string;
+  readonly state: FileSystemSnapshotState;
+  readonly stateReason?: string;
+  readonly sizeBytes?: number;
+}
+
 export interface StartSandboxRequest extends Omit<SandboxRunOptions, "waitUntilRunning"> {
   readonly command: Command;
 }
@@ -48,4 +57,18 @@ export interface StopSandboxRequest extends Omit<StopOptions, "missingOk"> {
 export interface DeleteSandboxRequest extends RequestOptions {
   readonly allowMissing?: boolean;
   readonly sandboxId: SandboxId;
+}
+
+export interface CreateFileSystemSnapshotRequest extends RequestOptions {
+  readonly requestId: string;
+  readonly sandboxId: SandboxId;
+}
+
+export interface GetFileSystemSnapshotRequest extends RequestOptions {
+  readonly snapshotId: string;
+}
+
+export interface DeleteFileSystemSnapshotRequest extends RequestOptions {
+  readonly allowMissing?: boolean;
+  readonly snapshotId: string;
 }

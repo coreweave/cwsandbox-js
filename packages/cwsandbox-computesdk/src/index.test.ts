@@ -493,6 +493,9 @@ function createTrackingClient(options: TrackingClientOptions = {}): TrackingClie
       shell: async () => {
         throw new Error("Shell not used");
       },
+      snapshot: async () => {
+        throw new Error("Snapshot not used");
+      },
       startedAt: new Date("2026-01-01T00:00:00.000Z"),
       status,
       statusReason: undefined,
@@ -540,6 +543,9 @@ function createTrackingClient(options: TrackingClientOptions = {}): TrackingClie
     },
     async delete(sandboxId) {
       deletedSandboxIds.push(sandboxId);
+    },
+    async deleteSnapshot() {
+      throw new Error("deleteSnapshot not used in these tests.");
     },
     async withSandbox() {
       throw new Error("withSandbox not used in these tests.");

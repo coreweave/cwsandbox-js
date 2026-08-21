@@ -7,6 +7,7 @@ import { normalizeCommand } from "./internal/commands.js";
 import { ignoreMissingSandbox } from "./internal/delete.js";
 import {
   validateDeleteOptions,
+  validateDeleteSnapshotOptions,
   validateListSandboxesOptions,
   validateRequestOptions,
   validateSandboxRunOptions,
@@ -15,6 +16,7 @@ import type { SandboxClient as SandboxClientInterface } from "./public/client.js
 import type { CommandInput } from "./public/commands.js";
 import type {
   DeleteOptions,
+  DeleteSnapshotOptions,
   FromIdOptions,
   GetSandboxResult,
   ListSandboxesOptions,
@@ -125,6 +127,22 @@ export class SandboxClient implements SandboxClientInterface {
       this.transport.delete({
         ...requestOptions,
         sandboxId,
+        ...(missingOk === true ? { allowMissing: true } : {}),
+      }),
+      missingOk === true,
+    );
+  }
+
+  public async deleteSnapshot(
+    snapshotId: string,
+    options: DeleteSnapshotOptions = {},
+  ): Promise<void> {
+    validateDeleteSnapshotOptions(options);
+    const { missingOk, ...requestOptions } = options;
+    await ignoreMissingSandbox(
+      this.transport.deleteFileSystemSnapshot({
+        ...requestOptions,
+        snapshotId,
         ...(missingOk === true ? { allowMissing: true } : {}),
       }),
       missingOk === true,

@@ -72,9 +72,30 @@ export class CWSandboxConfigurationError extends CWSandboxError {
 }
 
 export class CWSandboxNotImplementedError extends CWSandboxError {
-  public constructor(message: string, options?: ErrorOptions) {
+  public readonly domain: string | undefined;
+  /**
+   * AIP-193 `ErrorInfo.metadata` map. Always present; empty when the failure
+   * carried no ErrorInfo metadata.
+   */
+  public readonly metadata: Readonly<Record<string, string>>;
+  public readonly operation: string | undefined;
+  public readonly reason: string | undefined;
+  public readonly retryDelayMs: number | undefined;
+  public readonly sandboxId: string | undefined;
+  public readonly transport: CWSandboxTransportKind | undefined;
+  public readonly transportCode: number | string | undefined;
+
+  public constructor(message: string, options: CWSandboxTransportErrorOptions = {}) {
     super(message, "not_implemented", options);
     this.name = "CWSandboxNotImplementedError";
+    this.domain = options.domain;
+    this.metadata = options.metadata ?? {};
+    this.operation = options.operation;
+    this.reason = options.reason;
+    this.retryDelayMs = options.retryDelayMs;
+    this.sandboxId = options.sandboxId;
+    this.transport = options.transport;
+    this.transportCode = options.transportCode;
   }
 }
 

@@ -37,6 +37,7 @@ SDK patterns; use `weave/` / `tanstack/` for integrations with extra dependencie
 | `sdk/parallel-batch-job.ts`     | `async function main()` | batch jobs                     |
 | `sdk/interactive-streaming.ts`  | `async function main()` | log follow                     |
 | `sdk/wandb-integration.ts`      | `async function main()` | W&B gateway auth               |
+| `sdk/file-system-snapshots.ts`  | `async function main()` | scratch-mount snapshot/restore |
 
 ## Running
 

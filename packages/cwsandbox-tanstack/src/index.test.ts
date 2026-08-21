@@ -207,6 +207,9 @@ function createTrackingClient(): TrackingClient {
       shell: async () => {
         throw new Error("Shell not used");
       },
+      snapshot: async () => {
+        throw new Error("Snapshot not used");
+      },
       startedAt: undefined,
       status,
       statusReason: undefined,
@@ -255,6 +258,9 @@ function createTrackingClient(): TrackingClient {
     },
     async delete(sandboxId) {
       deletedSandboxIds.push(sandboxId);
+    },
+    async deleteSnapshot() {
+      throw new Error("deleteSnapshot not used in these tests.");
     },
     async withSandbox(_commandOrCallback, _callbackOrOptions) {
       throw new Error("withSandbox not used in these tests.");

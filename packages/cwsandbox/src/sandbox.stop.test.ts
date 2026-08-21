@@ -34,10 +34,17 @@ describe("Sandbox.stop terminal wait", () => {
       waitUntilRunning: false,
     });
 
-    await sandbox.stop();
-
+    await expect(sandbox.stop()).resolves.toBeUndefined();
     expect(stopCalls).toBe(1);
     expect(sandbox.status).toBe("completed");
+  });
+
+  it("rejects snapshotOnStop and tells callers to use snapshot()", async () => {
+    const sandbox = await createClient().run(["echo", "hello"], { waitUntilRunning: false });
+
+    await expect(sandbox.stop({ snapshotOnStop: true } as never)).rejects.toThrow(
+      /use sandbox\.snapshot\(\)/,
+    );
   });
 
   it("resolves when the sandbox ends failed", async () => {

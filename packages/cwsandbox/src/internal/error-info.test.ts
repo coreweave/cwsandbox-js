@@ -16,8 +16,8 @@ import {
 } from "./error-info.js";
 
 describe("isSandboxNotFound", () => {
-  it("returns true for CWSandboxNotFoundError", () => {
-    expect(isSandboxNotFound(new CWSandboxNotFoundError("missing"))).toBe(true);
+  it("returns true for CWSandboxNotFoundError from a snapshot miss", () => {
+    expect(isSandboxNotFound(new CWSandboxNotFoundError("snapshot missing"))).toBe(true);
   });
 
   it("returns true for trusted sandbox-not-found reason on any transport error", () => {

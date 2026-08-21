@@ -7,8 +7,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   CWSandboxAuthenticationError,
+  CWSandboxError,
   CWSandboxFileError,
   CWSandboxNotFoundError,
+  CWSandboxNotImplementedError,
   CWSandboxResourceExhaustedError,
   CWSandboxTimeoutError,
   CWSandboxTransportError,
@@ -20,10 +22,20 @@ import {
   CWSANDBOX_ERROR_DOMAIN,
   CWSANDBOX_FILE_NOT_FOUND,
   CWSANDBOX_FILE_TOO_LARGE,
+  CWSANDBOX_FSS_BACKEND_THROTTLED,
+  CWSANDBOX_FSS_NOT_FOUND,
+  CWSANDBOX_FSS_NOT_READY,
+  CWSANDBOX_FSS_NOT_SUPPORTED,
   CWSANDBOX_SANDBOX_NOT_FOUND,
 } from "../../internal/error-info.js";
-import { mapGrpcError } from "./errors.js";
+import { mapGrpcError as mapGrpcErrorImpl, type GrpcErrorContext } from "./errors.js";
 import { statusDetailsMeta } from "./test/status-details.js";
+
+function mapGrpcError(error: unknown, context: GrpcErrorContext): CWSandboxTransportError {
+  const mapped = mapGrpcErrorImpl(error, context);
+  expect(mapped).toBeInstanceOf(CWSandboxTransportError);
+  return mapped as CWSandboxTransportError;
+}
 
 describe("mapGrpcError", () => {
   it.each(["UNAUTHENTICATED", "PERMISSION_DENIED"])("maps %s to authentication errors", (code) => {
@@ -260,5 +272,70 @@ describe("mapGrpcError", () => {
     expect(error).not.toBeInstanceOf(CWSandboxTimeoutError);
     expect(error.reason).toBe(CWSANDBOX_COMMAND_TIMEOUT);
     expect(error.domain).toBe("evil.example.com");
+  });
+
+  it("maps trusted CWSANDBOX_FSS_NOT_FOUND to not-found", () => {
+    const cause = new RpcError(
+      "gone",
+      "INTERNAL",
+      statusDetailsMeta({
+        errorInfos: [{ reason: CWSANDBOX_FSS_NOT_FOUND }],
+      }),
+    );
+
+    const error = mapGrpcError(cause, { operation: "Delete file-system snapshot" });
+
+    expect(error).toBeInstanceOf(CWSandboxNotFoundError);
+    expect(error.reason).toBe(CWSANDBOX_FSS_NOT_FOUND);
+  });
+
+  it("maps trusted CWSANDBOX_FSS_NOT_SUPPORTED to not-implemented", () => {
+    const cause = new RpcError(
+      "disabled",
+      "FAILED_PRECONDITION",
+      statusDetailsMeta({
+        errorInfos: [{ reason: CWSANDBOX_FSS_NOT_SUPPORTED }],
+      }),
+    );
+
+    const error = mapGrpcErrorImpl(cause, { operation: "Create file-system snapshot" });
+
+    expect(error).toBeInstanceOf(CWSandboxNotImplementedError);
+    expect(error).not.toBeInstanceOf(CWSandboxTransportError);
+    expect(error).toBeInstanceOf(CWSandboxError);
+    expect((error as CWSandboxNotImplementedError).reason).toBe(CWSANDBOX_FSS_NOT_SUPPORTED);
+    expect((error as CWSandboxNotImplementedError).domain).toBe(CWSANDBOX_ERROR_DOMAIN);
+  });
+
+  it("maps trusted CWSANDBOX_FSS_NOT_READY to a terminal transport error", () => {
+    const cause = new RpcError(
+      "creating",
+      "FAILED_PRECONDITION",
+      statusDetailsMeta({
+        errorInfos: [{ reason: CWSANDBOX_FSS_NOT_READY }],
+      }),
+    );
+
+    const error = mapGrpcError(cause, { operation: "Delete file-system snapshot" });
+
+    expect(error).toBeInstanceOf(CWSandboxTransportError);
+    expect(error).not.toBeInstanceOf(CWSandboxNotFoundError);
+    expect(error).not.toBeInstanceOf(CWSandboxUnavailableError);
+    expect(error.reason).toBe(CWSANDBOX_FSS_NOT_READY);
+  });
+
+  it("maps trusted FSS throttle reasons to unavailable", () => {
+    const cause = new RpcError(
+      "throttled",
+      "INTERNAL",
+      statusDetailsMeta({
+        errorInfos: [{ reason: CWSANDBOX_FSS_BACKEND_THROTTLED }],
+      }),
+    );
+
+    const error = mapGrpcError(cause, { operation: "Create file-system snapshot" });
+
+    expect(error).toBeInstanceOf(CWSandboxUnavailableError);
+    expect(error.reason).toBe(CWSANDBOX_FSS_BACKEND_THROTTLED);
   });
 });
