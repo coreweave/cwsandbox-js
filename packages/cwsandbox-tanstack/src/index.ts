@@ -34,6 +34,7 @@ const CAPS: SandboxCapabilities = {
   exec: true,
   fork: false,
   fs: true,
+  killableProcesses: false,
   networkPolicy: false,
   ports: false,
   snapshots: false,

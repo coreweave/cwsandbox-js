@@ -15,6 +15,7 @@ interface TanStackExampleResult {
     readonly backgroundProcesses: boolean;
     readonly exec: boolean;
     readonly fs: boolean;
+    readonly killableProcesses: boolean;
     readonly ports: boolean;
     readonly snapshots: boolean;
   };
@@ -90,7 +91,14 @@ async function runExample(): Promise<TanStackExampleResult> {
     const output = await fs.read(outputPath);
     const source = await fs.read(appPath);
     const files = await fs.list(workspaceDir);
-    const { backgroundProcesses, exec, fs: hasFs, ports, snapshots } = capabilities;
+    const {
+      backgroundProcesses,
+      exec,
+      fs: hasFs,
+      killableProcesses,
+      ports,
+      snapshots,
+    } = capabilities;
 
     return {
       artifacts: {
@@ -102,6 +110,7 @@ async function runExample(): Promise<TanStackExampleResult> {
         backgroundProcesses,
         exec,
         fs: hasFs,
+        killableProcesses,
         ports,
         snapshots,
       },

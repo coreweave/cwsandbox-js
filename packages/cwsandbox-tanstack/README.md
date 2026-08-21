@@ -53,6 +53,7 @@ Explicitly unsupported for now:
 - Snapshots and restore.
 - Fork.
 - Network policy.
+- Killable processes (`SpawnHandle.kill` aborts the client stream only).
 
 Unsupported capabilities are advertised as `false` and throw TanStack's
 `UnsupportedCapabilityError` if called.

@@ -43,6 +43,7 @@ describe("cwsandboxTanStackProvider", () => {
     expect(provider.capabilities()).toMatchObject({
       exec: true,
       fs: true,
+      killableProcesses: false,
       ports: false,
       snapshots: false,
     });
