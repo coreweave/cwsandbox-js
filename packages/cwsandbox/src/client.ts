@@ -5,6 +5,7 @@
 import { DEFAULT_KEEP_ALIVE_COMMAND } from "./defaults.js";
 import { normalizeCommand } from "./internal/commands.js";
 import { ignoreMissingSandbox } from "./internal/delete.js";
+import { scratchVolumeNamesFromRunOptions } from "./internal/validation/file-system-snapshot.js";
 import {
   validateDeleteOptions,
   validateDeleteSnapshotOptions,
@@ -63,12 +64,14 @@ export class SandboxClient implements SandboxClientInterface {
     validateSandboxRunOptions(options);
     const { waitUntilRunning, ...startOptions } = options;
     const result = await transport.start({ ...startOptions, command: normalizedCommand });
+    const scratchVolumeNames = scratchVolumeNamesFromRunOptions(options);
 
     const sandbox = new SandboxImpl({
       fileAdapter,
       metadata: result,
       sandboxId: result.sandboxId,
       transport,
+      ...(scratchVolumeNames === undefined ? {} : { scratchVolumeNames }),
     });
 
     if (waitUntilRunning !== false) {

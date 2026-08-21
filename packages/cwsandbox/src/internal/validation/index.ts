@@ -20,7 +20,7 @@ import { validateNetworkOptions } from "../network.js";
 import { validateResources } from "../resources.js";
 import { validateSecrets } from "../secrets.js";
 import { validateAnnotations } from "./annotations.js";
-import { validateFileSystemSnapshotOptions } from "./file-system-snapshot.js";
+import { validateSandboxVolumeCreateOptions } from "./file-system-snapshot.js";
 import { validateObjectStorageAccess } from "./object-storage.js";
 import { validateUniqueStringList } from "./string-list.js";
 import { validateTags } from "./tags.js";
@@ -68,7 +68,7 @@ export function validateSandboxRunOptions(options: SandboxRunOptions): void {
   validateAnnotations(options.annotations);
   validateNonNegativeFinite(options.maxLifetimeSeconds, "maxLifetimeSeconds");
   validateMountedFiles(options.mountedFiles);
-  validateFileSystemSnapshotOptions(options.fileSystemSnapshot, options.mountedFiles);
+  validateSandboxVolumeCreateOptions(options);
   validateObjectStorageAccess(options.objectStorageAccess);
   validateNetworkOptions(options.services, options.network);
   validateResources(options.resources);

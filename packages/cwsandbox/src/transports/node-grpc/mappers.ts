@@ -13,7 +13,6 @@ import type { Command, ProcessResult } from "../../public/commands.js";
 import type { NetworkOptions, Service, ServiceUrl } from "../../public/network.js";
 import type { ResourceOptions, ResourceSpec } from "../../public/resources.js";
 import type {
-  FileSystemSnapshotOptions,
   FileSystemSnapshotResult,
   FileSystemSnapshotState,
   FileSystemSnapshotTrigger,
@@ -24,6 +23,7 @@ import type {
   SandboxInfo,
   SandboxObjectStorageAccess,
   SandboxStatus,
+  ScratchVolumeOptions,
   StartSandboxResult,
 } from "../../public/sandbox.js";
 import type { ExecRequest, StartSandboxRequest } from "../../transport/types.js";
@@ -80,7 +80,7 @@ export function timeoutMsToSeconds(timeoutMs: number | undefined): number {
 export function toProtoCreateRequest(request: StartSandboxRequest): CreateSandboxRequest {
   const runnerIds = [...(request.runnerIds ?? [])];
   const network = toProtoNetwork(request.network);
-  const volumes = toProtoVolumes(request.fileSystemSnapshot);
+  const volumes = toProtoVolumes(request);
   const objectStorageAccess = toProtoObjectStorageAccess(request.objectStorageAccess);
   return CreateSandboxRequest.create({
     requestId: randomUUID(),
@@ -105,7 +105,7 @@ export function toProtoCreateRequest(request: StartSandboxRequest): CreateSandbo
 
 function toProtoContainer(request: StartSandboxRequest): ReturnType<typeof Container.create> {
   const resourceRequirements = toProtoResourceRequirements(request.resources);
-  const volumeMounts = toProtoVolumeMounts(request.fileSystemSnapshot);
+  const volumeMounts = toProtoVolumeMounts(request);
   return Container.create({
     args: commandArgs(request.command),
     command: commandName(request.command),
@@ -129,45 +129,76 @@ function toProtoContainer(request: StartSandboxRequest): ReturnType<typeof Conta
   });
 }
 
-function toProtoVolumes(
-  options: FileSystemSnapshotOptions | undefined,
-): ReturnType<typeof SandboxVolume.create>[] | undefined {
-  if (options === undefined) {
+function scratchVolumesFromRequest(
+  request: StartSandboxRequest,
+): readonly ScratchVolumeOptions[] | undefined {
+  if (request.volumes !== undefined) {
+    return request.volumes;
+  }
+  if (request.fileSystemSnapshot === undefined) {
     return undefined;
   }
+  return [
+    {
+      name: DEFAULT_SCRATCH_VOLUME_NAME,
+      mountPath: request.fileSystemSnapshot.mountPath,
+      ...(request.fileSystemSnapshot.size === undefined
+        ? {}
+        : { size: request.fileSystemSnapshot.size }),
+      ...(request.fileSystemSnapshot.restoreFromSnapshotId === undefined
+        ? {}
+        : { restoreFromSnapshotId: request.fileSystemSnapshot.restoreFromSnapshotId }),
+    },
+  ];
+}
 
+function toProtoScratchSource(
+  options: ScratchVolumeOptions,
+): ReturnType<typeof ScratchVolume.create> {
   const size = options.size === undefined || options.size === "" ? undefined : options.size;
   const restoreFromSnapshotId =
     options.restoreFromSnapshotId === undefined || options.restoreFromSnapshotId === ""
       ? undefined
       : options.restoreFromSnapshotId;
-  return [
-    SandboxVolume.create({
-      name: DEFAULT_SCRATCH_VOLUME_NAME,
-      source: {
-        oneofKind: "scratch",
-        scratch: ScratchVolume.create({
-          ...(size === undefined ? {} : { size }),
-          ...(restoreFromSnapshotId === undefined ? {} : { restoreFromSnapshotId }),
-        }),
-      },
-    }),
-  ];
+  return ScratchVolume.create({
+    ...(size === undefined ? {} : { size }),
+    ...(restoreFromSnapshotId === undefined ? {} : { restoreFromSnapshotId }),
+  });
 }
 
-function toProtoVolumeMounts(
-  options: FileSystemSnapshotOptions | undefined,
-): ReturnType<typeof VolumeMount.create>[] | undefined {
-  if (options === undefined) {
+function toProtoVolumes(
+  request: StartSandboxRequest,
+): ReturnType<typeof SandboxVolume.create>[] | undefined {
+  const volumes = scratchVolumesFromRequest(request);
+  if (volumes === undefined) {
     return undefined;
   }
 
-  return [
-    VolumeMount.create({
-      mountPath: options.mountPath,
-      volume: DEFAULT_SCRATCH_VOLUME_NAME,
+  return volumes.map((volume) =>
+    SandboxVolume.create({
+      name: volume.name,
+      source: {
+        oneofKind: "scratch",
+        scratch: toProtoScratchSource(volume),
+      },
     }),
-  ];
+  );
+}
+
+function toProtoVolumeMounts(
+  request: StartSandboxRequest,
+): ReturnType<typeof VolumeMount.create>[] | undefined {
+  const volumes = scratchVolumesFromRequest(request);
+  if (volumes === undefined) {
+    return undefined;
+  }
+
+  return volumes.map((volume) =>
+    VolumeMount.create({
+      mountPath: volume.mountPath,
+      volume: volume.name,
+    }),
+  );
 }
 
 function toProtoObjectStorageAccess(

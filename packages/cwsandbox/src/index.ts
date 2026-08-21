@@ -124,6 +124,7 @@ export type {
   EnvironmentVariables,
   FileSystemSnapshotOptions,
   FileSystemSnapshotResult,
+  ScratchVolumeOptions,
   FileSystemSnapshotState,
   FileSystemSnapshotTrigger,
   FromIdOptions,

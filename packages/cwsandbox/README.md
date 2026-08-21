@@ -605,6 +605,19 @@ sandbox stops; call `deleteSnapshot`. Inspect without waiting with
 `listSnapshots` collects every page and filters client-side (it does not send
 `sourceSandboxId` on the List RPC).
 
+`fileSystemSnapshot` and `volumes` cannot be used together. For a named mount
+or more than one scratch, pass `volumes`. `snapshot()` cannot choose among
+multiple scratches created in this process.
+
+```ts
+await client.create({
+  volumes: [
+    { name: "workspace", mountPath: "/workspace", size: "10Gi" },
+    { name: "cache", mountPath: "/cache" },
+  ],
+});
+```
+
 `stop({ snapshotOnStop })` is not supported. Capture with `sandbox.snapshot()`
 before stop or delete.
 

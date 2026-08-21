@@ -22,6 +22,7 @@ import {
   type FileWrites,
   type FileSystemSnapshotOptions,
   type FileSystemSnapshotResult,
+  type ScratchVolumeOptions,
   type GetSandboxResult,
   type LogEntry,
   type LogEntryStream,
@@ -248,6 +249,15 @@ expectTypeOf(
       mountPath: "/workspace",
       restoreFromSnapshotId: "snap-123",
     },
+  }),
+).toEqualTypeOf<ReturnType<SandboxClient["create"]>>();
+const namedVolumes: readonly ScratchVolumeOptions[] = [
+  { mountPath: "/workspace", name: "workspace", size: "10Gi" },
+  { mountPath: "/cache", name: "cache" },
+];
+expectTypeOf(
+  client.create({
+    volumes: namedVolumes,
   }),
 ).toEqualTypeOf<ReturnType<SandboxClient["create"]>>();
 expectTypeOf<ObjectStoragePermission>().toEqualTypeOf<"read" | "read-write">();
@@ -477,6 +487,14 @@ void client.create({
     mountPath: "/workspace",
     // @ts-expect-error restore uses restoreFromSnapshotId, not snapshotId.
     snapshotId: "snap-123",
+  },
+});
+
+void client.create({
+  fileSystemSnapshot: {
+    mountPath: "/workspace",
+    // @ts-expect-error convenience snapshot options do not take name.
+    name: "workspace",
   },
 });
 

@@ -67,6 +67,8 @@ export interface DeleteSandboxRequest extends RequestOptions {
 export interface CreateFileSystemSnapshotRequest extends RequestOptions {
   readonly requestId: string;
   readonly sandboxId: SandboxId;
+  /** Omitted when the sandbox has 0 or 1 scratch; required by Gateway when it has more. */
+  readonly scratchVolumeName?: string;
 }
 
 export interface GetFileSystemSnapshotRequest extends RequestOptions {

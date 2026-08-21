@@ -5,7 +5,12 @@
 import { randomUUID } from "node:crypto";
 
 import { DEFAULT_SNAPSHOT_TIMEOUT_MS, SNAPSHOT_OBSERVATION_SLACK_MS } from "../defaults.js";
-import { type CWSandboxError, CWSandboxTimeoutError, CWSandboxTransportError } from "../errors.js";
+import {
+  type CWSandboxError,
+  CWSandboxTimeoutError,
+  CWSandboxTransportError,
+  CWSandboxValidationError,
+} from "../errors.js";
 import {
   DEFAULT_MAX_POLL_INTERVAL_MS,
   DEFAULT_POLL_BACKOFF_FACTOR,
@@ -92,6 +97,7 @@ export async function captureFileSystemSnapshot(
   onStatus?: (metadata: GetSandboxResult) => void,
 ): Promise<FileSystemSnapshotResult> {
   validateRequestOptions(options);
+  rejectMultipleScratchVolumes(runtime.scratchVolumeNames);
 
   const now = options.now ?? Date.now;
   const sleepFn = options.sleep ?? defaultSleep;
@@ -235,4 +241,12 @@ function throwSnapshotTimeout(sandboxId: string, snapshotId?: string): never {
       sandboxId,
     },
   );
+}
+
+function rejectMultipleScratchVolumes(names: readonly string[] | undefined): void {
+  if (names !== undefined && names.length > 1) {
+    throw new CWSandboxValidationError(
+      `snapshot() cannot choose among multiple scratch volumes (${names.join(", ")}); create the sandbox with a single volume`,
+    );
+  }
 }

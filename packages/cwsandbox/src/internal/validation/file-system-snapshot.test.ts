@@ -5,7 +5,12 @@
 import { describe, expect, it } from "vitest";
 
 import { CWSandboxValidationError } from "../../errors.js";
-import { validateFileSystemSnapshotOptions, validateMountPath } from "./file-system-snapshot.js";
+import {
+  validateFileSystemSnapshotOptions,
+  validateMountPath,
+  validateSandboxVolumeCreateOptions,
+  validateScratchVolumeOptions,
+} from "./file-system-snapshot.js";
 import { validateObjectPrefix, validateObjectStorageAccess } from "./object-storage.js";
 
 describe("validateMountPath", () => {
@@ -46,6 +51,64 @@ describe("validateFileSystemSnapshotOptions", () => {
         undefined,
       ),
     ).not.toThrow();
+  });
+});
+
+describe("validateScratchVolumeOptions", () => {
+  it("rejects an empty volumes array", () => {
+    expect(() => validateScratchVolumeOptions([], undefined)).toThrow(/must not be empty/);
+  });
+
+  it("rejects an empty volume name", () => {
+    expect(() =>
+      validateScratchVolumeOptions([{ mountPath: "/data", name: "" }], undefined),
+    ).toThrow(/volumes\[0]\.name is required/);
+  });
+
+  it("rejects duplicate names and mount paths", () => {
+    expect(() =>
+      validateScratchVolumeOptions(
+        [
+          { mountPath: "/workspace", name: "workspace" },
+          { mountPath: "/cache", name: "workspace" },
+        ],
+        undefined,
+      ),
+    ).toThrow(/duplicates 'workspace'/);
+    expect(() =>
+      validateScratchVolumeOptions(
+        [
+          { mountPath: "/data", name: "one" },
+          { mountPath: "/data", name: "two" },
+        ],
+        undefined,
+      ),
+    ).toThrow(/duplicates '\/data'/);
+  });
+
+  it("rejects overlap with mounted files", () => {
+    expect(() =>
+      validateScratchVolumeOptions([{ mountPath: "/workspace", name: "workspace" }], {
+        "/workspace/main.py": "print('hi')",
+      }),
+    ).toThrow(/volumes\[0]\.mountPath conflicts with mounted file/);
+  });
+
+  it("rejects reserved mount paths with the volumes field name", () => {
+    expect(() =>
+      validateScratchVolumeOptions([{ mountPath: "/etc/passwd", name: "data" }], undefined),
+    ).toThrow(/volumes\[0]\.mountPath must not be equal to or under \/etc/);
+  });
+});
+
+describe("validateSandboxVolumeCreateOptions", () => {
+  it("rejects fileSystemSnapshot and volumes together", () => {
+    expect(() =>
+      validateSandboxVolumeCreateOptions({
+        fileSystemSnapshot: { mountPath: "/workspace" },
+        volumes: [{ mountPath: "/data", name: "data" }],
+      }),
+    ).toThrow(/fileSystemSnapshot and volumes cannot be used together/);
   });
 });
 

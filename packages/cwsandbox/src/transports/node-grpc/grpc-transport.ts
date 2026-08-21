@@ -127,6 +127,9 @@ export class GrpcSandboxTransport implements SandboxTransport {
           ProtoCreateFileSystemSnapshotRequest.create({
             requestId: request.requestId,
             sandboxId: request.sandboxId,
+            ...(request.scratchVolumeName === undefined || request.scratchVolumeName === ""
+              ? {}
+              : { scratchVolumeName: request.scratchVolumeName }),
           }),
           toRpcOptions(request),
         ).response,

@@ -15,6 +15,11 @@ SPDX-PackageName: cwsandbox
   slack. `snapshot()` returns the READY Get record (Python `snapshot()` returns
   only the ID; use `get_snapshot` there). `listSnapshots` collects all pages
   and filters `sourceSandboxId` / `state` client-side.
+- Add `volumes` / `ScratchVolumeOptions` on create for named scratch mounts
+  (mutually exclusive with `fileSystemSnapshot`). Convenience create still
+  names the volume `workspace`. `snapshot()` omits `scratchVolumeName` for a
+  single scratch and rejects client-side when this process created more than
+  one.
 - Add `objectStorageAccess` on create for temporary object-storage credentials.
 - Map trusted `CWSANDBOX_FSS_SIZE_EXCEEDED`, `CWSANDBOX_FSS_QUOTA_EXCEEDED`,
   and `CWSANDBOX_FSS_BUCKET_MISMATCH` to dedicated

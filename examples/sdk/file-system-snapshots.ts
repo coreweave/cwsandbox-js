@@ -7,6 +7,8 @@
  *
  * Demonstrates:
  * - create({ fileSystemSnapshot }) with a workspace scratch mount
+ * - create({ volumes }) for a named or second scratch (not run here;
+ *   snapshot() cannot choose among multiple scratches created in this process)
  * - sandbox.snapshot() waiting until READY (returns the Get record, not only the ID)
  * - client.getSnapshot / client.listSnapshots after the source sandbox is gone
  * - restore via restoreFromSnapshotId
