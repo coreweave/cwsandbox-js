@@ -10,6 +10,7 @@ import type {
 } from "./public/commands.js";
 import type { LogEntryStream, LogRawStream, LogStream } from "./public/logs.js";
 import type {
+  FileSystemSnapshotResult,
   GetSandboxResult,
   ListSandboxesOptions,
   ListSandboxesResult,
@@ -20,7 +21,6 @@ import type {
   DeleteFileSystemSnapshotRequest,
   DeleteSandboxRequest,
   ExecRequest,
-  FileSystemSnapshotRecord,
   GetFileSystemSnapshotRequest,
   GetSandboxRequest,
   ListFileSystemSnapshotsRequest,
@@ -39,8 +39,8 @@ export interface SandboxTransport {
   delete(request: DeleteSandboxRequest): Promise<void>;
   createFileSystemSnapshot(
     request: CreateFileSystemSnapshotRequest,
-  ): Promise<FileSystemSnapshotRecord>;
-  getFileSystemSnapshot(request: GetFileSystemSnapshotRequest): Promise<FileSystemSnapshotRecord>;
+  ): Promise<FileSystemSnapshotResult>;
+  getFileSystemSnapshot(request: GetFileSystemSnapshotRequest): Promise<FileSystemSnapshotResult>;
   listFileSystemSnapshots(
     request: ListFileSystemSnapshotsRequest,
   ): Promise<ListFileSystemSnapshotsResult>;

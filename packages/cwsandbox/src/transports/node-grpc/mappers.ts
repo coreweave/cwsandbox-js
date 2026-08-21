@@ -14,6 +14,7 @@ import type { NetworkOptions, Service, ServiceUrl } from "../../public/network.j
 import type { ResourceOptions, ResourceSpec } from "../../public/resources.js";
 import type {
   FileSystemSnapshotOptions,
+  FileSystemSnapshotResult,
   FileSystemSnapshotState,
   FileSystemSnapshotTrigger,
   GetSandboxResult,
@@ -25,11 +26,7 @@ import type {
   SandboxStatus,
   StartSandboxResult,
 } from "../../public/sandbox.js";
-import type {
-  ExecRequest,
-  FileSystemSnapshotRecord,
-  StartSandboxRequest,
-} from "../../transport/types.js";
+import type { ExecRequest, StartSandboxRequest } from "../../transport/types.js";
 import {
   Container,
   CreateSandboxRequest,
@@ -524,7 +521,7 @@ export function toSdkSandboxStatus(status: State): SandboxStatus {
 
 export function toSdkFileSystemSnapshot(
   snapshot: ProtoFileSystemSnapshot,
-): FileSystemSnapshotRecord {
+): FileSystemSnapshotResult {
   const sizeBytes = parseSizeBytes(snapshot.sizeBytes);
   const createdAt = toDate(snapshot.createTime);
   const updatedAt = toDate(snapshot.updatedAt);

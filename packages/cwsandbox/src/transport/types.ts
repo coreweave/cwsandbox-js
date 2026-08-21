@@ -17,15 +17,13 @@ import type {
   StopOptions,
 } from "../public/sandbox.js";
 
-export type FileSystemSnapshotRecord = FileSystemSnapshotResult;
-
 export interface ListFileSystemSnapshotsRequest extends RequestOptions {
   readonly pageToken?: string;
 }
 
 export interface ListFileSystemSnapshotsResult {
   readonly nextPageToken?: string;
-  readonly snapshots: readonly FileSystemSnapshotRecord[];
+  readonly snapshots: readonly FileSystemSnapshotResult[];
 }
 
 export interface StartSandboxRequest extends Omit<SandboxRunOptions, "waitUntilRunning"> {
