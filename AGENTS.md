@@ -23,7 +23,7 @@ This repository is the TypeScript SDK monorepo for CoreWeave Sandbox.
 - Fix lint/format issues: `pnpm fix` (alias of `pnpm quality:fix`)
 - Quality check only: `pnpm quality` (Oxlint + Oxfmt + Knip)
 - Build / typecheck / test: `pnpm build`, `pnpm typecheck`, `pnpm test` (whole workspace graph)
-- Live e2e smoke: `pnpm smoke` (requires `CWSANDBOX_API_KEY`; not part of `pnpm check`)
+- Live e2e smoke: `pnpm smoke` (requires `CWSANDBOX_API_KEY`; not part of `pnpm check`). Covers core SDK, W&B auth, snapshots, ComputeSDK, and TanStack.
 
 ## TypeScript Standards
 

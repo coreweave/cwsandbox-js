@@ -26,8 +26,10 @@ import { resolveWandbApiKey } from "../../packages/cwsandbox/src/integrations/wa
 
 export interface SmokeConfig {
   readonly hasCredentials: boolean;
+  readonly hasRunnerIdSmoke: boolean;
   readonly hasWandbCredentials: boolean;
   readonly hasWandbSecretsSmoke: boolean;
+  readonly runnerIdsSmoke: readonly string[] | undefined;
   readonly wandbSecretsSmoke:
     | {
         readonly envVar: string;
@@ -147,10 +149,6 @@ export function runPython(
   options: ExecOptions = {},
 ): Promise<ProcessResult> {
   return sandbox.commands.run(["python", "-c", script], options);
-}
-
-export function defaultNetworkOptions(): SandboxRunOptions {
-  return {};
 }
 
 export function startOptionsForNoInternetNetwork(): SandboxRunOptions {
@@ -339,13 +337,29 @@ export async function withDedicatedTaggedSandbox<TResult>(
 }
 
 function createSmokeConfig(): SmokeConfig {
+  const runnerIdsSmoke = readRunnerIdsSmoke();
   const wandbSecretsSmoke = readWandbSecretsSmokeConfig();
   return {
     hasCredentials: Boolean(process.env["CWSANDBOX_API_KEY"]?.trim()),
+    hasRunnerIdSmoke: runnerIdsSmoke !== undefined,
     hasWandbCredentials: hasWandbCredentials(),
     hasWandbSecretsSmoke: hasWandbCredentials() && wandbSecretsSmoke !== undefined,
+    runnerIdsSmoke,
     wandbSecretsSmoke,
   };
+}
+
+function readRunnerIdsSmoke(): readonly string[] | undefined {
+  const raw = process.env["CWSANDBOX_SMOKE_RUNNER_ID"]?.trim();
+  if (raw === undefined || raw === "") {
+    return undefined;
+  }
+
+  const ids = raw
+    .split(",")
+    .map((id) => id.trim())
+    .filter((id) => id !== "");
+  return ids.length === 0 ? undefined : ids;
 }
 
 function readWandbSecretsSmokeConfig(): SmokeConfig["wandbSecretsSmoke"] {

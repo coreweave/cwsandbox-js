@@ -46,7 +46,7 @@
     "prepack": "pnpm run build",
     "test": "vitest run --config vitest.config.ts",
     "typecheck": "tsc --noEmit --project tsconfig.json",
-    "smoke": "tsx src/smoke.ts"
+    "smoke": "pnpm --workspace-root test:e2e -- e2e/smoke/computesdk.e2e.test.ts"
   },
   "dependencies": {
     "@coreweave/cwsandbox": "workspace:*"
@@ -54,7 +54,6 @@
   "devDependencies": {
     "@computesdk/provider": "^2.1.5",
     "@types/node": "^22.20.1",
-    "tsx": "^4.23.12",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"
   },

@@ -990,12 +990,12 @@ Useful root commands:
 - `pnpm format:fix` applies Oxfmt formatting.
 - `pnpm lint:fix` applies Oxlint fixes.
 - `pnpm fix` runs lint fixes and formatting.
-- `pnpm smoke` runs the credential-gated live e2e smoke suite, including W&B auth when `WANDB_API_KEY` or a W&B `.netrc` entry is available.
+- `pnpm smoke` runs the credential-gated live e2e smoke suite: core SDK, snapshots, ComputeSDK, TanStack, and W&B auth when `WANDB_API_KEY` or a W&B `.netrc` entry is available.
 - `pnpm smoke:stress` runs the credential-gated standard stress smoke suite.
 - `pnpm smoke:stress -- --heavy` runs the larger manual stress smoke suite.
 - `pnpm smoke:stress -- --cleanup --tag <stress-tag>` deletes sandboxes from an interrupted stress run.
 
-`pnpm check` is offline and credential-free, including README example typechecks. `pnpm smoke` and stress smoke commands skip CoreWeave-auth tests when `CWSANDBOX_API_KEY` is not set, and skip W&B-auth tests when no `WANDB_API_KEY` or W&B `.netrc` credential resolves. The default smoke suite uses default internet egress and `network.denyEgress` for the no-internet check. Stress smoke is intentionally not part of `pnpm check`; it creates live sandboxes and uses bounded workloads to exercise larger logs, streams, stdin, files, pagination, and cleanup paths.
+`pnpm check` is offline and credential-free, including README example typechecks. `pnpm smoke` and stress smoke commands skip CoreWeave-auth tests when `CWSANDBOX_API_KEY` is not set, and skip W&B-auth tests when no `WANDB_API_KEY` or W&B `.netrc` credential resolves. Adapter smokes (ComputeSDK, TanStack) are part of `pnpm smoke` and skip with the same CoreWeave-auth gate. The default smoke suite uses default internet egress and `network.denyEgress` for the no-internet check. Stress smoke is intentionally not part of `pnpm check`; it creates live sandboxes and uses bounded workloads to exercise larger logs, streams, stdin, files, pagination, and cleanup paths.
 
 ## License
 
