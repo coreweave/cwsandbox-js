@@ -16,10 +16,14 @@ import {
 import type { RequestOptions } from "../public/common.js";
 import type { FileSystemSnapshotResult, ListSnapshotsOptions } from "../public/sandbox.js";
 import type { SandboxTransport } from "../transport.js";
+import { getFileSystemSnapshotRecord } from "./snapshot.js";
 
-const GET_SNAPSHOT_OPERATION = "Get file-system snapshot";
 const LIST_SNAPSHOTS_OPERATION = "List file-system snapshots";
 
+/**
+ * List is a different algorithm from capture: token loop, then client-side
+ * filters. Get delegates to `getFileSystemSnapshotRecord`.
+ */
 export async function getSnapshotRecord(
   transport: SandboxTransport,
   snapshotId: string,
@@ -28,21 +32,11 @@ export async function getSnapshotRecord(
   validateSnapshotId(snapshotId);
   validateRequestOptions(options);
 
-  const unaryTimeoutMs = options.timeoutMs ?? DEFAULT_LIST_ALL_TIMEOUT_MS;
-  return retryTransientRpc(
-    async () =>
-      transport.getFileSystemSnapshot({
-        snapshotId,
-        timeoutMs: unaryTimeoutMs,
-        ...(options.signal === undefined ? {} : { signal: options.signal }),
-      }),
-    {
-      budgetMs: DEFAULT_POLL_RETRY_BUDGET_MS,
-      nonRetryable: [CWSandboxTimeoutError],
-      operation: GET_SNAPSHOT_OPERATION,
-      ...(options.signal === undefined ? {} : { signal: options.signal }),
-    },
-  );
+  return getFileSystemSnapshotRecord(transport, snapshotId, {
+    nonRetryable: [CWSandboxTimeoutError],
+    rpcTimeoutMs: options.timeoutMs ?? DEFAULT_LIST_ALL_TIMEOUT_MS,
+    ...(options.signal === undefined ? {} : { signal: options.signal }),
+  });
 }
 
 export async function listSnapshotRecords(

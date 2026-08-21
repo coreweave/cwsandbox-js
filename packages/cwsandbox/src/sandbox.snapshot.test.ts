@@ -10,11 +10,11 @@ import {
   CWSandboxUnavailableError,
   CWSandboxValidationError,
 } from "./errors.js";
+import type { FileSystemSnapshotResult } from "./public/sandbox.js";
 import type { SandboxRuntime } from "./runtime/context.js";
 import { captureFileSystemSnapshot } from "./runtime/snapshot.js";
 import { createClient, createFakeSnapshot, createFakeTransport } from "./test/helpers.js";
 import type { SandboxTransport } from "./transport.js";
-import type { FileSystemSnapshotRecord } from "./transport/types.js";
 
 function fakeClock(): {
   readonly now: () => number;
@@ -31,7 +31,7 @@ function fakeClock(): {
 
 describe("sandbox.snapshot", () => {
   it("creates a snapshot, polls until READY, and returns sizeBytes", async () => {
-    const states: FileSystemSnapshotRecord["state"][] = ["creating", "ready"];
+    const states: FileSystemSnapshotResult["state"][] = ["creating", "ready"];
     const transport: SandboxTransport = {
       ...createFakeTransport(["running"]),
       async createFileSystemSnapshot(request) {

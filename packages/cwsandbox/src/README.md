@@ -59,7 +59,9 @@ is a W&B auth wrapper. Its implementation lives under `integrations/wandb/`.
 
 - `public/` owns SDK-visible TypeScript types. Do not import generated protobuf
   types into this layer.
-- `runtime/` owns command, file, log, shell, and wait helpers used by `Sandbox`.
+- `runtime/` owns command, file, log, shell, wait, and snapshot helpers used
+  by `Sandbox`. Snapshot is two algorithms (capture READY/FAILED poll vs list
+  pagination), one record (`FileSystemSnapshotResult` on the transport seam).
 - `internal/` owns private normalizers, validation, and helper logic. Do not
   export from this folder.
 - `transport.ts` and `transport/` define the SDK backend contract.

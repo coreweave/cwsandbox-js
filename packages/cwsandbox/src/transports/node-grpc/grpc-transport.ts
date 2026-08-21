@@ -10,6 +10,7 @@ import type {
 } from "../../public/commands.js";
 import type { LogEntryStream, LogRawStream, LogStream } from "../../public/logs.js";
 import type {
+  FileSystemSnapshotResult,
   GetSandboxResult,
   ListSandboxesOptions,
   ListSandboxesResult,
@@ -21,7 +22,6 @@ import type {
   DeleteFileSystemSnapshotRequest,
   DeleteSandboxRequest,
   ExecRequest,
-  FileSystemSnapshotRecord,
   GetFileSystemSnapshotRequest,
   GetSandboxRequest,
   ListFileSystemSnapshotsRequest,
@@ -119,7 +119,7 @@ export class GrpcSandboxTransport implements SandboxTransport {
 
   public async createFileSystemSnapshot(
     request: CreateFileSystemSnapshotRequest,
-  ): Promise<FileSystemSnapshotRecord> {
+  ): Promise<FileSystemSnapshotResult> {
     const response = await withGrpcErrorMapping(
       "Create file-system snapshot",
       () =>
@@ -138,7 +138,7 @@ export class GrpcSandboxTransport implements SandboxTransport {
 
   public async getFileSystemSnapshot(
     request: GetFileSystemSnapshotRequest,
-  ): Promise<FileSystemSnapshotRecord> {
+  ): Promise<FileSystemSnapshotResult> {
     const response = await withGrpcErrorMapping(
       "Get file-system snapshot",
       () =>

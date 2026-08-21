@@ -5,7 +5,7 @@
 import { randomUUID } from "node:crypto";
 
 import { DEFAULT_SNAPSHOT_TIMEOUT_MS, SNAPSHOT_OBSERVATION_SLACK_MS } from "../defaults.js";
-import { CWSandboxTimeoutError, CWSandboxTransportError } from "../errors.js";
+import { type CWSandboxError, CWSandboxTimeoutError, CWSandboxTransportError } from "../errors.js";
 import {
   DEFAULT_MAX_POLL_INTERVAL_MS,
   DEFAULT_POLL_BACKOFF_FACTOR,
@@ -18,7 +18,7 @@ import {
 import { validateRequestOptions } from "../internal/validation/index.js";
 import type { RequestOptions } from "../public/common.js";
 import type { FileSystemSnapshotResult, GetSandboxResult } from "../public/sandbox.js";
-import type { FileSystemSnapshotRecord } from "../transport/types.js";
+import type { SandboxTransport } from "../transport.js";
 import type { SandboxRuntime } from "./context.js";
 import { waitForSandbox } from "./wait.js";
 
@@ -43,6 +43,47 @@ export interface CaptureFileSystemSnapshotOptions extends RequestOptions {
    * Test-only sleep. Defaults to abort-aware `setTimeout` sleep.
    */
   readonly sleep?: (timeoutMs: number, signal: AbortSignal | undefined) => Promise<void>;
+}
+
+interface GetFileSystemSnapshotRecordOptions {
+  readonly deadline?: number;
+  readonly nonRetryable?: readonly (new (...args: never[]) => CWSandboxError)[];
+  readonly now?: () => number;
+  readonly random?: () => number;
+  // rpcTimeoutMs: fixed unary RPC (inspect). If omitted, attempt.timeoutMs (poll, 15s).
+  // Call sites do not pass rpcTimeoutMs and deadline together.
+  readonly rpcTimeoutMs?: number;
+  readonly signal?: AbortSignal;
+  readonly sleep?: (timeoutMs: number, signal: AbortSignal | undefined) => Promise<void>;
+}
+
+/**
+ * Capture is wait-until-running, Create, then READY/FAILED poll.
+ * Get is shared; list stays in snapshot-inspect.ts.
+ */
+export async function getFileSystemSnapshotRecord(
+  transport: SandboxTransport,
+  snapshotId: string,
+  options: GetFileSystemSnapshotRecordOptions = {},
+): Promise<FileSystemSnapshotResult> {
+  return retryTransientRpc(
+    async ({ timeoutMs: attemptTimeoutMs }) =>
+      transport.getFileSystemSnapshot({
+        snapshotId,
+        timeoutMs: options.rpcTimeoutMs === undefined ? attemptTimeoutMs : options.rpcTimeoutMs,
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+      }),
+    {
+      budgetMs: DEFAULT_POLL_RETRY_BUDGET_MS,
+      operation: GET_SNAPSHOT_OPERATION,
+      ...(options.deadline === undefined ? {} : { deadline: options.deadline }),
+      ...(options.nonRetryable === undefined ? {} : { nonRetryable: options.nonRetryable }),
+      ...(options.now === undefined ? {} : { now: options.now }),
+      ...(options.random === undefined ? {} : { random: options.random }),
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+      ...(options.sleep === undefined ? {} : { sleep: options.sleep }),
+    },
+  );
 }
 
 export async function captureFileSystemSnapshot(
@@ -82,7 +123,7 @@ async function createSnapshot(
   options: CaptureFileSystemSnapshotOptions,
   now: () => number,
   deadline: number,
-): Promise<FileSystemSnapshotRecord> {
+): Promise<FileSystemSnapshotResult> {
   if (now() >= deadline) {
     throwSnapshotTimeout(runtime.sandboxId);
   }
@@ -128,7 +169,13 @@ async function waitForSnapshotReady(
   while (true) {
     throwIfAborted(options.signal);
 
-    const record = await getSnapshot(runtime, snapshotId, options, now, deadline);
+    const record = await getRecordWithReadyWaitDeadline(
+      runtime,
+      snapshotId,
+      options,
+      now,
+      deadline,
+    );
     if (record.state === "ready") {
       return record;
     }
@@ -151,35 +198,25 @@ async function waitForSnapshotReady(
   }
 }
 
-async function getSnapshot(
+async function getRecordWithReadyWaitDeadline(
   runtime: SandboxRuntime,
   snapshotId: string,
   options: CaptureFileSystemSnapshotOptions,
   now: () => number,
   deadline: number,
-): Promise<FileSystemSnapshotRecord> {
+): Promise<FileSystemSnapshotResult> {
   if (now() >= deadline) {
     throwSnapshotTimeout(runtime.sandboxId, snapshotId);
   }
 
   try {
-    return await retryTransientRpc(
-      async ({ timeoutMs }) =>
-        runtime.transport.getFileSystemSnapshot({
-          snapshotId,
-          timeoutMs,
-          ...(options.signal === undefined ? {} : { signal: options.signal }),
-        }),
-      {
-        budgetMs: DEFAULT_POLL_RETRY_BUDGET_MS,
-        deadline,
-        operation: GET_SNAPSHOT_OPERATION,
-        now,
-        ...(options.random === undefined ? {} : { random: options.random }),
-        ...(options.signal === undefined ? {} : { signal: options.signal }),
-        ...(options.sleep === undefined ? {} : { sleep: options.sleep }),
-      },
-    );
+    return await getFileSystemSnapshotRecord(runtime.transport, snapshotId, {
+      deadline,
+      now,
+      ...(options.random === undefined ? {} : { random: options.random }),
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+      ...(options.sleep === undefined ? {} : { sleep: options.sleep }),
+    });
   } catch (error) {
     if (now() >= deadline) {
       throwSnapshotTimeout(runtime.sandboxId, snapshotId);
