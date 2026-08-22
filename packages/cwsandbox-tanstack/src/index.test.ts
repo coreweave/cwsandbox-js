@@ -194,6 +194,7 @@ function createTrackingClient(): TrackingClient {
         return createProcessResult(normalized, { stdout: "ok" });
       },
       exitCode: undefined,
+      dnsEgressNames: undefined,
       exposedPorts: undefined,
       files,
       getStatus: async () => status,

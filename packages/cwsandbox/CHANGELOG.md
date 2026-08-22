@@ -8,6 +8,13 @@ SPDX-PackageName: cwsandbox
 
 ## Unreleased
 
+- Add `network.egress` create-time DNS-name HTTPS grants (`{ dnsName }`) and
+  echo granted names as `dnsEgressNames` from status. Exact names or a single
+  leftmost wildcard; `"*"` is not a sandbox grant and cannot combine with
+  `denyEgress`.
+
+## 0.3.0-beta.0
+
 - Add `fileSystemSnapshot` create option, `sandbox.snapshot()`,
   `client.getSnapshot`, `client.listSnapshots`, and
   `client.deleteSnapshot(snapshotId, { missingOk })` for scratch-volume archives
@@ -28,8 +35,6 @@ SPDX-PackageName: cwsandbox
   `CWSandboxSnapshotBucketMismatchError`). `CWSANDBOX_FSS_NOT_READY` stays a
   generic transport error; throttle / inflight / bucket-provisioning stay
   unavailable.
-
-## 0.2.0-beta.0
 
 Sandbox v1 public beta. Breaking vs `0.1.0-beta.0` (v1beta2 create options
 and inspect fields).

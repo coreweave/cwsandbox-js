@@ -217,6 +217,7 @@ export interface SandboxExposedPort {
 export type SandboxResourceSpec = ResourceSpec;
 
 export interface SandboxMetadata {
+  readonly dnsEgressNames?: readonly string[];
   readonly exitCode?: number;
   readonly exposedPorts?: readonly SandboxExposedPort[];
   readonly resourceLimits?: SandboxResourceSpec;
@@ -251,6 +252,7 @@ export interface Sandbox {
   readonly files: SandboxFiles;
   readonly logs: SandboxLogs;
   readonly sandboxId: SandboxId;
+  readonly dnsEgressNames: readonly string[] | undefined;
   readonly exitCode: number | undefined;
   readonly exposedPorts: readonly SandboxExposedPort[] | undefined;
   readonly resourceLimits: SandboxResourceSpec | undefined;

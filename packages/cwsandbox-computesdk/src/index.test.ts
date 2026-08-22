@@ -451,6 +451,7 @@ function createTrackingClient(options: TrackingClientOptions = {}): TrackingClie
         deletedSandboxIds.push(sandboxId);
       },
       exec: async (command) => createProcessResult(normalizeCommand(command), { stdout: "ok" }),
+      dnsEgressNames: undefined,
       exitCode: undefined,
       exposedPorts: undefined,
       files,

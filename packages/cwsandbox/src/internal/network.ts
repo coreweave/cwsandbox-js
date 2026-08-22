@@ -3,12 +3,16 @@
 // SPDX-PackageName: cwsandbox
 
 import { CWSandboxValidationError } from "../errors.js";
-import type { Endpoint, NetworkOptions, Service } from "../public/network.js";
+import type { EgressRule, Endpoint, NetworkOptions, Service } from "../public/network.js";
 
 const ENDPOINT_AUTHS = new Set(["open"]);
 const ENDPOINT_KINDS = new Set(["https"]);
 const SERVICE_PROTOCOLS = new Set(["sctp", "tcp", "udp", "unspecified"]);
 const SERVICE_VISIBILITIES = new Set(["custom", "private", "public", "unspecified"]);
+
+const DNS1123_LABEL = "[a-z0-9](?:[-a-z0-9]*[a-z0-9])?";
+const DNS1123_SUBDOMAIN_RE = new RegExp(`^(?:${DNS1123_LABEL})(?:\\.(?:${DNS1123_LABEL}))*$`);
+const DNS1123_SUBDOMAIN_MAX = 253;
 
 export function validateNetworkOptions(
   services: readonly Service[] | undefined,
@@ -16,6 +20,25 @@ export function validateNetworkOptions(
 ): void {
   validateServices(services);
   validateDenyFlags(network);
+  validateEgress(network);
+}
+
+export function normalizeDnsName(dnsName: string): string {
+  const name = dnsName.trim().toLowerCase();
+  if (name === "") {
+    throw new CWSandboxValidationError("network.egress[].dnsName cannot be empty");
+  }
+  if (name === "*") {
+    throw new CWSandboxValidationError(
+      'network.egress[].dnsName cannot be "*"; that is a policy ceiling, not a sandbox grant',
+    );
+  }
+  if (!isDnsNameGrant(name)) {
+    throw new CWSandboxValidationError(
+      "network.egress[].dnsName must be a DNS-1123 subdomain or a single leftmost wildcard (*.example.com)",
+    );
+  }
+  return name;
 }
 
 function validateDenyFlags(network: NetworkOptions | undefined): void {
@@ -30,6 +53,52 @@ function validateDenyFlags(network: NetworkOptions | undefined): void {
   if (network.denyIngress !== undefined && typeof network.denyIngress !== "boolean") {
     throw new CWSandboxValidationError("network.denyIngress must be a boolean");
   }
+}
+
+function validateEgress(network: NetworkOptions | undefined): void {
+  if (network === undefined || network.egress === undefined) {
+    return;
+  }
+
+  const egress = network.egress as unknown;
+  if (typeof egress === "string" || !Array.isArray(egress)) {
+    throw new CWSandboxValidationError("network.egress must be a sequence of { dnsName: string }");
+  }
+
+  for (const rule of egress) {
+    if (!isEgressRule(rule)) {
+      throw new CWSandboxValidationError(
+        "network.egress must be a sequence of { dnsName: string }",
+      );
+    }
+    normalizeDnsName(rule.dnsName);
+  }
+
+  if (network.denyEgress === true && egress.length > 0) {
+    throw new CWSandboxValidationError("network.denyEgress cannot be combined with egress rules");
+  }
+}
+
+function isEgressRule(value: unknown): value is EgressRule {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { readonly dnsName?: unknown }).dnsName === "string"
+  );
+}
+
+function isDnsNameGrant(name: string): boolean {
+  if (name.length > DNS1123_SUBDOMAIN_MAX) {
+    return false;
+  }
+  if (name.startsWith("*.")) {
+    return isDns1123Subdomain(name.slice(2));
+  }
+  return isDns1123Subdomain(name);
+}
+
+function isDns1123Subdomain(name: string): boolean {
+  return name.length <= DNS1123_SUBDOMAIN_MAX && DNS1123_SUBDOMAIN_RE.test(name);
 }
 
 function validateServices(services: readonly Service[] | undefined): void {
