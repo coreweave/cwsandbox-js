@@ -104,6 +104,7 @@ export type {
   SandboxLogs,
 } from "./public/logs.js";
 export type {
+  EgressRule,
   Endpoint,
   EndpointAuth,
   EndpointKind,

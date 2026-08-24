@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { DEFAULT_SCRATCH_VOLUME_NAME } from "../../defaults.js";
 import { commandForWorkingDirectory } from "../../internal/commands.js";
 import { normalizeFileContent, normalizeMountedFiles } from "../../internal/mounted-files.js";
+import { normalizeDnsName } from "../../internal/network.js";
 import { isAdvancedResources } from "../../internal/resources.js";
 import { groupSecretsByStore, normalizeSecrets } from "../../internal/secrets.js";
 import type { Command, ProcessResult } from "../../public/commands.js";
@@ -31,6 +32,7 @@ import {
   Container,
   CreateSandboxRequest,
   DeleteSandboxRequest,
+  EgressRule as ProtoEgressRule,
   EndpointAuth,
   EndpointKind,
   ExecRequest as ProtoExecRequest,
@@ -228,14 +230,38 @@ function toProtoNetwork(
   if (network === undefined) {
     return undefined;
   }
-  if (network.denyEgress === undefined && network.denyIngress === undefined) {
+
+  const egress = toProtoEgress(network.egress);
+  if (
+    network.denyEgress === undefined &&
+    network.denyIngress === undefined &&
+    egress === undefined
+  ) {
     return undefined;
   }
 
   return ProtoNetworkOptions.create({
     ...(network.denyEgress !== undefined ? { denyEgress: network.denyEgress } : {}),
     ...(network.denyIngress !== undefined ? { denyIngress: network.denyIngress } : {}),
+    ...(egress === undefined ? {} : { egress }),
   });
+}
+
+function toProtoEgress(
+  egress: NetworkOptions["egress"],
+): ReturnType<typeof ProtoEgressRule.create>[] | undefined {
+  if (egress === undefined || egress.length === 0) {
+    return undefined;
+  }
+
+  return egress.map((rule) =>
+    ProtoEgressRule.create({
+      destination: {
+        oneofKind: "dnsName",
+        dnsName: normalizeDnsName(rule.dnsName),
+      },
+    }),
+  );
 }
 
 function toProtoServices(
@@ -426,9 +452,11 @@ function toSdkSandboxMetadata(sandbox: ProtoSandboxMessage): StartSandboxResult 
     status?.effectiveResourceRequirements?.requests ?? status?.effectiveResources,
   );
   const startedAt = toDate(status?.startTime);
+  const dnsEgressNames = toSdkDnsEgressNames(status?.effectiveEgress);
 
   return {
     ...(status?.exitCode === undefined ? {} : { exitCode: status.exitCode }),
+    ...(dnsEgressNames === undefined ? {} : { dnsEgressNames }),
     ...(exposedPorts === undefined ? {} : { exposedPorts }),
     ...(resourceLimits === undefined ? {} : { resourceLimits }),
     ...(resourceRequests === undefined ? {} : { resourceRequests }),
@@ -446,6 +474,24 @@ function toSdkSandboxMetadata(sandbox: ProtoSandboxMessage): StartSandboxResult 
       ? {}
       : { statusReason: status.stateReason }),
   };
+}
+
+function toSdkDnsEgressNames(
+  rules: readonly ProtoEgressRule[] | undefined,
+): readonly string[] | undefined {
+  if (rules === undefined || rules.length === 0) {
+    return undefined;
+  }
+
+  const names = rules.flatMap((rule) => {
+    if (rule.destination.oneofKind !== "dnsName") {
+      return [];
+    }
+    const name = rule.destination.dnsName;
+    return name === "" ? [] : [name];
+  });
+
+  return names.length === 0 ? undefined : names;
 }
 
 function toSdkServiceUrls(

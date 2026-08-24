@@ -28,6 +28,7 @@ import {
   toSdkGetSandboxResult,
   toSdkListSandboxesResult,
   toSdkProcessResult,
+  toSdkSandboxInfo,
   toSdkSandboxStatus,
   toSdkStartSandboxResult,
 } from "./mappers.js";
@@ -272,6 +273,37 @@ describe("node transport mappers", () => {
       });
 
       expect(request.sandbox?.spec?.network).toBeUndefined();
+    });
+
+    it("omits network when egress is empty and deny flags are unset", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        network: { egress: [] },
+      });
+
+      expect(request.sandbox?.spec?.network).toBeUndefined();
+    });
+
+    it("maps dnsName egress onto proto network options when deny flags are unset", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        network: {
+          egress: [{ dnsName: "  PyPI.org " }, { dnsName: "*.pypi.org" }],
+        },
+      });
+
+      expect(request.sandbox?.spec?.network?.denyEgress).toBeUndefined();
+      expect(request.sandbox?.spec?.network?.denyIngress).toBeUndefined();
+      expect(request.sandbox?.spec?.network?.egress).toEqual([
+        {
+          destination: { dnsName: "pypi.org", oneofKind: "dnsName" },
+          ports: [],
+        },
+        {
+          destination: { dnsName: "*.pypi.org", oneofKind: "dnsName" },
+          ports: [],
+        },
+      ]);
     });
 
     it("maps deny flags onto proto network options", () => {
@@ -607,6 +639,55 @@ describe("node transport mappers", () => {
         statusReason: "Container failed to start.",
       });
       expect(result).not.toHaveProperty("exitCode");
+    });
+
+    it("copies effectiveEgress dns names onto create/get/list metadata", () => {
+      const sandbox = ProtoSandbox.create({
+        sandboxId: "sandbox-123",
+        status: {
+          effectiveEgress: [
+            {
+              destination: { dnsName: "pypi.org", oneofKind: "dnsName" },
+            },
+            {
+              destination: { dnsName: "*.pypi.org", oneofKind: "dnsName" },
+            },
+          ],
+          state: State.RUNNING,
+        },
+      });
+
+      expect(toSdkStartSandboxResult(sandbox).dnsEgressNames).toEqual(["pypi.org", "*.pypi.org"]);
+      expect(toSdkGetSandboxResult(sandbox).dnsEgressNames).toEqual(["pypi.org", "*.pypi.org"]);
+      expect(toSdkSandboxInfo(sandbox).dnsEgressNames).toEqual(["pypi.org", "*.pypi.org"]);
+    });
+
+    it("drops non-dns effectiveEgress rules and omits the field when none remain", () => {
+      const mixed = toSdkStartSandboxResult(
+        ProtoSandbox.create({
+          sandboxId: "sandbox-123",
+          status: {
+            effectiveEgress: [
+              { destination: { any: true, oneofKind: "any" } },
+              { destination: { dnsName: "", oneofKind: "dnsName" } },
+              { destination: { dnsName: "pypi.org", oneofKind: "dnsName" } },
+            ],
+            state: State.RUNNING,
+          },
+        }),
+      );
+      const none = toSdkStartSandboxResult(
+        ProtoSandbox.create({
+          sandboxId: "sandbox-123",
+          status: {
+            effectiveEgress: [{ destination: { any: true, oneofKind: "any" } }],
+            state: State.RUNNING,
+          },
+        }),
+      );
+
+      expect(mixed.dnsEgressNames).toEqual(["pypi.org"]);
+      expect(none).not.toHaveProperty("dnsEgressNames");
     });
 
     it("maps get responses with observed exitCode zero", () => {

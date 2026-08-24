@@ -31,6 +31,14 @@ import {
   runPython,
   smokeConfig,
   defaultNetworkOptions,
+  DNS_EGRESS_EXACT,
+  DNS_EGRESS_UNGRANTED,
+  DNS_EGRESS_WILD,
+  DNS_EGRESS_WILD_HOST,
+  dnsEgressSmokeTimeoutMs,
+  httpsGetExitCode,
+  shouldSkipDnsEgress,
+  startOptionsForDnsNameEgress,
   startOptionsForNoInternetNetwork,
   testTimeoutMs,
   uniqueSmokeTag,
@@ -999,6 +1007,36 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
         });
       },
       testTimeoutMs,
+    );
+
+    it(
+      "grants HTTPS to declared dns names and misses the rest",
+      async (ctx) => {
+        try {
+          await withStartedSandbox(client, startOptionsForDnsNameEgress(), async (sandbox) => {
+            console.log(`Started dns-egress sandbox: ${sandbox.sandboxId}`);
+
+            const granted = [DNS_EGRESS_EXACT, DNS_EGRESS_WILD];
+            expect(sandbox.dnsEgressNames).toEqual(expect.arrayContaining(granted));
+            expect((await sandbox.inspect()).dnsEgressNames).toEqual(
+              expect.arrayContaining(granted),
+            );
+
+            expect(await httpsGetExitCode(sandbox, `https://${DNS_EGRESS_EXACT}`, 20)).toBe(0);
+            expect(await httpsGetExitCode(sandbox, `https://${DNS_EGRESS_WILD_HOST}`, 20)).toBe(0);
+            expect(await httpsGetExitCode(sandbox, `https://${DNS_EGRESS_UNGRANTED}`, 8)).not.toBe(
+              0,
+            );
+          });
+        } catch (error) {
+          if (shouldSkipDnsEgress(error)) {
+            ctx.skip(`fleet cannot admit DNS-name egress: ${String(error)}`);
+            return;
+          }
+          throw error;
+        }
+      },
+      dnsEgressSmokeTimeoutMs,
     );
   });
 

@@ -284,6 +284,7 @@ describe("Sandbox", () => {
     expect(sandbox.exposedPorts).toEqual([{ name: "http", port: 8000, protocol: "TCP" }]);
     expect(sandbox.resourceRequests).toEqual({ cpu: "1", memory: "1Gi" });
     expect(sandbox.resourceLimits).toEqual({ cpu: "4", memory: "8Gi" });
+    expect(sandbox.dnsEgressNames).toBeUndefined();
   });
 
   it("refreshes cached metadata when status is fetched", async () => {
@@ -347,6 +348,60 @@ describe("Sandbox", () => {
     expect(info.exposedPorts).toBeUndefined();
     expect(sandbox.serviceUrls).toBeUndefined();
     expect(sandbox.exposedPorts).toBeUndefined();
+    expect(sandbox.status).toBe("completed");
+  });
+
+  it("exposes dnsEgressNames from start and inspect", async () => {
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          dnsEgressNames: ["pypi.org", "*.pypi.org"],
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          status: "running",
+        };
+      },
+      async get(request) {
+        return {
+          dnsEgressNames: ["pypi.org"],
+          sandboxId: request.sandboxId,
+          status: "running",
+        };
+      },
+    };
+
+    const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
+    expect(sandbox.dnsEgressNames).toEqual(["pypi.org", "*.pypi.org"]);
+    expect(sandbox.dnsEgressNames).not.toBe(sandbox.dnsEgressNames);
+
+    const info = await sandbox.inspect();
+    expect(info.dnsEgressNames).toEqual(["pypi.org"]);
+    expect(sandbox.dnsEgressNames).toEqual(["pypi.org"]);
+  });
+
+  it("keeps last echoed dnsEgressNames when inspect omits them", async () => {
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          dnsEgressNames: ["pypi.org"],
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          status: "running",
+        };
+      },
+      async get(request) {
+        return {
+          sandboxId: request.sandboxId,
+          status: "completed",
+        };
+      },
+    };
+
+    const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
+    const info = await sandbox.inspect();
+
+    expect(info.dnsEgressNames).toBeUndefined();
+    expect(sandbox.dnsEgressNames).toEqual(["pypi.org"]);
     expect(sandbox.status).toBe("completed");
   });
 
