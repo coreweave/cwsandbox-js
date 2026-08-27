@@ -1761,6 +1761,34 @@ describe("SandboxClient", () => {
   describe("withSandboxFromTemplate", () => {
     const templateId = "11111111-1111-1111-1111-111111111111";
 
+    it.each([null, new Date(), []] as const)(
+      "rejects non-record options %s before the transport",
+      async (options) => {
+        let startFromTemplateCalls = 0;
+        let callbackCalled = false;
+        const transport: SandboxTransport = {
+          ...createFakeTransport(),
+          async startFromTemplate() {
+            startFromTemplateCalls += 1;
+            throw new Error("transport should not be called");
+          },
+        };
+
+        await expect(
+          createClient(transport).withSandboxFromTemplate(
+            templateId,
+            () => {
+              callbackCalled = true;
+              return "unused";
+            },
+            options as never,
+          ),
+        ).rejects.toThrow(CWSandboxValidationError);
+        expect(startFromTemplateCalls).toBe(0);
+        expect(callbackCalled).toBe(false);
+      },
+    );
+
     it("stops the sandbox after the callback", async () => {
       const { stoppedSandboxIds, transport } = createTrackingTransport();
       const client = createClient(transport);

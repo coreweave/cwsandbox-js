@@ -264,6 +264,7 @@ export class SandboxClient implements SandboxClientInterface {
     callback: WithSandboxCallback<TResult>,
     options: SandboxRunFromTemplateOptions = {},
   ): Promise<TResult> {
+    validateSandboxRunFromTemplateOptions(templateId, options);
     const sandbox = await this.runFromTemplate(templateId, {
       ...options,
       waitUntilRunning: false,

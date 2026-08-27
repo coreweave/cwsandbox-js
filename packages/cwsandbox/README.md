@@ -837,7 +837,7 @@ are not inherited). Field-level replacement details live on
 If creation returns an accepted sandbox but the readiness wait rejects, the
 SDK best-effort stops it. `waitUntilRunning: false` returns immediately after
 accept with no automatic cleanup. `create` / `run` do not yet follow this
-rejected-call cleanup invariant.
+readiness-failure cleanup behavior.
 
 `placementMode` is not available; CKS placement is only via non-empty
 `runnerIds`. `ResourceOptions` is CPU and memory only (no GPU). `secrets: []`
