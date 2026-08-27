@@ -28,8 +28,14 @@ import { resolveWandbApiKey } from "../../packages/cwsandbox/src/integrations/wa
 
 export interface SmokeConfig {
   readonly hasCredentials: boolean;
+  readonly hasTemplateSmoke: boolean;
   readonly hasWandbCredentials: boolean;
   readonly hasWandbSecretsSmoke: boolean;
+  readonly templateSmoke:
+    | {
+        readonly templateId: string;
+      }
+    | undefined;
   readonly wandbSecretsSmoke:
     | {
         readonly envVar: string;
@@ -396,13 +402,23 @@ export async function withDedicatedTaggedSandbox<TResult>(
 }
 
 function createSmokeConfig(): SmokeConfig {
+  const hasCredentials = Boolean(process.env["CWSANDBOX_API_KEY"]?.trim());
+  const templateId = trimEnv("CWSANDBOX_TEMPLATE_ID");
+  const templateSmoke = hasCredentials && templateId !== undefined ? { templateId } : undefined;
   const wandbSecretsSmoke = readWandbSecretsSmokeConfig();
   return {
-    hasCredentials: Boolean(process.env["CWSANDBOX_API_KEY"]?.trim()),
+    hasCredentials,
+    hasTemplateSmoke: templateSmoke !== undefined,
     hasWandbCredentials: hasWandbCredentials(),
     hasWandbSecretsSmoke: hasWandbCredentials() && wandbSecretsSmoke !== undefined,
+    templateSmoke,
     wandbSecretsSmoke,
   };
+}
+
+function trimEnv(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value === undefined || value === "" ? undefined : value;
 }
 
 function readWandbSecretsSmokeConfig(): SmokeConfig["wandbSecretsSmoke"] {

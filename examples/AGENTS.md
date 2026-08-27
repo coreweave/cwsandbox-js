@@ -38,6 +38,7 @@ SDK patterns; use `weave/` / `tanstack/` for integrations with extra dependencie
 | `sdk/interactive-streaming.ts`  | `async function main()` | log follow                     |
 | `sdk/wandb-integration.ts`      | `async function main()` | W&B gateway auth               |
 | `sdk/file-system-snapshots.ts`  | `async function main()` | scratch-mount snapshot/restore |
+| `sdk/run-from-template.ts`      | `async function main()` | `withSandboxFromTemplate`      |
 
 ## Running
 

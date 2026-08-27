@@ -27,9 +27,14 @@ import type {
   ScratchVolumeOptions,
   StartSandboxResult,
 } from "../../public/sandbox.js";
-import type { ExecRequest, StartSandboxRequest } from "../../transport/types.js";
+import type {
+  ExecRequest,
+  StartSandboxFromTemplateRequest,
+  StartSandboxRequest,
+} from "../../transport/types.js";
 import {
   Container,
+  CreateSandboxFromTemplateRequest,
   CreateSandboxRequest,
   DeleteSandboxRequest,
   EgressRule as ProtoEgressRule,
@@ -40,6 +45,8 @@ import {
   NetworkOptions as ProtoNetworkOptions,
   ObjectStorageAccess,
   ObjectStoragePermission,
+  PartialContainer,
+  PartialSandboxSpec,
   ResourceRequirements,
   Resources,
   Sandbox as ProtoSandbox,
@@ -105,6 +112,105 @@ export function toProtoCreateRequest(request: StartSandboxRequest): CreateSandbo
   });
 }
 
+export function toProtoCreateFromTemplateRequest(
+  request: StartSandboxFromTemplateRequest,
+): CreateSandboxFromTemplateRequest {
+  const overrides = PartialSandboxSpec.create();
+  let hasOverride = false;
+
+  if (request.annotations !== undefined && Object.keys(request.annotations).length > 0) {
+    overrides.annotations = { ...request.annotations };
+    hasOverride = true;
+  }
+
+  if (request.containerImage !== undefined) {
+    overrides.containers = [toProtoPartialContainer(request)];
+    hasOverride = true;
+    const volumes = toProtoVolumes(request);
+    if (volumes !== undefined) {
+      overrides.volumes = volumes;
+    }
+  }
+
+  if (request.maxLifetimeSeconds !== undefined && request.maxLifetimeSeconds !== 0) {
+    overrides.maxLifetimeSeconds = request.maxLifetimeSeconds;
+    hasOverride = true;
+  }
+
+  if (request.network !== undefined) {
+    overrides.network = toProtoNetwork(request.network) ?? ProtoNetworkOptions.create();
+    hasOverride = true;
+  }
+
+  if (request.runnerIds !== undefined && request.runnerIds.length > 0) {
+    overrides.mode = SandboxMode.CKS;
+    overrides.runnerIds = [...request.runnerIds];
+    hasOverride = true;
+  }
+
+  if (request.services !== undefined && request.services.length > 0) {
+    overrides.services = toProtoServices(request.services);
+    hasOverride = true;
+  }
+
+  if (request.tags !== undefined && request.tags.length > 0) {
+    overrides.tags = [...request.tags];
+    hasOverride = true;
+  }
+
+  return CreateSandboxFromTemplateRequest.create({
+    requestId: randomUUID(),
+    templateId: request.templateId,
+    ...(hasOverride ? { overrides } : {}),
+  });
+}
+
+function toProtoPartialContainer(
+  request: StartSandboxFromTemplateRequest,
+): ReturnType<typeof PartialContainer.create> {
+  const resourceRequirements = toProtoResourceRequirements(request.resources);
+  const volumeMounts = toProtoVolumeMounts(request);
+  const environmentVariables =
+    request.environmentVariables !== undefined &&
+    Object.keys(request.environmentVariables).length > 0
+      ? { ...request.environmentVariables }
+      : undefined;
+  const files =
+    request.mountedFiles === undefined
+      ? undefined
+      : normalizeMountedFiles(request.mountedFiles).map((file) => ({
+          content: normalizeFileContent(file.content),
+          path: file.path,
+        }));
+  const secretStores =
+    request.secrets === undefined
+      ? undefined
+      : groupSecretsByStore(normalizeSecrets(request.secrets)).map((group) => ({
+          secrets: group.secrets.map((secret) => ({
+            envVar: secret.envVar,
+            field: secret.field,
+            path: secret.name,
+          })),
+          storeName: group.store,
+        }));
+
+  return PartialContainer.create({
+    ...(request.command === undefined
+      ? {}
+      : {
+          command: commandName(request.command),
+          ...(request.command.length > 1 ? { args: commandArgs(request.command) } : {}),
+        }),
+    ...(environmentVariables === undefined ? {} : { environmentVariables }),
+    ...(files === undefined ? {} : { files }),
+    image: request.containerImage ?? "",
+    name: PRIMARY_CONTAINER,
+    ...(resourceRequirements === undefined ? {} : { resourceRequirements }),
+    ...(secretStores === undefined ? {} : { secretStores }),
+    ...(volumeMounts === undefined ? {} : { volumeMounts }),
+  });
+}
+
 function toProtoContainer(request: StartSandboxRequest): ReturnType<typeof Container.create> {
   const resourceRequirements = toProtoResourceRequirements(request.resources);
   const volumeMounts = toProtoVolumeMounts(request);
@@ -131,8 +237,13 @@ function toProtoContainer(request: StartSandboxRequest): ReturnType<typeof Conta
   });
 }
 
+type VolumeCreateFields = {
+  readonly fileSystemSnapshot?: StartSandboxRequest["fileSystemSnapshot"];
+  readonly volumes?: StartSandboxRequest["volumes"];
+};
+
 function scratchVolumesFromRequest(
-  request: StartSandboxRequest,
+  request: VolumeCreateFields,
 ): readonly ScratchVolumeOptions[] | undefined {
   if (request.volumes !== undefined) {
     return request.volumes;
@@ -169,7 +280,7 @@ function toProtoScratchSource(
 }
 
 function toProtoVolumes(
-  request: StartSandboxRequest,
+  request: VolumeCreateFields,
 ): ReturnType<typeof SandboxVolume.create>[] | undefined {
   const volumes = scratchVolumesFromRequest(request);
   if (volumes === undefined) {
@@ -188,7 +299,7 @@ function toProtoVolumes(
 }
 
 function toProtoVolumeMounts(
-  request: StartSandboxRequest,
+  request: VolumeCreateFields,
 ): ReturnType<typeof VolumeMount.create>[] | undefined {
   const volumes = scratchVolumesFromRequest(request);
   if (volumes === undefined) {

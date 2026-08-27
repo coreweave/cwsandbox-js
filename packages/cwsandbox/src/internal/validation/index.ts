@@ -11,10 +11,12 @@ import type {
   DeleteSnapshotOptions,
   ListSandboxesOptions,
   ListSnapshotsOptions,
+  SandboxRunFromTemplateOptions,
   SandboxRunOptions,
   StopOptions,
   WaitOptions,
 } from "../../public/sandbox.js";
+import { normalizeCommand } from "../commands.js";
 import { validateMountedFiles } from "../mounted-files.js";
 import { validateNetworkOptions } from "../network.js";
 import { validateResources } from "../resources.js";
@@ -70,6 +72,55 @@ export function validateSandboxRunOptions(options: SandboxRunOptions): void {
   validateMountedFiles(options.mountedFiles);
   validateSandboxVolumeCreateOptions(options);
   validateObjectStorageAccess(options.objectStorageAccess);
+  validateNetworkOptions(options.services, options.network);
+  validateResources(options.resources);
+  validateSecrets(options.secrets, options.environmentVariables);
+  validateUniqueStringList(options.runnerIds, "runnerIds");
+  validateTags(options.tags);
+  validateOptionalBoolean(options.waitUntilRunning, "waitUntilRunning");
+}
+
+const CONTAINER_OVERRIDE_FIELDS = [
+  "command",
+  "environmentVariables",
+  "fileSystemSnapshot",
+  "mountedFiles",
+  "resources",
+  "secrets",
+  "volumes",
+] as const;
+
+const CONTAINER_IMAGE_REQUIRED_MESSAGE =
+  "containerImage is required when overriding template container fields because container overrides replace the entire container list.";
+
+export function validateSandboxRunFromTemplateOptions(
+  templateId: string,
+  options: SandboxRunFromTemplateOptions,
+): void {
+  if (typeof templateId !== "string" || templateId.trim() === "") {
+    throw new CWSandboxValidationError("templateId must not be empty.");
+  }
+  rejectUnsupportedTemplateKeys(options);
+  if (options.network !== undefined) {
+    rejectRemovedKeys(options.network, ["egressMode", "exposedPorts", "ingressMode"]);
+  }
+  validateRequestOptions(options);
+  if (options.containerImage === undefined) {
+    for (const field of CONTAINER_OVERRIDE_FIELDS) {
+      if (isContainerOverride(options, field)) {
+        throw new CWSandboxValidationError(CONTAINER_IMAGE_REQUIRED_MESSAGE);
+      }
+    }
+  } else if (typeof options.containerImage !== "string" || options.containerImage.trim() === "") {
+    throw new CWSandboxValidationError("containerImage must not be empty.");
+  }
+  if (options.command !== undefined) {
+    normalizeCommand(options.command);
+  }
+  validateAnnotations(options.annotations);
+  validateNonNegativeFinite(options.maxLifetimeSeconds, "maxLifetimeSeconds");
+  validateMountedFiles(options.mountedFiles);
+  validateSandboxVolumeCreateOptions(options);
   validateNetworkOptions(options.services, options.network);
   validateResources(options.resources);
   validateSecrets(options.secrets, options.environmentVariables);
@@ -158,6 +209,37 @@ function rejectRemovedKeys(source: object, keys: readonly string[]): void {
     if (record[key] !== undefined) {
       throw new CWSandboxValidationError(`${key} is not supported in v1`);
     }
+  }
+}
+
+function isContainerOverride(
+  options: SandboxRunFromTemplateOptions,
+  field: (typeof CONTAINER_OVERRIDE_FIELDS)[number],
+): boolean {
+  const value = options[field];
+  if (value === undefined) {
+    return false;
+  }
+  if (field === "environmentVariables") {
+    if (value === null || typeof value !== "object") {
+      throw new CWSandboxValidationError("environmentVariables must be an object of string values");
+    }
+    return Object.keys(value).length > 0;
+  }
+  return true;
+}
+
+function rejectUnsupportedTemplateKeys(options: object): void {
+  const record = options as Record<string, unknown>;
+  if (record["imagePullCredentials"] !== undefined) {
+    throw new CWSandboxValidationError(
+      "imagePullCredentials is not supported with template sandboxes.",
+    );
+  }
+  if (record["objectStorageAccess"] !== undefined) {
+    throw new CWSandboxValidationError(
+      "objectStorageAccess is not supported with template sandboxes.",
+    );
   }
 }
 

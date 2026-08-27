@@ -166,6 +166,99 @@ export interface SandboxRunOptions extends RequestOptions {
   readonly waitUntilRunning?: boolean;
 }
 
+/**
+ * Overlays for `runFromTemplate`. Omitted options preserve template values
+ * unless `containerImage` is supplied.
+ *
+ * Replacement is per field, not a merge. Empty top-level maps/lists mean
+ * inherit, not clear, except `network: {}`, which replaces the template
+ * network. See each property.
+ */
+export interface SandboxRunFromTemplateOptions extends RequestOptions {
+  /**
+   * Non-empty input replaces the complete template map; it does not merge
+   * keys. Empty `{}` means inherit, not clear.
+   */
+  readonly annotations?: SandboxAnnotations;
+  /**
+   * Replaces the complete template container list with one `main` container.
+   * All omitted container settings are cleared, including
+   * `imagePullCredentials`. A template using private-image credentials works
+   * only while its container is inherited unchanged. Replacement credentials
+   * are not supported.
+   */
+  readonly containerImage?: string;
+  /**
+   * Requires `containerImage`. When omitted, the corresponding template
+   * setting is not inherited.
+   */
+  readonly command?: CommandInput;
+  /**
+   * A non-empty map becomes the replacement environment. Omitted or empty
+   * produces an empty replacement environment when `containerImage` is set.
+   * Empty `{}` without `containerImage` means inherit.
+   */
+  readonly environmentVariables?: EnvironmentVariables;
+  /**
+   * Requires `containerImage`. Supplying this replaces spec volumes and the
+   * replacement container's mounts. Omitting it with `containerImage` keeps
+   * template volumes and drops mounts on the new container.
+   */
+  readonly fileSystemSnapshot?: FileSystemSnapshotOptions;
+  /**
+   * Requires `containerImage`. Supplying this replaces spec volumes and the
+   * replacement container's mounts. Omitting it with `containerImage` keeps
+   * template volumes and drops mounts on the new container.
+   */
+  readonly volumes?: readonly ScratchVolumeOptions[];
+  /**
+   * Non-zero replaces the template scalar. `0` means inherit, not clear.
+   */
+  readonly maxLifetimeSeconds?: Seconds;
+  /**
+   * Requires `containerImage`. When omitted, the corresponding template
+   * setting is not inherited.
+   */
+  readonly mountedFiles?: MountedFiles;
+  /**
+   * Any defined `network`, including `{}`, replaces the complete template
+   * network. Omitted members are not inherited.
+   */
+  readonly network?: NetworkOptions;
+  /**
+   * Requires `containerImage`. When omitted, the corresponding template
+   * setting is not inherited.
+   */
+  readonly resources?: ResourceOptions;
+  /**
+   * Non-empty input replaces the complete list. Empty `[]` means inherit,
+   * not clear. Co-emits CKS mode on the wire.
+   */
+  readonly runnerIds?: readonly string[];
+  /**
+   * Non-empty input replaces the complete list. Empty `[]` means inherit,
+   * not clear.
+   */
+  readonly services?: readonly Service[];
+  /**
+   * Requires `containerImage`. When omitted, the corresponding template
+   * setting is not inherited.
+   */
+  readonly secrets?: Secrets;
+  /**
+   * Non-empty input replaces the complete list. Empty `[]` means inherit,
+   * not clear.
+   */
+  readonly tags?: readonly SandboxTag[];
+  /**
+   * Wait for the sandbox to reach `running` before resolving creation helpers.
+   *
+   * Defaults to `true`. Set to `false` only when you need a handle as soon as
+   * the backend accepts the start request.
+   */
+  readonly waitUntilRunning?: boolean;
+}
+
 export interface StopOptions extends RequestOptions {
   /**
    * Seconds to wait for a graceful shutdown. Defaults to 10. Pass `0` to kill

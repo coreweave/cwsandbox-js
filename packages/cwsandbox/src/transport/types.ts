@@ -8,14 +8,23 @@ import type {
   ShellOptions,
   StartCommandOptions,
 } from "../public/commands.js";
-import type { RequestOptions } from "../public/common.js";
+import type { RequestOptions, Seconds } from "../public/common.js";
+import type { MountedFiles } from "../public/files.js";
 import type { LogStreamMode, LogStreamOptions } from "../public/logs.js";
+import type { NetworkOptions, Service } from "../public/network.js";
+import type { ResourceOptions } from "../public/resources.js";
 import type {
+  EnvironmentVariables,
+  FileSystemSnapshotOptions,
   FileSystemSnapshotResult,
+  SandboxAnnotations,
   SandboxId,
   SandboxRunOptions,
+  SandboxTag,
+  ScratchVolumeOptions,
   StopOptions,
 } from "../public/sandbox.js";
+import type { Secrets } from "../public/secrets.js";
 
 export interface ListFileSystemSnapshotsRequest extends RequestOptions {
   readonly pageToken?: string;
@@ -28,6 +37,24 @@ export interface ListFileSystemSnapshotsResult {
 
 export interface StartSandboxRequest extends Omit<SandboxRunOptions, "waitUntilRunning"> {
   readonly command: Command;
+}
+
+export interface StartSandboxFromTemplateRequest extends RequestOptions {
+  readonly templateId: string;
+  readonly annotations?: SandboxAnnotations;
+  readonly containerImage?: string;
+  readonly command?: Command;
+  readonly environmentVariables?: EnvironmentVariables;
+  readonly fileSystemSnapshot?: FileSystemSnapshotOptions;
+  readonly mountedFiles?: MountedFiles;
+  readonly maxLifetimeSeconds?: Seconds;
+  readonly network?: NetworkOptions;
+  readonly resources?: ResourceOptions;
+  readonly runnerIds?: readonly string[];
+  readonly services?: readonly Service[];
+  readonly secrets?: Secrets;
+  readonly tags?: readonly SandboxTag[];
+  readonly volumes?: readonly ScratchVolumeOptions[];
 }
 
 export interface GetSandboxRequest extends RequestOptions {

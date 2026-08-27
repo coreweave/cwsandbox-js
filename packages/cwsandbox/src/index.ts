@@ -143,6 +143,7 @@ export type {
   SandboxMetadata,
   SandboxObjectStorageAccess,
   SandboxResourceSpec,
+  SandboxRunFromTemplateOptions,
   SandboxRunOptions,
   SandboxStatus,
   SandboxTag,

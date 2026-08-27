@@ -11,6 +11,7 @@ import {
   validateDeleteSnapshotOptions,
   validateListSandboxesOptions,
   validateRequestOptions,
+  validateSandboxRunFromTemplateOptions,
   validateSandboxRunOptions,
 } from "./internal/validation/index.js";
 import type { SandboxClient as SandboxClientInterface } from "./public/client.js";
@@ -29,6 +30,7 @@ import type {
   SandboxId,
   SandboxInfo,
   SandboxListOptions,
+  SandboxRunFromTemplateOptions,
   SandboxRunOptions,
 } from "./public/sandbox.js";
 import { SandboxList } from "./runtime/sandbox-list.js";
@@ -64,6 +66,46 @@ export class SandboxClient implements SandboxClientInterface {
     validateSandboxRunOptions(options);
     const { waitUntilRunning, ...startOptions } = options;
     const result = await transport.start({ ...startOptions, command: normalizedCommand });
+    const scratchVolumeNames = scratchVolumeNamesFromRunOptions(options);
+
+    const sandbox = new SandboxImpl({
+      fileAdapter,
+      metadata: result,
+      sandboxId: result.sandboxId,
+      transport,
+      ...(scratchVolumeNames === undefined ? {} : { scratchVolumeNames }),
+    });
+
+    if (waitUntilRunning !== false) {
+      await sandbox.wait({
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+        ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+      });
+    }
+
+    return sandbox;
+  }
+
+  /**
+   * Starts from an organization template. Omitted options preserve template
+   * values unless `containerImage` is supplied.
+   *
+   * @param templateId Non-empty organization-scoped UUID. Format validation is
+   *   performed by the backend.
+   */
+  public async runFromTemplate(
+    templateId: string,
+    options: SandboxRunFromTemplateOptions = {},
+  ): Promise<PublicSandbox> {
+    const transport = this.transport;
+    const fileAdapter = this.fileAdapter;
+    validateSandboxRunFromTemplateOptions(templateId, options);
+    const { command, waitUntilRunning, ...startOptions } = options;
+    const result = await transport.startFromTemplate({
+      ...startOptions,
+      templateId,
+      ...(command === undefined ? {} : { command: normalizeCommand(command) }),
+    });
     const scratchVolumeNames = scratchVolumeNamesFromRunOptions(options);
 
     const sandbox = new SandboxImpl({
@@ -191,6 +233,29 @@ export class SandboxClient implements SandboxClientInterface {
       typeof commandOrCallback === "function"
         ? commandOrCallback
         : (callbackOrOptions as WithSandboxCallback<TResult>);
+    return this.disposeAfterCallback(sandbox, callback);
+  }
+
+  /**
+   * Starts from an organization template and always stops the sandbox after the
+   * callback returns or throws.
+   *
+   * @param templateId Non-empty organization-scoped UUID. Format validation is
+   *   performed by the backend.
+   */
+  public async withSandboxFromTemplate<TResult>(
+    templateId: string,
+    callback: WithSandboxCallback<TResult>,
+    options: SandboxRunFromTemplateOptions = {},
+  ): Promise<TResult> {
+    const sandbox = await this.runFromTemplate(templateId, options);
+    return this.disposeAfterCallback(sandbox, callback);
+  }
+
+  private async disposeAfterCallback<TResult>(
+    sandbox: PublicSandbox,
+    callback: WithSandboxCallback<TResult>,
+  ): Promise<TResult> {
     let callbackResult:
       | { readonly ok: true; readonly value: TResult }
       | { readonly error: unknown; readonly ok: false };
