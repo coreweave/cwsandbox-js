@@ -15,8 +15,10 @@ SPDX-PackageName: cwsandbox
   `network`, including `{}`, replaces the template network. `containerImage`
   replaces the whole container list (omitted container fields, including
   `imagePullCredentials`, are not inherited). Template overlays do not accept
-  `objectStorageAccess`. Live smoke is reduced: set `CWSANDBOX_TEMPLATE_ID` to
-  a pre-created org template; the suite does not mint or delete that template.
+  `objectStorageAccess`. A rejected readiness wait after accept best-effort
+  `stop`s the sandbox and rethrows the original error. Live smoke is reduced:
+  set `CWSANDBOX_TEMPLATE_ID` to a pre-created org template; the suite does
+  not mint or delete that template.
 - Add `network.egress` create-time DNS-name HTTPS grants (`{ dnsName }`) and
   echo granted names as `dnsEgressNames` from status. Exact names or a single
   leftmost wildcard; `"*"` is not a sandbox grant and cannot combine with

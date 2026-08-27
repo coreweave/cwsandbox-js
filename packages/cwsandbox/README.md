@@ -834,10 +834,24 @@ container list (omitted container settings, including private-image credentials,
 are not inherited). Field-level replacement details live on
 `SandboxRunFromTemplateOptions`.
 
+A resolved `runFromTemplate` call transfers ownership. A rejected call,
+including a failed default readiness wait, retains cleanup and best-effort
+`stop`s the accepted sandbox. `waitUntilRunning: false` returns immediately
+after accept with no automatic cleanup. `create` / `run` do not yet follow this
+rejected-call cleanup invariant.
+
+`placementMode` is not available; CKS placement is only via non-empty
+`runnerIds`. `ResourceOptions` is CPU and memory only (no GPU). `secrets: []`
+requires `containerImage`. `volumes: []` is rejected. `snapshot()` with multiple
+inherited scratches is a backend error; one inherited scratch can infer the
+volume.
+
 Prefer `withSandboxFromTemplate` for short-lived work. Use `await using` with
 `runFromTemplate` for a direct handle with scoped cleanup:
 
 ```ts
+import { DEFAULT_KEEP_ALIVE_COMMAND } from "@coreweave/cwsandbox/node";
+
 const inherited = await client.withSandboxFromTemplate(
   "template-id",
   async (sandbox) => sandbox.sandboxId,
@@ -846,9 +860,10 @@ const inherited = await client.withSandboxFromTemplate(
 
 await using replaced = await client.runFromTemplate("template-id", {
   containerImage: "python:3.11",
-  command: ["/bin/sh", "-c", "echo ready"],
+  command: DEFAULT_KEEP_ALIVE_COMMAND,
   tags: ["example"],
 });
+await replaced.inspect();
 console.log(inherited, replaced.sandboxId);
 ```
 

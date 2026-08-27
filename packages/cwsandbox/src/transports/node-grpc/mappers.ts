@@ -125,6 +125,7 @@ export function toProtoCreateFromTemplateRequest(
 
   if (request.containerImage !== undefined) {
     overrides.containers = [toProtoPartialContainer(request)];
+    overrides.primaryContainer = PRIMARY_CONTAINER;
     hasOverride = true;
     const volumes = toProtoVolumes(request);
     if (volumes !== undefined) {

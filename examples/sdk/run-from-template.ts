@@ -12,7 +12,7 @@
  * Requires CWSANDBOX_TEMPLATE_ID or a template id as argv[2].
  */
 
-import { createSandboxClientFromEnv } from "@coreweave/cwsandbox/node";
+import { createSandboxClientFromEnv, DEFAULT_KEEP_ALIVE_COMMAND } from "@coreweave/cwsandbox/node";
 
 async function main(): Promise<void> {
   const templateId = process.env["CWSANDBOX_TEMPLATE_ID"]?.trim() || process.argv[2]?.trim();
@@ -30,10 +30,11 @@ async function main(): Promise<void> {
   console.log(`Inherited sandbox: ${inherited}`);
 
   await using replaced = await client.runFromTemplate(templateId, {
-    command: ["/bin/sh", "-c", "echo ready"],
+    command: DEFAULT_KEEP_ALIVE_COMMAND,
     containerImage: "python:3.11",
     tags: ["example", "example-run-from-template"],
   });
+  await replaced.inspect();
   console.log(`Replaced sandbox: ${replaced.sandboxId}`);
 }
 

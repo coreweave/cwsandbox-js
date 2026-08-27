@@ -39,6 +39,9 @@ import { Sandbox as SandboxImpl } from "./sandbox.js";
 import type { SandboxTransport } from "./transport.js";
 import type { FileAdapter } from "./transport/file-adapter.js";
 
+/** Wall-clock budget for best-effort stop after a failed readiness wait. */
+const READINESS_CLEANUP_TIMEOUT_MS = 30_000;
+
 export interface SandboxClientOptions {
   readonly fileAdapter: FileAdapter;
   readonly transport: SandboxTransport;
@@ -90,6 +93,12 @@ export class SandboxClient implements SandboxClientInterface {
    * Starts from an organization template. Omitted options preserve template
    * values unless `containerImage` is supplied.
    *
+   * A resolved call transfers ownership of the sandbox. A rejected call retains
+   * cleanup: if the default readiness wait fails after accept, the client
+   * best-effort `stop`s the sandbox (without the caller's abort signal) and
+   * rethrows the original readiness error. `waitUntilRunning: false` returns
+   * immediately after accept with no automatic cleanup.
+   *
    * @param templateId Non-empty organization-scoped UUID. Format validation is
    *   performed by the backend.
    */
@@ -117,10 +126,12 @@ export class SandboxClient implements SandboxClientInterface {
     });
 
     if (waitUntilRunning !== false) {
-      await sandbox.wait({
-        ...(options.signal === undefined ? {} : { signal: options.signal }),
-        ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
-      });
+      try {
+        await sandbox.wait(waitRequestOptions(options));
+      } catch (error) {
+        await this.stopAfterFailedReadiness(sandbox);
+        throw error;
+      }
     }
 
     return sandbox;
@@ -238,7 +249,13 @@ export class SandboxClient implements SandboxClientInterface {
 
   /**
    * Starts from an organization template and always stops the sandbox after the
-   * callback returns or throws.
+   * callback returns or throws. A callback error is rethrown; a cleanup failure
+   * after a successful callback is thrown; a cleanup failure after a callback
+   * or readiness error does not replace that error.
+   *
+   * Accepts the sandbox with `waitUntilRunning: false`, then waits (unless the
+   * caller disabled it) before the callback so a readiness failure still
+   * `stop`s and the callback is not run.
    *
    * @param templateId Non-empty organization-scoped UUID. Format validation is
    *   performed by the backend.
@@ -248,8 +265,16 @@ export class SandboxClient implements SandboxClientInterface {
     callback: WithSandboxCallback<TResult>,
     options: SandboxRunFromTemplateOptions = {},
   ): Promise<TResult> {
-    const sandbox = await this.runFromTemplate(templateId, options);
-    return this.disposeAfterCallback(sandbox, callback);
+    const sandbox = await this.runFromTemplate(templateId, {
+      ...options,
+      waitUntilRunning: false,
+    });
+    return this.disposeAfterCallback(sandbox, async (handle) => {
+      if (options.waitUntilRunning !== false) {
+        await handle.wait(waitRequestOptions(options));
+      }
+      return callback(handle);
+    });
   }
 
   private async disposeAfterCallback<TResult>(
@@ -283,4 +308,25 @@ export class SandboxClient implements SandboxClientInterface {
 
     return callbackResult.value;
   }
+
+  private async stopAfterFailedReadiness(sandbox: PublicSandbox): Promise<void> {
+    try {
+      await sandbox.stop({
+        missingOk: true,
+        timeoutMs: READINESS_CLEANUP_TIMEOUT_MS,
+      });
+    } catch {
+      // Keep the original readiness error; do not wrap or replace it.
+    }
+  }
+}
+
+function waitRequestOptions(options: SandboxRunFromTemplateOptions): {
+  readonly signal?: AbortSignal;
+  readonly timeoutMs?: number;
+} {
+  return {
+    ...(options.signal === undefined ? {} : { signal: options.signal }),
+    ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+  };
 }

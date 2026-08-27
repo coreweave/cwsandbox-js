@@ -189,8 +189,8 @@ export interface SandboxRunFromTemplateOptions extends RequestOptions {
    */
   readonly containerImage?: string;
   /**
-   * Requires `containerImage`. When omitted, the corresponding template
-   * setting is not inherited.
+   * Requires `containerImage`. When replacing the container, omitted values
+   * are not inherited from the template.
    */
   readonly command?: CommandInput;
   /**
@@ -200,15 +200,19 @@ export interface SandboxRunFromTemplateOptions extends RequestOptions {
    */
   readonly environmentVariables?: EnvironmentVariables;
   /**
-   * Requires `containerImage`. Supplying this replaces spec volumes and the
-   * replacement container's mounts. Omitting it with `containerImage` keeps
-   * template volumes and drops mounts on the new container.
+   * Requires `containerImage`. When replacing the container, supplying this
+   * replaces spec volumes and the replacement container's mounts. Omitting it
+   * keeps template volumes and drops mounts on the new container. Inherited
+   * registered volumes that lose their mounts are rejected by Gateway;
+   * inherited scratch volumes can remain unmounted.
    */
   readonly fileSystemSnapshot?: FileSystemSnapshotOptions;
   /**
-   * Requires `containerImage`. Supplying this replaces spec volumes and the
-   * replacement container's mounts. Omitting it with `containerImage` keeps
-   * template volumes and drops mounts on the new container.
+   * Requires `containerImage`. When replacing the container, supplying this
+   * replaces spec volumes and the replacement container's mounts. Omitting it
+   * keeps template volumes and drops mounts on the new container. Inherited
+   * registered volumes that lose their mounts are rejected by Gateway;
+   * inherited scratch volumes can remain unmounted. `volumes: []` is rejected.
    */
   readonly volumes?: readonly ScratchVolumeOptions[];
   /**
@@ -216,8 +220,8 @@ export interface SandboxRunFromTemplateOptions extends RequestOptions {
    */
   readonly maxLifetimeSeconds?: Seconds;
   /**
-   * Requires `containerImage`. When omitted, the corresponding template
-   * setting is not inherited.
+   * Requires `containerImage`. When replacing the container, omitted values
+   * are not inherited from the template.
    */
   readonly mountedFiles?: MountedFiles;
   /**
@@ -226,13 +230,15 @@ export interface SandboxRunFromTemplateOptions extends RequestOptions {
    */
   readonly network?: NetworkOptions;
   /**
-   * Requires `containerImage`. When omitted, the corresponding template
-   * setting is not inherited.
+   * Requires `containerImage`. When replacing the container, omitted values
+   * are not inherited from the template. CPU and memory only; GPU is not
+   * supported on `ResourceOptions`.
    */
   readonly resources?: ResourceOptions;
   /**
    * Non-empty input replaces the complete list. Empty `[]` means inherit,
-   * not clear. Co-emits CKS mode on the wire.
+   * not clear. Co-emits CKS mode on the wire. There is no `placementMode`
+   * option; CKS placement is only via non-empty `runnerIds`.
    */
   readonly runnerIds?: readonly string[];
   /**
@@ -241,8 +247,9 @@ export interface SandboxRunFromTemplateOptions extends RequestOptions {
    */
   readonly services?: readonly Service[];
   /**
-   * Requires `containerImage`. When omitted, the corresponding template
-   * setting is not inherited.
+   * Requires `containerImage`. When replacing the container, omitted values
+   * are not inherited from the template. `secrets: []` still requires
+   * `containerImage`.
    */
   readonly secrets?: Secrets;
   /**
@@ -368,6 +375,10 @@ export interface Sandbox {
    * (plus 5s internal observation slack). Snapshots outlive sandbox stop/delete;
    * call `client.deleteSnapshot` to remove them. Inspect without waiting with
    * `client.getSnapshot` / `client.listSnapshots`.
+   *
+   * One inherited scratch (for example after `runFromTemplate` with no volume
+   * overlay) can infer the volume. Multiple inherited scratches are a backend
+   * error.
    */
   snapshot(options?: RequestOptions): Promise<FileSystemSnapshotResult>;
   stop(options?: StopOptions): Promise<void>;

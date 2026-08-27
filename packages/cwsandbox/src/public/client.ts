@@ -60,6 +60,12 @@ export interface SandboxClient {
    * with one `main` container. Omitted or empty container fields result in
    * empty/default values rather than inheritance.
    *
+   * A resolved call transfers ownership of the sandbox. A rejected call retains
+   * cleanup: if the default readiness wait fails after accept, the client
+   * best-effort `stop`s the sandbox and rethrows the original readiness error.
+   * `waitUntilRunning: false` returns immediately after accept with no
+   * automatic cleanup.
+   *
    * @param templateId Non-empty organization-scoped UUID. Format validation is
    *   performed by the backend.
    */
@@ -68,9 +74,11 @@ export interface SandboxClient {
    * Starts from an organization template and always stops the sandbox after the
    * callback returns or throws. A callback error is rethrown; a cleanup failure
    * after a successful callback is thrown; a cleanup failure after a callback
-   * error does not replace the callback error.
+   * or readiness error does not replace that error.
    *
-   * Overlay semantics match `runFromTemplate`.
+   * Overlay semantics match `runFromTemplate`. The helper accepts the sandbox
+   * first, then waits (unless `waitUntilRunning: false`) before the callback so
+   * a readiness failure still `stop`s and the callback is not run.
    *
    * @param templateId Non-empty organization-scoped UUID. Format validation is
    *   performed by the backend.

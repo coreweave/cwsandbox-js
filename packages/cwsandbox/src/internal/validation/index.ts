@@ -55,14 +55,16 @@ function validateCommandOptions(options: ExecOptions | StartCommandOptions): voi
   }
 }
 
+const REMOVED_CREATE_KEYS = [
+  "maxTimeoutSeconds",
+  "ports",
+  "profileIds",
+  "profileNames",
+  "s3Mount",
+] as const;
+
 export function validateSandboxRunOptions(options: SandboxRunOptions): void {
-  rejectRemovedKeys(options, [
-    "maxTimeoutSeconds",
-    "ports",
-    "profileIds",
-    "profileNames",
-    "s3Mount",
-  ]);
+  rejectRemovedKeys(options, REMOVED_CREATE_KEYS);
   if (options.network !== undefined) {
     rejectRemovedKeys(options.network, ["egressMode", "exposedPorts", "ingressMode"]);
   }
@@ -100,7 +102,12 @@ export function validateSandboxRunFromTemplateOptions(
   if (typeof templateId !== "string" || templateId.trim() === "") {
     throw new CWSandboxValidationError("templateId must not be empty.");
   }
+  if (options === null || typeof options !== "object" || Array.isArray(options)) {
+    throw new CWSandboxValidationError("options must be an object");
+  }
   rejectUnsupportedTemplateKeys(options);
+  rejectRemovedKeys(options, REMOVED_CREATE_KEYS);
+  validateTemplateOptionShapes(options);
   if (options.network !== undefined) {
     rejectRemovedKeys(options.network, ["egressMode", "exposedPorts", "ingressMode"]);
   }
@@ -221,12 +228,126 @@ function isContainerOverride(
     return false;
   }
   if (field === "environmentVariables") {
-    if (value === null || typeof value !== "object") {
-      throw new CWSandboxValidationError("environmentVariables must be an object of string values");
-    }
     return Object.keys(value).length > 0;
   }
   return true;
+}
+
+function validateTemplateOptionShapes(options: SandboxRunFromTemplateOptions): void {
+  requirePlainRecordIfPresent(options.annotations, "annotations");
+  requirePlainRecordIfPresent(options.environmentVariables, "environmentVariables");
+  requirePlainRecordIfPresent(options.fileSystemSnapshot, "fileSystemSnapshot");
+  requirePlainRecordIfPresent(options.network, "network");
+  requirePlainRecordIfPresent(options.resources, "resources");
+  requireArrayIfPresent(options.command, "command");
+  requireArrayIfPresent(options.runnerIds, "runnerIds");
+  requireArrayIfPresent(options.secrets, "secrets");
+  requireArrayIfPresent(options.services, "services");
+  requireArrayIfPresent(options.tags, "tags");
+  requireArrayIfPresent(options.volumes, "volumes");
+
+  if (options.command !== undefined) {
+    if (
+      options.command.length === 0 ||
+      !options.command.every((item) => typeof item === "string")
+    ) {
+      throw new CWSandboxValidationError("command must be a non-empty array of strings");
+    }
+  }
+
+  if (options.environmentVariables !== undefined) {
+    for (const [key, value] of Object.entries(options.environmentVariables)) {
+      if (typeof value !== "string") {
+        throw new CWSandboxValidationError(`environmentVariables["${key}"] must be a string`);
+      }
+    }
+  }
+
+  if (options.resources !== undefined) {
+    const resources = options.resources as Record<string, unknown>;
+    if (resources["requests"] !== undefined) {
+      requirePlainRecord(resources["requests"], "resources.requests");
+    }
+    if (resources["limits"] !== undefined) {
+      requirePlainRecord(resources["limits"], "resources.limits");
+    }
+  }
+
+  validateMountedFilesShape(options.mountedFiles);
+  requireArrayOfRecordsIfPresent(options.secrets, "secrets");
+  requireArrayOfRecordsIfPresent(options.services, "services");
+  requireArrayOfRecordsIfPresent(options.volumes, "volumes");
+}
+
+function validateMountedFilesShape(mountedFiles: unknown): void {
+  if (mountedFiles === undefined) {
+    return;
+  }
+
+  if (Array.isArray(mountedFiles)) {
+    for (const [index, entry] of mountedFiles.entries()) {
+      if (!isPlainRecord(entry)) {
+        throw new CWSandboxValidationError(`mountedFiles[${index}] must be an object`);
+      }
+      if (
+        entry["content"] !== undefined &&
+        typeof entry["content"] !== "string" &&
+        !(entry["content"] instanceof Uint8Array)
+      ) {
+        throw new CWSandboxValidationError(
+          `mountedFiles[${index}].content must be a string or Uint8Array`,
+        );
+      }
+    }
+    return;
+  }
+
+  if (!isPlainRecord(mountedFiles)) {
+    throw new CWSandboxValidationError("mountedFiles must be an object or an array");
+  }
+
+  for (const [path, content] of Object.entries(mountedFiles)) {
+    if (typeof content !== "string" && !(content instanceof Uint8Array)) {
+      throw new CWSandboxValidationError(`mountedFiles["${path}"] must be a string or Uint8Array`);
+    }
+  }
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function requirePlainRecord(
+  value: unknown,
+  name: string,
+): asserts value is Record<string, unknown> {
+  if (!isPlainRecord(value)) {
+    throw new CWSandboxValidationError(`${name} must be an object`);
+  }
+}
+
+function requirePlainRecordIfPresent(value: unknown, name: string): void {
+  if (value !== undefined) {
+    requirePlainRecord(value, name);
+  }
+}
+
+function requireArrayIfPresent(value: unknown, name: string): void {
+  if (value !== undefined && !Array.isArray(value)) {
+    throw new CWSandboxValidationError(`${name} must be an array`);
+  }
+}
+
+function requireArrayOfRecordsIfPresent(value: unknown, name: string): void {
+  if (value === undefined) {
+    return;
+  }
+  requireArrayIfPresent(value, name);
+  for (const [index, entry] of (value as readonly unknown[]).entries()) {
+    if (!isPlainRecord(entry)) {
+      throw new CWSandboxValidationError(`${name}[${index}] must be an object`);
+    }
+  }
 }
 
 function rejectUnsupportedTemplateKeys(options: object): void {

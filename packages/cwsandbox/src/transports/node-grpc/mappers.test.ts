@@ -711,7 +711,9 @@ describe("node transport mappers", () => {
         secretStores: [],
       });
       expect(container).not.toHaveProperty("imagePullCredentials");
-      expect(overrideFieldNumbers(request)).toContain(1);
+      expect(request.overrides?.primaryContainer).toBe("main");
+      expect(overrideFieldNumbers(request)).toEqual(expect.arrayContaining([1, 2]));
+      expect(overrideFieldNumbers(request)).not.toContain(3);
       expect(
         PartialSandboxSpec.toBinary(request.overrides ?? PartialSandboxSpec.create()).length,
       ).toBeGreaterThan(0);
