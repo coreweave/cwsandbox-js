@@ -8,6 +8,8 @@ SPDX-PackageName: cwsandbox
 
 ## Unreleased
 
+## 0.4.0-beta.0
+
 - Add `client.runFromTemplate(templateId, options?)` and
   `client.withSandboxFromTemplate(templateId, callback, options?)` to start
   sandboxes from an organization template. Omitted overlays inherit. Empty
