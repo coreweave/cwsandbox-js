@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { MAX_LIST_ALL_PAGES } from "./defaults.js";
 import {
+  CWSandboxFailedError,
   CWSandboxNotFoundError,
   CWSandboxTimeoutError,
   CWSandboxTransportError,
@@ -1294,11 +1295,17 @@ describe("SandboxClient", () => {
 
     it("stops the accepted sandbox when readiness wait fails and stop succeeds", async () => {
       let stopCalls = 0;
-      const base = createFakeTransport(["creating"]);
+      const getStatuses: string[] = [];
+      const base = createFakeTransport(["failed", "running"]);
       const transport: SandboxTransport = {
         ...base,
         async startFromTemplate() {
           return { sandboxId: "sandbox-from-template", status: "creating" };
+        },
+        async get(request) {
+          const result = await base.get(request);
+          getStatuses.push(result.status);
+          return result;
         },
         async stop(request) {
           stopCalls += 1;
@@ -1306,23 +1313,28 @@ describe("SandboxClient", () => {
         },
       };
 
-      let thrown: unknown;
-      try {
-        await createClient(transport).runFromTemplate(templateId, { timeoutMs: 1 });
-      } catch (error) {
-        thrown = error;
-      }
-
-      expect(thrown).toBeInstanceOf(CWSandboxTimeoutError);
+      await expect(createClient(transport).runFromTemplate(templateId)).rejects.toBeInstanceOf(
+        CWSandboxFailedError,
+      );
       expect(stopCalls).toBe(1);
+      expect(getStatuses).toEqual(["failed", "running", "terminated"]);
     });
 
     it("rethrows the readiness error when cleanup stop also fails", async () => {
+      const readinessError = new Error("readiness failed");
       const stopError = new Error("stop failed");
+      let getCalls = 0;
       const transport: SandboxTransport = {
-        ...createFakeTransport(["creating"]),
+        ...createFakeTransport(["running"]),
         async startFromTemplate() {
           return { sandboxId: "sandbox-from-template", status: "creating" };
+        },
+        async get() {
+          getCalls += 1;
+          if (getCalls === 1) {
+            throw readinessError;
+          }
+          return { sandboxId: "sandbox-from-template", status: "running" };
         },
         async stop() {
           throw stopError;
@@ -1331,12 +1343,12 @@ describe("SandboxClient", () => {
 
       let thrown: unknown;
       try {
-        await createClient(transport).runFromTemplate(templateId, { timeoutMs: 1 });
+        await createClient(transport).runFromTemplate(templateId);
       } catch (error) {
         thrown = error;
       }
 
-      expect(thrown).toBeInstanceOf(CWSandboxTimeoutError);
+      expect(thrown).toBe(readinessError);
       expect(thrown).not.toBe(stopError);
       expect((thrown as { constructor: { name: string } }).constructor.name).not.toBe(
         "SuppressedError",
@@ -1482,6 +1494,16 @@ describe("SandboxClient", () => {
       { resources: { requests: null, limits: { cpu: "1" } } },
       { resources: { requests: { cpu: "1" }, limits: null } },
       { environmentVariables: { A: 1 } },
+      { fileSystemSnapshot: {} },
+      { mountedFiles: [{}] },
+      { resources: { cpu: 1 } },
+      { services: [{ port: 80, name: 1 }] },
+      { services: [{ port: 80, protocol: 1 }] },
+      { services: [{ port: 80, endpoint: null }] },
+      { services: [{ port: 80, endpoint: { kind: 1, auth: "open" } }] },
+      { services: [{ port: 80, endpoint: { kind: "https", auth: 1 } }] },
+      { secrets: [{ store: "s", name: "n", field: 1 }] },
+      { network: new Date() },
     ])("rejects malformed template option %j before the transport", async (options) => {
       let startFromTemplateCalls = 0;
       const transport: SandboxTransport = {
@@ -1528,6 +1550,61 @@ describe("SandboxClient", () => {
         createClient(transport).runFromTemplate(templateId, { volumes: null } as never),
       ).rejects.toThrow(/volumes must be an array/);
       expect(startFromTemplateCalls).toBe(0);
+    });
+
+    it("rejects a Date as top-level options before the transport", async () => {
+      let startFromTemplateCalls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async startFromTemplate() {
+          startFromTemplateCalls += 1;
+          throw new Error("transport should not be called");
+        },
+      };
+
+      await expect(
+        createClient(transport).runFromTemplate(templateId, new Date() as never),
+      ).rejects.toThrow(CWSandboxValidationError);
+      expect(startFromTemplateCalls).toBe(0);
+    });
+
+    it("accepts a null-prototype options object", async () => {
+      let startFromTemplateCalls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async startFromTemplate() {
+          startFromTemplateCalls += 1;
+          return { sandboxId: "sandbox-from-template", status: "running" };
+        },
+      };
+      const options = Object.create(null) as Record<string, unknown>;
+      options["waitUntilRunning"] = false;
+
+      await expect(
+        createClient(transport).runFromTemplate(templateId, options as never),
+      ).resolves.toMatchObject({ sandboxId: "sandbox-from-template" });
+      expect(startFromTemplateCalls).toBe(1);
+    });
+
+    it("accepts null-prototype annotations", async () => {
+      let startFromTemplateCalls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async startFromTemplate() {
+          startFromTemplateCalls += 1;
+          return { sandboxId: "sandbox-from-template", status: "running" };
+        },
+      };
+      const annotations = Object.create(null) as Record<string, string>;
+      annotations["team"] = "platform";
+
+      await expect(
+        createClient(transport).runFromTemplate(templateId, {
+          annotations,
+          waitUntilRunning: false,
+        }),
+      ).resolves.toMatchObject({ sandboxId: "sandbox-from-template" });
+      expect(startFromTemplateCalls).toBe(1);
     });
   });
 
@@ -1714,11 +1791,17 @@ describe("SandboxClient", () => {
     it("stops the accepted sandbox when readiness wait fails and does not run the callback", async () => {
       let callbackCalled = false;
       let stopCalls = 0;
-      const base = createFakeTransport(["creating"]);
+      const getStatuses: string[] = [];
+      const base = createFakeTransport(["failed", "running"]);
       const transport: SandboxTransport = {
         ...base,
         async startFromTemplate() {
           return { sandboxId: "sandbox-from-template", status: "creating" };
+        },
+        async get(request) {
+          const result = await base.get(request);
+          getStatuses.push(result.status);
+          return result;
         },
         async stop(request) {
           stopCalls += 1;
@@ -1726,31 +1809,32 @@ describe("SandboxClient", () => {
         },
       };
 
-      let thrown: unknown;
-      try {
-        await createClient(transport).withSandboxFromTemplate(
-          templateId,
-          () => {
-            callbackCalled = true;
-            return "unused";
-          },
-          { timeoutMs: 1 },
-        );
-      } catch (error) {
-        thrown = error;
-      }
-
-      expect(thrown).toBeInstanceOf(CWSandboxTimeoutError);
+      await expect(
+        createClient(transport).withSandboxFromTemplate(templateId, () => {
+          callbackCalled = true;
+          return "unused";
+        }),
+      ).rejects.toBeInstanceOf(CWSandboxFailedError);
       expect(callbackCalled).toBe(false);
       expect(stopCalls).toBe(1);
+      expect(getStatuses).toEqual(["failed", "running", "terminated"]);
     });
 
     it("rethrows the readiness error when withSandboxFromTemplate cleanup also fails", async () => {
+      const readinessError = new Error("readiness failed");
       const stopError = new Error("stop failed");
+      let getCalls = 0;
       const transport: SandboxTransport = {
-        ...createFakeTransport(["creating"]),
+        ...createFakeTransport(["running"]),
         async startFromTemplate() {
           return { sandboxId: "sandbox-from-template", status: "creating" };
+        },
+        async get() {
+          getCalls += 1;
+          if (getCalls === 1) {
+            throw readinessError;
+          }
+          return { sandboxId: "sandbox-from-template", status: "running" };
         },
         async stop() {
           throw stopError;
@@ -1759,14 +1843,12 @@ describe("SandboxClient", () => {
 
       let thrown: unknown;
       try {
-        await createClient(transport).withSandboxFromTemplate(templateId, () => "unused", {
-          timeoutMs: 1,
-        });
+        await createClient(transport).withSandboxFromTemplate(templateId, () => "unused");
       } catch (error) {
         thrown = error;
       }
 
-      expect(thrown).toBeInstanceOf(CWSandboxTimeoutError);
+      expect(thrown).toBe(readinessError);
       expect(thrown).not.toBe(stopError);
       expect((thrown as { constructor: { name: string } }).constructor.name).not.toBe(
         "SuppressedError",

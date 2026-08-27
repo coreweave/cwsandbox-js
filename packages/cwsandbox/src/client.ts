@@ -93,11 +93,10 @@ export class SandboxClient implements SandboxClientInterface {
    * Starts from an organization template. Omitted options preserve template
    * values unless `containerImage` is supplied.
    *
-   * A resolved call transfers ownership of the sandbox. A rejected call retains
-   * cleanup: if the default readiness wait fails after accept, the client
-   * best-effort `stop`s the sandbox (without the caller's abort signal) and
-   * rethrows the original readiness error. `waitUntilRunning: false` returns
-   * immediately after accept with no automatic cleanup.
+   * If creation returns an accepted sandbox but the readiness wait rejects, the
+   * SDK best-effort stops it (without the caller's abort signal) and rethrows
+   * the original readiness error. `waitUntilRunning: false` returns immediately
+   * after accept with no automatic cleanup.
    *
    * @param templateId Non-empty organization-scoped UUID. Format validation is
    *   performed by the backend.

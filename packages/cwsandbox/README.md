@@ -834,10 +834,9 @@ container list (omitted container settings, including private-image credentials,
 are not inherited). Field-level replacement details live on
 `SandboxRunFromTemplateOptions`.
 
-A resolved `runFromTemplate` call transfers ownership. A rejected call,
-including a failed default readiness wait, retains cleanup and best-effort
-`stop`s the accepted sandbox. `waitUntilRunning: false` returns immediately
-after accept with no automatic cleanup. `create` / `run` do not yet follow this
+If creation returns an accepted sandbox but the readiness wait rejects, the
+SDK best-effort stops it. `waitUntilRunning: false` returns immediately after
+accept with no automatic cleanup. `create` / `run` do not yet follow this
 rejected-call cleanup invariant.
 
 `placementMode` is not available; CKS placement is only via non-empty

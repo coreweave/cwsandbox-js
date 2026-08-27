@@ -60,9 +60,8 @@ export interface SandboxClient {
    * with one `main` container. Omitted or empty container fields result in
    * empty/default values rather than inheritance.
    *
-   * A resolved call transfers ownership of the sandbox. A rejected call retains
-   * cleanup: if the default readiness wait fails after accept, the client
-   * best-effort `stop`s the sandbox and rethrows the original readiness error.
+   * If creation returns an accepted sandbox but the readiness wait rejects, the
+   * SDK best-effort stops it and rethrows the original readiness error.
    * `waitUntilRunning: false` returns immediately after accept with no
    * automatic cleanup.
    *
