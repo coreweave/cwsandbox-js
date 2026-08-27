@@ -28,8 +28,14 @@ import { resolveWandbApiKey } from "../../packages/cwsandbox/src/integrations/wa
 
 export interface SmokeConfig {
   readonly hasCredentials: boolean;
+  readonly hasTemplateSmoke: boolean;
   readonly hasWandbCredentials: boolean;
   readonly hasWandbSecretsSmoke: boolean;
+  readonly templateSmoke:
+    | {
+        readonly templateId: string;
+      }
+    | undefined;
   readonly wandbSecretsSmoke:
     | {
         readonly envVar: string;
@@ -45,7 +51,7 @@ const smokeDir = dirname(fileURLToPath(import.meta.url));
 export const mountedBinaryContent = new Uint8Array([0, 1, 2, 127, 128, 255]);
 export const dualHttpServerScript = readSmokeScript("dual-http-server.js");
 export const noInternetProbeScript = readSmokeScript("no-internet-probe.py");
-export const portProtocols = ["TCP", "UDP", "SCTP"] as const;
+export const portProtocols = ["tcp", "udp", "sctp"] as const;
 export const resourceProbeScript = readSmokeScript("resource-probe.py");
 export const smokeConfig = createSmokeConfig();
 export const terminalStatuses = new Set<SandboxStatus>(["completed", "failed", "terminated"]);
@@ -396,13 +402,23 @@ export async function withDedicatedTaggedSandbox<TResult>(
 }
 
 function createSmokeConfig(): SmokeConfig {
+  const hasCredentials = Boolean(process.env["CWSANDBOX_API_KEY"]?.trim());
+  const templateId = trimEnv("CWSANDBOX_TEMPLATE_ID");
+  const templateSmoke = hasCredentials && templateId !== undefined ? { templateId } : undefined;
   const wandbSecretsSmoke = readWandbSecretsSmokeConfig();
   return {
-    hasCredentials: Boolean(process.env["CWSANDBOX_API_KEY"]?.trim()),
+    hasCredentials,
+    hasTemplateSmoke: templateSmoke !== undefined,
     hasWandbCredentials: hasWandbCredentials(),
     hasWandbSecretsSmoke: hasWandbCredentials() && wandbSecretsSmoke !== undefined,
+    templateSmoke,
     wandbSecretsSmoke,
   };
+}
+
+function trimEnv(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value === undefined || value === "" ? undefined : value;
 }
 
 function readWandbSecretsSmokeConfig(): SmokeConfig["wandbSecretsSmoke"] {

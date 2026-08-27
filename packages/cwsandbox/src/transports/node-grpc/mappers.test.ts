@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
+import { BinaryReader } from "@protobuf-ts/runtime";
 import { describe, expect, it } from "vitest";
 
 import {
   EndpointAuth,
   EndpointKind,
   FileSystemSnapshot,
+  PartialSandboxSpec,
   Sandbox as ProtoSandbox,
   SandboxMode,
   ServiceProtocol,
@@ -15,12 +17,14 @@ import {
   SnapshotTrigger,
   State,
   Visibility,
+  type CreateSandboxFromTemplateRequest,
   type ExecResponse,
 } from "./generated/coreweave/sandbox/v1/sandbox.js";
 import { Timestamp } from "./generated/google/protobuf/timestamp.js";
 import {
   DEFAULT_CONTAINER_IMAGE,
   timeoutMsToSeconds,
+  toProtoCreateFromTemplateRequest,
   toProtoCreateRequest,
   toProtoExecRequest,
   toProtoListSandboxesRequest,
@@ -578,6 +582,259 @@ describe("node transport mappers", () => {
     });
   });
 
+  describe("create from template requests", () => {
+    const templateId = "11111111-1111-1111-1111-111111111111";
+
+    it("omits overrides entirely when nothing is supplied", () => {
+      const request = toProtoCreateFromTemplateRequest({ templateId });
+
+      expect(request.templateId).toBe(templateId);
+      expect(request.requestId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      );
+      expect(request.overrides).toBeUndefined();
+      expect(overrideFieldNumbers(request)).toEqual([]);
+    });
+
+    it("splits template command argv into proto command and args", () => {
+      const request = toProtoCreateFromTemplateRequest({
+        templateId,
+        command: ["/bin/sh", "-c", "echo ready"],
+        containerImage: "python:3.11",
+      });
+      const container = request.overrides?.containers[0];
+
+      expect(container?.command).toBe("/bin/sh");
+      expect(container?.args).toEqual(["-c", "echo ready"]);
+    });
+
+    it("maps HTTPS public services onto template overrides", () => {
+      const request = toProtoCreateFromTemplateRequest({
+        templateId,
+        services: [
+          {
+            endpoint: { auth: "open", kind: "https" },
+            name: "http",
+            port: 8000,
+            protocol: "tcp",
+            visibility: "public",
+          },
+        ],
+      });
+
+      expect(request.overrides?.services).toMatchObject([
+        {
+          endpoint: {
+            auth: EndpointAuth.OPEN,
+            kind: EndpointKind.HTTPS,
+          },
+          name: "http",
+          port: 8000,
+          protocol: ServiceProtocol.TCP,
+          visibility: Visibility.PUBLIC,
+        },
+      ]);
+    });
+
+    it("does not serialize an empty containers override when containerImage is omitted", () => {
+      const request = toProtoCreateFromTemplateRequest({
+        templateId,
+        tags: ["keep-template-containers"],
+      });
+
+      expect(request.overrides?.containers).toEqual([]);
+      expect(overrideFieldNumbers(request)).not.toContain(1);
+      expect(overrideFieldNumbers(request)).toContain(8);
+    });
+
+    it("maps network as a complete message replacement", () => {
+      const request = toProtoCreateFromTemplateRequest({
+        templateId,
+        network: { denyEgress: true },
+      });
+
+      expect(request.overrides?.network).toMatchObject({ denyEgress: true });
+      expect(request.overrides?.network?.denyIngress).toBeUndefined();
+      expect(request.overrides?.network?.egress).toEqual([]);
+      expect(overrideFieldNumbers(request)).toContain(10);
+    });
+
+    it("maps an empty network object as an override, not inherit", () => {
+      const request = toProtoCreateFromTemplateRequest({
+        templateId,
+        network: {},
+      });
+
+      expect(request.overrides?.network).toBeDefined();
+      expect(overrideFieldNumbers(request)).toContain(10);
+    });
+
+    it("maps a non-empty annotations map as a full replace", () => {
+      const request = toProtoCreateFromTemplateRequest({
+        templateId,
+        annotations: { team: "platform" },
+      });
+
+      expect(request.overrides?.annotations).toEqual({ team: "platform" });
+      expect(overrideFieldNumbers(request)).toContain(11);
+    });
+
+    it("serializes empty top-level collections as no override", () => {
+      const request = toProtoCreateFromTemplateRequest({
+        templateId,
+        annotations: {},
+        maxLifetimeSeconds: 0,
+        runnerIds: [],
+        services: [],
+        tags: [],
+      });
+
+      expect(request.overrides).toBeUndefined();
+      expect(overrideFieldNumbers(request)).toEqual([]);
+    });
+
+    it("replaces the container list without inheriting omitted fields or credentials", () => {
+      const request = toProtoCreateFromTemplateRequest({
+        templateId,
+        containerImage: "python:3.12",
+      });
+      const container = request.overrides?.containers[0];
+
+      expect(request.overrides?.containers).toHaveLength(1);
+      expect(container).toMatchObject({
+        args: [],
+        command: "",
+        environmentVariables: {},
+        files: [],
+        image: "python:3.12",
+        name: "main",
+        secretStores: [],
+      });
+      expect(container).not.toHaveProperty("imagePullCredentials");
+      expect(request.overrides?.primaryContainer).toBe("main");
+      expect(overrideFieldNumbers(request)).toEqual(expect.arrayContaining([1, 2]));
+      expect(overrideFieldNumbers(request)).not.toContain(3);
+      expect(
+        PartialSandboxSpec.toBinary(request.overrides ?? PartialSandboxSpec.create()).length,
+      ).toBeGreaterThan(0);
+    });
+
+    it("maps supplied container overlay fields onto the replacement container", () => {
+      const withVolumes = toProtoCreateFromTemplateRequest({
+        templateId,
+        containerImage: "python:3.12",
+        environmentVariables: { EXAMPLE: "1" },
+        mountedFiles: { "/workspace/main.py": "print('hello')" },
+        resources: { cpu: "100m", memory: "128Mi" },
+        secrets: [{ store: "wandb-team-secrets", name: "HF_TOKEN" }],
+        volumes: [
+          {
+            mountPath: "/workspace",
+            name: "workspace",
+            size: "10Gi",
+          },
+        ],
+      });
+      const volumeContainer = withVolumes.overrides?.containers[0];
+
+      expect(volumeContainer).toMatchObject({
+        environmentVariables: { EXAMPLE: "1" },
+        image: "python:3.12",
+        name: "main",
+        resourceRequirements: {
+          limits: { cpu: "100m", memory: "128Mi" },
+          requests: { cpu: "100m", memory: "128Mi" },
+        },
+      });
+      expect(volumeContainer?.files).toEqual([
+        {
+          content: textEncoder.encode("print('hello')"),
+          path: "/workspace/main.py",
+        },
+      ]);
+      expect(volumeContainer?.secretStores).toEqual([
+        {
+          secrets: [{ envVar: "HF_TOKEN", field: "", path: "HF_TOKEN" }],
+          storeName: "wandb-team-secrets",
+        },
+      ]);
+      expect(volumeContainer?.volumeMounts).toEqual([
+        {
+          mountPath: "/workspace",
+          readOnly: false,
+          subPath: "",
+          volume: "workspace",
+        },
+      ]);
+      expect(withVolumes.overrides?.volumes).toEqual([
+        {
+          name: "workspace",
+          source: {
+            oneofKind: "scratch",
+            scratch: {
+              medium: 0,
+              restoreFromSnapshotId: "",
+              size: "10Gi",
+            },
+          },
+        },
+      ]);
+
+      const withSnapshot = toProtoCreateFromTemplateRequest({
+        templateId,
+        containerImage: "python:3.12",
+        fileSystemSnapshot: {
+          mountPath: "/workspace",
+          restoreFromSnapshotId: "snap-123",
+          size: "10Gi",
+        },
+      });
+      const snapshotContainer = withSnapshot.overrides?.containers[0];
+
+      expect(withSnapshot.overrides?.volumes).toEqual([
+        {
+          name: "workspace",
+          source: {
+            oneofKind: "scratch",
+            scratch: {
+              medium: 0,
+              restoreFromSnapshotId: "snap-123",
+              size: "10Gi",
+            },
+          },
+        },
+      ]);
+      expect(snapshotContainer?.volumeMounts).toEqual([
+        {
+          mountPath: "/workspace",
+          readOnly: false,
+          subPath: "",
+          volume: "workspace",
+        },
+      ]);
+    });
+
+    it("co-emits CKS mode whenever runnerIds are non-empty", () => {
+      const withRunners = toProtoCreateFromTemplateRequest({
+        templateId,
+        runnerIds: ["runner-id"],
+      });
+      const withoutRunners = toProtoCreateFromTemplateRequest({
+        templateId,
+        runnerIds: [],
+        tags: ["no-runners"],
+      });
+
+      expect(withRunners.overrides?.runnerIds).toEqual(["runner-id"]);
+      expect(withRunners.overrides?.mode).toBe(SandboxMode.CKS);
+      expect(overrideFieldNumbers(withRunners)).toEqual(expect.arrayContaining([9, 14]));
+      expect(withoutRunners.overrides?.runnerIds).toEqual([]);
+      expect(withoutRunners.overrides?.mode).toBe(SandboxMode.UNSPECIFIED);
+      expect(overrideFieldNumbers(withoutRunners)).not.toContain(9);
+      expect(overrideFieldNumbers(withoutRunners)).not.toContain(14);
+    });
+  });
+
   describe("create and get responses", () => {
     it("maps create responses to SDK sandbox metadata", () => {
       const result = toSdkStartSandboxResult(
@@ -1056,3 +1313,15 @@ describe("node transport mappers", () => {
     });
   });
 });
+
+function overrideFieldNumbers(request: CreateSandboxFromTemplateRequest): number[] {
+  const bytes = PartialSandboxSpec.toBinary(request.overrides ?? PartialSandboxSpec.create());
+  const reader = new BinaryReader(bytes);
+  const fields: number[] = [];
+  while (reader.pos < reader.len) {
+    const [fieldNo, wireType] = reader.tag();
+    fields.push(fieldNo);
+    reader.skip(wireType);
+  }
+  return fields;
+}

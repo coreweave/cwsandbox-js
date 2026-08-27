@@ -52,6 +52,7 @@ import {
   type SandboxMetadata,
   type SandboxObjectStorageAccess,
   type SandboxResourceSpec,
+  type SandboxRunFromTemplateOptions,
   type SandboxRunOptions,
   type SandboxStatus,
   type SandboxTag,
@@ -116,6 +117,46 @@ expectTypeOf(
     waitUntilRunning: true,
   }),
 ).toEqualTypeOf<Promise<string>>();
+expectTypeOf(client.runFromTemplate("template-id")).toEqualTypeOf<
+  ReturnType<SandboxClient["runFromTemplate"]>
+>();
+expectTypeOf(client.runFromTemplate("template-id", { tags: ["demo"] })).toEqualTypeOf<
+  ReturnType<SandboxClient["runFromTemplate"]>
+>();
+expectTypeOf(
+  client.runFromTemplate("template-id", {
+    command: ["/bin/sh", "-c", "echo ready"],
+    containerImage: "python:3.11",
+  }),
+).toEqualTypeOf<ReturnType<SandboxClient["runFromTemplate"]>>();
+void client.runFromTemplate("template-id", {
+  // @ts-expect-error objectStorageAccess is not part of runFromTemplate
+  objectStorageAccess: {
+    buckets: ["example-bucket"],
+    permission: "read-write",
+  },
+});
+expectTypeOf(
+  client.withSandboxFromTemplate("template-id", async (sandbox) => sandbox.sandboxId),
+).toEqualTypeOf<Promise<string>>();
+expectTypeOf(
+  client.withSandboxFromTemplate("template-id", async (sandbox) => sandbox.sandboxId, {
+    tags: ["demo"],
+  }),
+).toEqualTypeOf<Promise<string>>();
+const sandboxRunFromTemplateOptions: SandboxRunFromTemplateOptions = {
+  containerImage: "python:3.11",
+};
+expectTypeOf(sandboxRunFromTemplateOptions.containerImage).toEqualTypeOf<string | undefined>();
+expectTypeOf(client.runFromTemplate("template-id", { command: ["/bin/sh"] })).toEqualTypeOf<
+  ReturnType<SandboxClient["runFromTemplate"]>
+>();
+// @ts-expect-error positional command is not part of runFromTemplate
+void client.runFromTemplate("template-id", ["/bin/sh"]);
+expectTypeOf<SandboxMetadata>().not.toHaveProperty("sourceTemplateId");
+expectTypeOf<SandboxMetadata>().not.toHaveProperty("sourceTemplateRevision");
+expectTypeOf<Sandbox>().not.toHaveProperty("sourceTemplateId");
+expectTypeOf<Sandbox>().not.toHaveProperty("sourceTemplateRevision");
 expectTypeOf(client.run(["echo"])).toEqualTypeOf<ReturnType<SandboxClient["run"]>>();
 expectTypeOf(
   client.run(["python", "/workspace/main.py"], {

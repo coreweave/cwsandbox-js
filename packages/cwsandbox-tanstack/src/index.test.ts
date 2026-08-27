@@ -273,6 +273,12 @@ function createTrackingClient(): TrackingClient {
     async withSandbox(_commandOrCallback, _callbackOrOptions) {
       throw new Error("withSandbox not used in these tests.");
     },
+    async runFromTemplate() {
+      throw new Error("runFromTemplate not used in these tests.");
+    },
+    async withSandboxFromTemplate() {
+      throw new Error("withSandboxFromTemplate not used in these tests.");
+    },
   };
 
   return {

@@ -32,6 +32,7 @@ import type {
   GetSandboxRequest,
   StartCommandRequest,
   StartShellRequest,
+  StartSandboxFromTemplateRequest,
   StartSandboxRequest,
   StopSandboxRequest,
   StreamLogsRequest,
@@ -48,6 +49,7 @@ interface TransportCalls {
   readonly get: GetSandboxRequest[];
   readonly list: ListSandboxesOptions[];
   readonly start: StartSandboxRequest[];
+  readonly startFromTemplate: StartSandboxFromTemplateRequest[];
   readonly startCommand: StartCommandRequest[];
   readonly startShell: StartShellRequest[];
   readonly stop: StopSandboxRequest[];
@@ -87,6 +89,27 @@ describe("SandboxTransport contract", () => {
       sandboxId: "delete-me",
       timeoutMs: 789,
     });
+  });
+
+  it("routes runFromTemplate through startFromTemplate with a normalized command", async () => {
+    const { calls, transport, fileAdapter } = createContractTransport();
+    const client = new SandboxClient({ fileAdapter, transport });
+    const templateId = "11111111-1111-1111-1111-111111111111";
+
+    const sandbox = await client.runFromTemplate(templateId, {
+      command: ["/bin/sh", "-c", "echo ready"],
+      containerImage: "python:3.11",
+      waitUntilRunning: false,
+    });
+
+    expect(calls.start).toEqual([]);
+    expect(expectSingle(calls.startFromTemplate)).toMatchObject({
+      command: ["/bin/sh", "-c", "echo ready"],
+      containerImage: "python:3.11",
+      templateId,
+    });
+    expect(expectSingle(calls.startFromTemplate)).not.toHaveProperty("waitUntilRunning");
+    expect(sandbox.sandboxId).toBe(`sandbox-for-template-${templateId}`);
   });
 
   it("attaches sandbox ids and normalized payloads for sandbox operations", async () => {
@@ -163,6 +186,7 @@ function createContractTransport(): {
     get: [],
     list: [],
     start: [],
+    startFromTemplate: [],
     startCommand: [],
     startShell: [],
     stop: [],
@@ -227,6 +251,13 @@ function createContractTransport(): {
         calls.start.push(request);
         return {
           sandboxId: `sandbox-for-${request.command[0]}`,
+          status: "running",
+        };
+      },
+      async startFromTemplate(request) {
+        calls.startFromTemplate.push(request);
+        return {
+          sandboxId: `sandbox-for-template-${request.templateId}`,
           status: "running",
         };
       },

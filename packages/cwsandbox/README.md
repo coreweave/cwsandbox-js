@@ -14,9 +14,8 @@ TypeScript SDK for CoreWeave Sandbox.
 >
 > This package speaks Sandbox **v1**. Use `services`, `network.denyEgress` /
 > `network.denyIngress`, `network.egress`, `runnerIds`, and `showTerminated`.
-> Profiles, `ports`, and `includeStopped` are not part of this API. Templates
-> (`runFromTemplate`) are the successor for profile-style placement and are
-> not wrapped in this SDK yet.
+> Profiles, `ports`, and `includeStopped` are not part of this API. Use
+> `runFromTemplate` / `withSandboxFromTemplate` for organization templates.
 
 For platform concepts and product guides, see the
 [CoreWeave Sandbox documentation](https://docs.coreweave.com/products/coreweave-sandbox/client).
@@ -252,7 +251,8 @@ const result = await sandbox.commands.run(["python", "-c", "print('hello')"]);
 console.log(result.stdout);
 ```
 
-`client.create()`, `client.run(...)`, and `client.withSandbox(...)` wait for the sandbox to reach
+`client.create()`, `client.run(...)`, `client.runFromTemplate(...)`, `client.withSandbox(...)`,
+and `client.withSandboxFromTemplate(...)` wait for the sandbox to reach
 `running` by default, so the returned sandbox is safe for exec, file, and log operations. This is
 sandbox lifecycle readiness, not application readiness: if your main process starts an HTTP server
 or performs setup, wait for that app-specific condition with commands, logs, files, or services.
@@ -815,13 +815,55 @@ console.log(sandboxTrace);
 ### Placement Selectors
 
 Pin a sandbox to specific CKS runners with `runnerIds`. Profile selectors are
-not supported in v1; use a template (`runFromTemplate`, not wrapped here yet)
-when you need that style of placement:
+not supported in v1; use `runFromTemplate` when you need that style of
+placement:
 
 ```ts
 await client.run(["python"], {
   runnerIds: ["runner-1"],
 });
+```
+
+## Templates
+
+`runFromTemplate(templateId, options?)` starts a sandbox from an organization
+template. Omitted options keep template values. Empty `tags: []`, `services: []`,
+`annotations: {}`, and `runnerIds: []` mean inherit, not clear — there is no
+clear-to-empty operation. Supplying `containerImage` replaces the entire
+container list (omitted container settings, including private-image credentials,
+are not inherited). Field-level replacement details live on
+`SandboxRunFromTemplateOptions`.
+
+If creation returns an accepted sandbox but the readiness wait rejects, the
+SDK best-effort stops it. `waitUntilRunning: false` returns immediately after
+accept with no automatic cleanup. `create` / `run` do not yet follow this
+readiness-failure cleanup behavior.
+
+`placementMode` is not available; CKS placement is only via non-empty
+`runnerIds`. `ResourceOptions` is CPU and memory only (no GPU). `secrets: []`
+requires `containerImage`. `volumes: []` is rejected. `snapshot()` with multiple
+inherited scratches is a backend error; one inherited scratch can infer the
+volume.
+
+Prefer `withSandboxFromTemplate` for short-lived work. Use `await using` with
+`runFromTemplate` for a direct handle with scoped cleanup:
+
+```ts
+import { DEFAULT_KEEP_ALIVE_COMMAND } from "@coreweave/cwsandbox/node";
+
+const inherited = await client.withSandboxFromTemplate(
+  "template-id",
+  async (sandbox) => sandbox.sandboxId,
+  { tags: ["example"] },
+);
+
+await using replaced = await client.runFromTemplate("template-id", {
+  containerImage: "python:3.11",
+  command: DEFAULT_KEEP_ALIVE_COMMAND,
+  tags: ["example"],
+});
+await replaced.inspect();
+console.log(inherited, replaced.sandboxId);
 ```
 
 ## Reconnect, List, And Delete
@@ -979,6 +1021,7 @@ Copy `.env.example` for local experiments:
 ```bash
 CWSANDBOX_API_KEY=
 CWSANDBOX_BASE_URL=https://api.cwsandbox.com
+# CWSANDBOX_TEMPLATE_ID=   # optional reduced runFromTemplate smoke
 WANDB_API_KEY=
 WANDB_ENTITY=
 WANDB_PROJECT=
@@ -1011,7 +1054,7 @@ Useful root commands:
 - `pnpm smoke:stress -- --heavy` runs the larger manual stress smoke suite.
 - `pnpm smoke:stress -- --cleanup --tag <stress-tag>` deletes sandboxes from an interrupted stress run.
 
-`pnpm check` is offline and credential-free, including README example typechecks. `pnpm smoke` and stress smoke commands skip CoreWeave-auth tests when `CWSANDBOX_API_KEY` is not set, and skip W&B-auth tests when no `WANDB_API_KEY` or W&B `.netrc` credential resolves. The default smoke suite uses default internet egress and `network.denyEgress` for the no-internet check. Hostname-grant smoke probes `pypi.org` and `*.pypi.org` over HTTPS and skips when the fleet cannot admit names. Stress smoke is intentionally not part of `pnpm check`; it creates live sandboxes and uses bounded workloads to exercise larger logs, streams, stdin, files, pagination, and cleanup paths.
+`pnpm check` is offline and credential-free, including README example typechecks. `pnpm smoke` and stress smoke commands skip CoreWeave-auth tests when `CWSANDBOX_API_KEY` is not set, and skip W&B-auth tests when no `WANDB_API_KEY` or W&B `.netrc` credential resolves. The `runFromTemplate` smoke is reduced: it needs `CWSANDBOX_TEMPLATE_ID` and does not mint or delete that template. The default smoke suite uses default internet egress and `network.denyEgress` for the no-internet check. Hostname-grant smoke probes `pypi.org` and `*.pypi.org` over HTTPS and skips when the fleet cannot admit names. Stress smoke is intentionally not part of `pnpm check`; it creates live sandboxes and uses bounded workloads to exercise larger logs, streams, stdin, files, pagination, and cleanup paths.
 
 ## License
 

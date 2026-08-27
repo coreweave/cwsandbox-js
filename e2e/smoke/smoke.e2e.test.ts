@@ -881,9 +881,9 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
           {
             services: [
               {
-                name: `port-${protocol.toLowerCase()}`,
+                name: `port-${protocol}`,
                 port: 8000,
-                protocol: protocol.toLowerCase(),
+                protocol,
               },
             ],
           },

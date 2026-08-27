@@ -25,6 +25,7 @@ import type {
   GetSandboxRequest,
   ListFileSystemSnapshotsRequest,
   ListFileSystemSnapshotsResult,
+  StartSandboxFromTemplateRequest,
   StartSandboxRequest,
   StartCommandRequest,
   StartShellRequest,
@@ -34,6 +35,7 @@ import type {
 
 export interface SandboxTransport {
   start(request: StartSandboxRequest): Promise<StartSandboxResult>;
+  startFromTemplate(request: StartSandboxFromTemplateRequest): Promise<StartSandboxResult>;
   get(request: GetSandboxRequest): Promise<GetSandboxResult>;
   list(options: ListSandboxesOptions): Promise<ListSandboxesResult>;
   delete(request: DeleteSandboxRequest): Promise<void>;

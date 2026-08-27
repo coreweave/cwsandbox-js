@@ -11,10 +11,12 @@ import type {
   DeleteSnapshotOptions,
   ListSandboxesOptions,
   ListSnapshotsOptions,
+  SandboxRunFromTemplateOptions,
   SandboxRunOptions,
   StopOptions,
   WaitOptions,
 } from "../../public/sandbox.js";
+import { normalizeCommand } from "../commands.js";
 import { validateMountedFiles } from "../mounted-files.js";
 import { validateNetworkOptions } from "../network.js";
 import { validateResources } from "../resources.js";
@@ -53,14 +55,16 @@ function validateCommandOptions(options: ExecOptions | StartCommandOptions): voi
   }
 }
 
+const REMOVED_CREATE_KEYS = [
+  "maxTimeoutSeconds",
+  "ports",
+  "profileIds",
+  "profileNames",
+  "s3Mount",
+] as const;
+
 export function validateSandboxRunOptions(options: SandboxRunOptions): void {
-  rejectRemovedKeys(options, [
-    "maxTimeoutSeconds",
-    "ports",
-    "profileIds",
-    "profileNames",
-    "s3Mount",
-  ]);
+  rejectRemovedKeys(options, REMOVED_CREATE_KEYS);
   if (options.network !== undefined) {
     rejectRemovedKeys(options.network, ["egressMode", "exposedPorts", "ingressMode"]);
   }
@@ -70,6 +74,60 @@ export function validateSandboxRunOptions(options: SandboxRunOptions): void {
   validateMountedFiles(options.mountedFiles);
   validateSandboxVolumeCreateOptions(options);
   validateObjectStorageAccess(options.objectStorageAccess);
+  validateNetworkOptions(options.services, options.network);
+  validateResources(options.resources);
+  validateSecrets(options.secrets, options.environmentVariables);
+  validateUniqueStringList(options.runnerIds, "runnerIds");
+  validateTags(options.tags);
+  validateOptionalBoolean(options.waitUntilRunning, "waitUntilRunning");
+}
+
+const CONTAINER_OVERRIDE_FIELDS = [
+  "command",
+  "environmentVariables",
+  "fileSystemSnapshot",
+  "mountedFiles",
+  "resources",
+  "secrets",
+  "volumes",
+] as const;
+
+const CONTAINER_IMAGE_REQUIRED_MESSAGE =
+  "containerImage is required when overriding template container fields because container overrides replace the entire container list.";
+
+export function validateSandboxRunFromTemplateOptions(
+  templateId: string,
+  options: SandboxRunFromTemplateOptions,
+): void {
+  if (typeof templateId !== "string" || templateId.trim() === "") {
+    throw new CWSandboxValidationError("templateId must not be empty.");
+  }
+  if (!isPlainRecordValue(options)) {
+    throw new CWSandboxValidationError("options must be an object");
+  }
+  rejectUnsupportedTemplateKeys(options);
+  rejectRemovedKeys(options, REMOVED_CREATE_KEYS);
+  validateTemplateOptionShapes(options);
+  if (options.network !== undefined) {
+    rejectRemovedKeys(options.network, ["egressMode", "exposedPorts", "ingressMode"]);
+  }
+  validateRequestOptions(options);
+  if (options.containerImage === undefined) {
+    for (const field of CONTAINER_OVERRIDE_FIELDS) {
+      if (isContainerOverride(options, field)) {
+        throw new CWSandboxValidationError(CONTAINER_IMAGE_REQUIRED_MESSAGE);
+      }
+    }
+  } else if (typeof options.containerImage !== "string" || options.containerImage.trim() === "") {
+    throw new CWSandboxValidationError("containerImage must not be empty.");
+  }
+  if (options.command !== undefined) {
+    normalizeCommand(options.command);
+  }
+  validateAnnotations(options.annotations);
+  validateNonNegativeFinite(options.maxLifetimeSeconds, "maxLifetimeSeconds");
+  validateMountedFiles(options.mountedFiles);
+  validateSandboxVolumeCreateOptions(options);
   validateNetworkOptions(options.services, options.network);
   validateResources(options.resources);
   validateSecrets(options.secrets, options.environmentVariables);
@@ -158,6 +216,233 @@ function rejectRemovedKeys(source: object, keys: readonly string[]): void {
     if (record[key] !== undefined) {
       throw new CWSandboxValidationError(`${key} is not supported in v1`);
     }
+  }
+}
+
+function isContainerOverride(
+  options: SandboxRunFromTemplateOptions,
+  field: (typeof CONTAINER_OVERRIDE_FIELDS)[number],
+): boolean {
+  const value = options[field];
+  if (value === undefined) {
+    return false;
+  }
+  if (field === "environmentVariables") {
+    return Object.keys(value).length > 0;
+  }
+  return true;
+}
+
+function validateTemplateOptionShapes(options: SandboxRunFromTemplateOptions): void {
+  requirePlainRecordIfPresent(options.annotations, "annotations");
+  requirePlainRecordIfPresent(options.environmentVariables, "environmentVariables");
+  requirePlainRecordIfPresent(options.fileSystemSnapshot, "fileSystemSnapshot");
+  requirePlainRecordIfPresent(options.network, "network");
+  requirePlainRecordIfPresent(options.resources, "resources");
+  requireArrayIfPresent(options.command, "command");
+  requireArrayIfPresent(options.runnerIds, "runnerIds");
+  requireArrayIfPresent(options.secrets, "secrets");
+  requireArrayIfPresent(options.services, "services");
+  requireArrayIfPresent(options.tags, "tags");
+  requireArrayIfPresent(options.volumes, "volumes");
+
+  if (options.command !== undefined) {
+    if (
+      options.command.length === 0 ||
+      !options.command.every((item) => typeof item === "string")
+    ) {
+      throw new CWSandboxValidationError("command must be a non-empty array of strings");
+    }
+  }
+
+  if (options.environmentVariables !== undefined) {
+    for (const [key, value] of Object.entries(options.environmentVariables)) {
+      if (typeof value !== "string") {
+        throw new CWSandboxValidationError(`environmentVariables["${key}"] must be a string`);
+      }
+    }
+  }
+
+  if (options.fileSystemSnapshot !== undefined) {
+    const snapshot = options.fileSystemSnapshot as unknown as Record<string, unknown>;
+    if (typeof snapshot["mountPath"] !== "string") {
+      throw new CWSandboxValidationError("fileSystemSnapshot.mountPath must be a string");
+    }
+    requireStringIfPresent(snapshot["size"], "fileSystemSnapshot.size");
+    requireStringIfPresent(
+      snapshot["restoreFromSnapshotId"],
+      "fileSystemSnapshot.restoreFromSnapshotId",
+    );
+  }
+
+  if (options.resources !== undefined) {
+    const resources = options.resources as Record<string, unknown>;
+    requireStringIfPresent(resources["cpu"], "resources.cpu");
+    requireStringIfPresent(resources["memory"], "resources.memory");
+    if (resources["requests"] !== undefined) {
+      requirePlainRecord(resources["requests"], "resources.requests");
+      requireStringIfPresent(resources["requests"]["cpu"], "resources.requests.cpu");
+      requireStringIfPresent(resources["requests"]["memory"], "resources.requests.memory");
+    }
+    if (resources["limits"] !== undefined) {
+      requirePlainRecord(resources["limits"], "resources.limits");
+      requireStringIfPresent(resources["limits"]["cpu"], "resources.limits.cpu");
+      requireStringIfPresent(resources["limits"]["memory"], "resources.limits.memory");
+    }
+  }
+
+  validateMountedFilesShape(options.mountedFiles);
+  requireArrayOfRecordsIfPresent(options.secrets, "secrets");
+  requireArrayOfRecordsIfPresent(options.services, "services");
+  requireArrayOfRecordsIfPresent(options.volumes, "volumes");
+  validateSecretsShape(options.secrets);
+  validateServicesShape(options.services);
+  validateVolumesShape(options.volumes);
+}
+
+function validateMountedFilesShape(mountedFiles: unknown): void {
+  if (mountedFiles === undefined) {
+    return;
+  }
+
+  if (Array.isArray(mountedFiles)) {
+    for (const [index, entry] of mountedFiles.entries()) {
+      if (!isPlainRecord(entry)) {
+        throw new CWSandboxValidationError(`mountedFiles[${index}] must be an object`);
+      }
+      if (typeof entry["path"] !== "string") {
+        throw new CWSandboxValidationError(`mountedFiles[${index}].path must be a string`);
+      }
+      if (typeof entry["content"] !== "string" && !(entry["content"] instanceof Uint8Array)) {
+        throw new CWSandboxValidationError(
+          `mountedFiles[${index}].content must be a string or Uint8Array`,
+        );
+      }
+    }
+    return;
+  }
+
+  if (!isPlainRecord(mountedFiles)) {
+    throw new CWSandboxValidationError("mountedFiles must be an object or an array");
+  }
+
+  for (const [path, content] of Object.entries(mountedFiles)) {
+    if (typeof content !== "string" && !(content instanceof Uint8Array)) {
+      throw new CWSandboxValidationError(`mountedFiles["${path}"] must be a string or Uint8Array`);
+    }
+  }
+}
+
+function isPlainRecordValue(value: unknown): boolean {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return isPlainRecordValue(value);
+}
+
+function requireStringIfPresent(value: unknown, name: string): void {
+  if (value !== undefined && typeof value !== "string") {
+    throw new CWSandboxValidationError(`${name} must be a string`);
+  }
+}
+
+function validateSecretsShape(secrets: unknown): void {
+  if (secrets === undefined) {
+    return;
+  }
+  for (const [index, secret] of (secrets as readonly Record<string, unknown>[]).entries()) {
+    requireStringIfPresent(secret["field"], `secrets[${index}].field`);
+  }
+}
+
+function validateServicesShape(services: unknown): void {
+  if (services === undefined) {
+    return;
+  }
+  for (const [index, service] of (services as readonly Record<string, unknown>[]).entries()) {
+    if (typeof service["port"] !== "number") {
+      throw new CWSandboxValidationError(`services[${index}].port must be a number`);
+    }
+    requireStringIfPresent(service["name"], `services[${index}].name`);
+    requireStringIfPresent(service["protocol"], `services[${index}].protocol`);
+    requireStringIfPresent(service["visibility"], `services[${index}].visibility`);
+    if (service["endpoint"] === undefined) {
+      continue;
+    }
+    requirePlainRecord(service["endpoint"], `services[${index}].endpoint`);
+    requireStringIfPresent(service["endpoint"]["kind"], `services[${index}].endpoint.kind`);
+    requireStringIfPresent(service["endpoint"]["auth"], `services[${index}].endpoint.auth`);
+  }
+}
+
+function validateVolumesShape(volumes: unknown): void {
+  if (volumes === undefined) {
+    return;
+  }
+  for (const [index, volume] of (volumes as readonly Record<string, unknown>[]).entries()) {
+    if (typeof volume["name"] !== "string") {
+      throw new CWSandboxValidationError(`volumes[${index}].name must be a string`);
+    }
+    if (typeof volume["mountPath"] !== "string") {
+      throw new CWSandboxValidationError(`volumes[${index}].mountPath must be a string`);
+    }
+    requireStringIfPresent(volume["size"], `volumes[${index}].size`);
+    requireStringIfPresent(
+      volume["restoreFromSnapshotId"],
+      `volumes[${index}].restoreFromSnapshotId`,
+    );
+  }
+}
+
+function requirePlainRecord(
+  value: unknown,
+  name: string,
+): asserts value is Record<string, unknown> {
+  if (!isPlainRecord(value)) {
+    throw new CWSandboxValidationError(`${name} must be an object`);
+  }
+}
+
+function requirePlainRecordIfPresent(value: unknown, name: string): void {
+  if (value !== undefined) {
+    requirePlainRecord(value, name);
+  }
+}
+
+function requireArrayIfPresent(value: unknown, name: string): void {
+  if (value !== undefined && !Array.isArray(value)) {
+    throw new CWSandboxValidationError(`${name} must be an array`);
+  }
+}
+
+function requireArrayOfRecordsIfPresent(value: unknown, name: string): void {
+  if (value === undefined) {
+    return;
+  }
+  requireArrayIfPresent(value, name);
+  for (const [index, entry] of (value as readonly unknown[]).entries()) {
+    if (!isPlainRecord(entry)) {
+      throw new CWSandboxValidationError(`${name}[${index}] must be an object`);
+    }
+  }
+}
+
+function rejectUnsupportedTemplateKeys(options: object): void {
+  const record = options as Record<string, unknown>;
+  if (record["imagePullCredentials"] !== undefined) {
+    throw new CWSandboxValidationError(
+      "imagePullCredentials is not supported with template sandboxes.",
+    );
+  }
+  if (record["objectStorageAccess"] !== undefined) {
+    throw new CWSandboxValidationError(
+      "objectStorageAccess is not supported with template sandboxes.",
+    );
   }
 }
 

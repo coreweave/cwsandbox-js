@@ -196,6 +196,12 @@ export function createFakeTransport(
         status: "running",
       };
     },
+    async startFromTemplate(request) {
+      return {
+        sandboxId: `sandbox-for-template-${request.templateId}`,
+        status: "running",
+      };
+    },
     async get(request) {
       if (stopped) {
         return {

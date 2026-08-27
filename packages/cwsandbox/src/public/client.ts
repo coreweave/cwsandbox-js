@@ -18,6 +18,7 @@ import type {
   Sandbox,
   SandboxId,
   SandboxListOptions,
+  SandboxRunFromTemplateOptions,
   SandboxRunOptions,
 } from "./sandbox.js";
 
@@ -44,5 +45,46 @@ export interface SandboxClient {
     command: CommandInput,
     callback: WithSandboxCallback<TResult>,
     options?: SandboxRunOptions,
+  ): Promise<TResult>;
+  /**
+   * Starts from an organization template. Omitted options preserve template
+   * values unless `containerImage` is supplied.
+   *
+   * Non-empty top-level collections replace template values. Empty top-level
+   * collections/maps (`tags: []`, `services: []`, `annotations: {}`,
+   * `runnerIds: []`) mean "no override," not "clear." `maxLifetimeSeconds: 0`
+   * similarly preserves the template. There is no general clear-to-empty
+   * operation on this surface.
+   *
+   * Once `containerImage` is supplied, the entire container list is replaced
+   * with one `main` container. Omitted or empty container fields result in
+   * empty/default values rather than inheritance.
+   *
+   * If creation returns an accepted sandbox but the readiness wait rejects, the
+   * SDK best-effort stops it and rethrows the original readiness error.
+   * `waitUntilRunning: false` returns immediately after accept with no
+   * automatic cleanup.
+   *
+   * @param templateId Non-empty organization-scoped UUID. Format validation is
+   *   performed by the backend.
+   */
+  runFromTemplate(templateId: string, options?: SandboxRunFromTemplateOptions): Promise<Sandbox>;
+  /**
+   * Starts from an organization template and always stops the sandbox after the
+   * callback returns or throws. A callback error is rethrown; a cleanup failure
+   * after a successful callback is thrown; a cleanup failure after a callback
+   * or readiness error does not replace that error.
+   *
+   * Overlay semantics match `runFromTemplate`. The helper accepts the sandbox
+   * first, then waits (unless `waitUntilRunning: false`) before the callback so
+   * a readiness failure still `stop`s and the callback is not run.
+   *
+   * @param templateId Non-empty organization-scoped UUID. Format validation is
+   *   performed by the backend.
+   */
+  withSandboxFromTemplate<TResult>(
+    templateId: string,
+    callback: WithSandboxCallback<TResult>,
+    options?: SandboxRunFromTemplateOptions,
   ): Promise<TResult>;
 }
