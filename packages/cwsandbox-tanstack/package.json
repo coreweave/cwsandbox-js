@@ -30,11 +30,11 @@
     "@coreweave/cwsandbox": "workspace:*"
   },
   "devDependencies": {
-    "@tanstack/ai": "^0.47.1",
-    "@tanstack/ai-sandbox": "^0.4.0"
+    "@tanstack/ai": "^0.49.1",
+    "@tanstack/ai-sandbox": "^0.5.1"
   },
   "peerDependencies": {
-    "@tanstack/ai-sandbox": "^0.4.0"
+    "@tanstack/ai-sandbox": "^0.5.1"
   },
   "engines": {
     "node": ">=22"
