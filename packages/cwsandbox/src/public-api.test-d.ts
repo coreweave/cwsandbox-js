@@ -335,7 +335,7 @@ const service: Service = {
 const serviceUrl: ServiceUrl = { name: "http", port: 8000, url: "https://sandbox.example.com" };
 const sandboxAnnotations: SandboxAnnotations = { team: "platform" };
 const sandboxTag: SandboxTag = "project-demo";
-const sandboxExposedPort: SandboxExposedPort = { name: "http", port: 8000, protocol: "TCP" };
+const sandboxExposedPort: SandboxExposedPort = { name: "http", port: 8000, protocol: "tcp" };
 const sandboxResourceSpec: SandboxResourceSpec = { cpu: "1", memory: "1Gi" };
 const sandboxMetadata: SandboxMetadata = {
   dnsEgressNames: ["pypi.org"],

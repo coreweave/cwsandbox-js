@@ -13,7 +13,7 @@ import type {
 import type { RequestOptions, Seconds } from "./common.js";
 import type { MountedFiles, SandboxFiles } from "./files.js";
 import type { SandboxLogs } from "./logs.js";
-import type { NetworkOptions, Service, ServiceUrl } from "./network.js";
+import type { NetworkOptions, Service, ServiceProtocol, ServiceUrl } from "./network.js";
 import type { ResourceOptions, ResourceSpec } from "./resources.js";
 import type { Secrets } from "./secrets.js";
 
@@ -311,7 +311,7 @@ export type SandboxListOptions = Omit<ListSandboxesOptions, "pageToken">;
 export interface SandboxExposedPort {
   readonly name?: string;
   readonly port: number;
-  readonly protocol?: string;
+  readonly protocol?: ServiceProtocol;
 }
 
 export type SandboxResourceSpec = ResourceSpec;

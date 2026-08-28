@@ -9,13 +9,15 @@ import { fileURLToPath } from "node:url";
 
 import {
   CWSandboxTransportError,
-  CWSandboxValidationError,
   type CommandInput,
   type ExecOptions,
+  type LogResumeCursor,
   type ProcessResult,
   type Sandbox,
   type SandboxClient,
   type SandboxExposedPort,
+  type SandboxId,
+  type SandboxListOptions,
   type SandboxRunOptions,
   type SandboxStatus,
   type SandboxTag,
@@ -24,12 +26,9 @@ import {
 } from "@coreweave/cwsandbox";
 import { expect } from "vitest";
 
-import { resolveWandbApiKey } from "../../packages/cwsandbox/src/integrations/wandb/auth.js";
-
 export interface SmokeConfig {
   readonly hasCredentials: boolean;
   readonly hasTemplateSmoke: boolean;
-  readonly hasWandbCredentials: boolean;
   readonly hasWandbSecretsSmoke: boolean;
   readonly templateSmoke:
     | {
@@ -46,26 +45,18 @@ export interface SmokeConfig {
     | undefined;
 }
 
+export type OpCapture = { failed: false } | { failed: true; error: unknown };
+
 const smokeDir = dirname(fileURLToPath(import.meta.url));
 
 export const mountedBinaryContent = new Uint8Array([0, 1, 2, 127, 128, 255]);
 export const dualHttpServerScript = readSmokeScript("dual-http-server.js");
 export const noInternetProbeScript = readSmokeScript("no-internet-probe.py");
-export const portProtocols = ["tcp", "udp", "sctp"] as const;
-export const resourceProbeScript = readSmokeScript("resource-probe.py");
 export const smokeConfig = createSmokeConfig();
 export const terminalStatuses = new Set<SandboxStatus>(["completed", "failed", "terminated"]);
 export const testTimeoutMs = 120_000;
 export const serviceUrlWaitTimeoutMs = 60_000;
 export const websocketEchoScript = readSmokeScript("websocket-echo.js");
-
-/** Known-good large unary size (matches Python integration; below 32 MiB cap). */
-export const LARGE_FILE_20_MIB = 20 * 1024 * 1024;
-export const largeFileTimeout20Ms = 180_000;
-
-/** Above default unary 32 MiB cap — forces StreamExec buffered fallback. */
-export const LARGE_FILE_40_MIB = 40 * 1024 * 1024;
-export const largeFileTimeout40Ms = 300_000;
 
 /** Multi-chunk streaming smoke payload (not toy-sized). */
 export const STREAM_SMOKE_1_MIB = 1024 * 1024;
@@ -95,48 +86,121 @@ export async function expectTerminalStatus(sandbox: Sandbox): Promise<void> {
   expect(sandbox.status).toBe(status);
 }
 
-export async function listIncludesSandbox(
-  client: SandboxClient,
-  sandboxId: string,
-  tags: readonly SandboxTag[] = [],
-  options: { readonly pageSize?: number; readonly showTerminated?: boolean } = {},
-): Promise<boolean> {
-  let pageToken: string | undefined;
-
-  for (let pageCount = 0; pageCount < 10; pageCount += 1) {
-    const result = await client.list({
-      pageSize: options.pageSize ?? 100,
-      ...(pageToken === undefined ? {} : { pageToken }),
-      ...(options.showTerminated === undefined ? {} : { showTerminated: options.showTerminated }),
-      ...(tags.length === 0 ? {} : { tags }),
-    });
-
-    if (result.sandboxes.some((sandbox) => sandbox.sandboxId === sandboxId)) {
-      return true;
-    }
-
-    if (result.nextPageToken === undefined) {
-      return false;
-    }
-
-    pageToken = result.nextPageToken;
-  }
-
-  return false;
+export function sortedSandboxIds(ids: readonly SandboxId[]): SandboxId[] {
+  return [...ids].sort();
 }
 
-export async function listAllIncludesSandbox(
+export async function waitUntilListCondition(
   client: SandboxClient,
-  sandboxId: string,
-  tags: readonly SandboxTag[] = [],
-  options: { readonly pageSize?: number } = {},
-): Promise<Sandbox | undefined> {
-  const sandboxes = await client.listAll({
-    pageSize: options.pageSize ?? 100,
-    ...(tags.length === 0 ? {} : { tags }),
-  });
+  options: {
+    readonly expectedSandboxIds: readonly SandboxId[];
+    readonly listOptions: Omit<SandboxListOptions, "timeoutMs">;
+    readonly pollTimeoutMs: number;
+    readonly requestTimeoutMs?: number;
+  },
+): Promise<readonly SandboxId[]> {
+  const deadline = Date.now() + options.pollTimeoutMs;
+  const expected = sortedSandboxIds(options.expectedSandboxIds);
+  let lastIds: readonly SandboxId[] = [];
 
-  return sandboxes.find((sandbox) => sandbox.sandboxId === sandboxId);
+  while (Date.now() < deadline) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      break;
+    }
+    const requestTimeoutMs = Math.min(options.requestTimeoutMs ?? remaining, remaining);
+    const result = await client.list({
+      ...options.listOptions,
+      timeoutMs: requestTimeoutMs,
+    });
+    lastIds = result.sandboxes.map((sandbox) => sandbox.sandboxId);
+    if (sortedSandboxIds(lastIds).join("\0") === expected.join("\0")) {
+      return expected;
+    }
+    await sleep(1000);
+  }
+
+  throw new Error(
+    `list condition timed out after ${String(options.pollTimeoutMs)}ms: expected ${JSON.stringify(expected)}, last observed ${JSON.stringify(sortedSandboxIds(lastIds))}`,
+  );
+}
+
+export function requireLogResumeCursor(cursor: {
+  readonly offset?: bigint | number | string;
+  readonly sessionId?: string;
+}): LogResumeCursor {
+  if (cursor.sessionId === undefined || cursor.sessionId.trim() === "") {
+    throw new Error("log resume sessionId is required");
+  }
+  if (cursor.offset === undefined) {
+    throw new Error("log resume offset is required");
+  }
+  if (typeof cursor.offset === "string" && cursor.offset.trim() === "") {
+    throw new Error("log resume offset is required");
+  }
+  if (typeof cursor.offset === "number") {
+    throw new Error("log resume offset must be a string or bigint");
+  }
+  return { offset: cursor.offset, sessionId: cursor.sessionId };
+}
+
+export async function rejectAndNarrow<T>(
+  action: () => Promise<unknown>,
+  guard: (error: unknown) => error is T,
+): Promise<T> {
+  try {
+    await action();
+  } catch (error) {
+    if (guard(error)) {
+      return error;
+    }
+    throw error;
+  }
+  throw new Error("operation resolved unexpectedly");
+}
+
+export async function waitUntilFromIdTerminal(
+  client: SandboxClient,
+  sandboxId: SandboxId,
+  options: { readonly timeoutMs?: number } = {},
+): Promise<Sandbox> {
+  const timeoutMs = options.timeoutMs ?? 30_000;
+  const deadline = Date.now() + timeoutMs;
+  let lastStatus: SandboxStatus | undefined;
+
+  while (Date.now() < deadline) {
+    const sandbox = await client.fromId(sandboxId);
+    lastStatus = await sandbox.getStatus();
+    if (terminalStatuses.has(lastStatus)) {
+      return sandbox;
+    }
+    await sleep(1000);
+  }
+
+  throw new Error(
+    `sandbox '${sandboxId}' was not terminal via fromId after ${String(timeoutMs)}ms: last status ${String(lastStatus)}`,
+  );
+}
+
+export async function captureOp(action: () => Promise<void>): Promise<OpCapture> {
+  try {
+    await action();
+    return { failed: false };
+  } catch (error) {
+    return { failed: true, error };
+  }
+}
+
+export function combineCleanupError(primary: OpCapture, cleanup: OpCapture): void {
+  if (primary.failed && cleanup.failed) {
+    throw new AggregateError([primary.error, cleanup.error]);
+  }
+  if (primary.failed) {
+    throw primary.error;
+  }
+  if (cleanup.failed) {
+    throw cleanup.error;
+  }
 }
 
 export function logProcessResult(name: string, result: ProcessResult): void {
@@ -157,18 +221,6 @@ export function runPython(
   return sandbox.commands.run(["python", "-c", script], options);
 }
 
-export function defaultNetworkOptions(): SandboxRunOptions {
-  return {};
-}
-
-export function startOptionsForNoInternetNetwork(): SandboxRunOptions {
-  return {
-    network: {
-      denyEgress: true,
-    },
-  };
-}
-
 export const DNS_EGRESS_EXACT = "pypi.org";
 export const DNS_EGRESS_WILD = "*.pypi.org";
 export const DNS_EGRESS_WILD_HOST = "test.pypi.org";
@@ -176,7 +228,6 @@ export const DNS_EGRESS_UNGRANTED = "example.com";
 export const dnsEgressSmokeTimeoutMs = 180_000;
 export const dnsEgressWaitTimeoutMs = 150_000;
 
-const DNS_NAME_IN_MESSAGE = /dns[_]?name/i;
 const DNS_EGRESS_SKIP_REASONS = new Set([
   "CWSANDBOX_NO_SUITABLE_RUNNER",
   "CWSANDBOX_PLACEMENT_CONSTRAINT_UNSATISFIED",
@@ -188,6 +239,14 @@ export function startOptionsForDnsNameEgress(): SandboxRunOptions {
     timeoutMs: dnsEgressWaitTimeoutMs,
     network: {
       egress: [{ dnsName: DNS_EGRESS_EXACT }, { dnsName: DNS_EGRESS_WILD }],
+    },
+  };
+}
+
+export function startOptionsForNoInternetNetwork(): SandboxRunOptions {
+  return {
+    network: {
+      denyEgress: true,
     },
   };
 }
@@ -212,16 +271,11 @@ export async function httpsGetExitCode(
 }
 
 export function shouldSkipDnsEgress(error: unknown): boolean {
-  if (error instanceof CWSandboxValidationError) {
-    return DNS_NAME_IN_MESSAGE.test(error.message);
-  }
-  if (error instanceof CWSandboxTransportError) {
-    if (error.reason !== undefined && DNS_EGRESS_SKIP_REASONS.has(error.reason)) {
-      return true;
-    }
-    return DNS_NAME_IN_MESSAGE.test(error.message);
-  }
-  return false;
+  return (
+    error instanceof CWSandboxTransportError &&
+    error.reason !== undefined &&
+    DNS_EGRESS_SKIP_REASONS.has(error.reason)
+  );
 }
 
 export function uniqueSmokeTag(): SandboxTag {
@@ -251,6 +305,21 @@ export function expectExposedPorts(
   for (const port of expected) {
     expect(actual.has(port)).toBe(true);
   }
+}
+
+export function normalizedListenPorts(ports: readonly SandboxExposedPort[] | undefined): readonly {
+  readonly name: string | undefined;
+  readonly port: number;
+  readonly protocol: string | undefined;
+}[] {
+  return [...(ports ?? [])]
+    .map((port) => ({ name: port.name, port: port.port, protocol: port.protocol }))
+    .sort((left, right) => {
+      if (left.port !== right.port) {
+        return left.port - right.port;
+      }
+      return (left.name ?? "").localeCompare(right.name ?? "");
+    });
 }
 
 export async function waitForServiceUrl(
@@ -341,32 +410,6 @@ export async function waitForWebSocketEcho(
   throw new Error(`Timed out waiting for WebSocket echo from ${url}: ${String(lastError)}`);
 }
 
-export async function waitForSandboxListPresence(
-  client: SandboxClient,
-  sandboxId: string,
-  tags: readonly SandboxTag[],
-  options: {
-    readonly present: boolean;
-    readonly showTerminated?: boolean;
-    readonly timeoutMs?: number;
-  },
-): Promise<boolean> {
-  const timeoutMs = options.timeoutMs ?? 30_000;
-  const deadline = Date.now() + timeoutMs;
-
-  while (Date.now() < deadline) {
-    const listOptions =
-      options.showTerminated === undefined ? {} : { showTerminated: options.showTerminated };
-    const found = await listIncludesSandbox(client, sandboxId, tags, listOptions);
-    if (found === options.present) {
-      return true;
-    }
-    await sleep(1000);
-  }
-
-  return false;
-}
-
 export function withStartedSandbox<TResult>(
   client: SandboxClient,
   options: SandboxRunOptions & { readonly command?: CommandInput },
@@ -409,8 +452,7 @@ function createSmokeConfig(): SmokeConfig {
   return {
     hasCredentials,
     hasTemplateSmoke: templateSmoke !== undefined,
-    hasWandbCredentials: hasWandbCredentials(),
-    hasWandbSecretsSmoke: hasWandbCredentials() && wandbSecretsSmoke !== undefined,
+    hasWandbSecretsSmoke: wandbSecretsSmoke !== undefined,
     templateSmoke,
     wandbSecretsSmoke,
   };
@@ -432,15 +474,6 @@ function readWandbSecretsSmokeConfig(): SmokeConfig["wandbSecretsSmoke"] {
   const envVar = process.env["CWSANDBOX_SMOKE_SECRET_ENV_VAR"]?.trim() || name;
 
   return { envVar, expected, name, store };
-}
-
-function hasWandbCredentials(): boolean {
-  try {
-    resolveWandbApiKey();
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function readSmokeScript(filename: string): string {

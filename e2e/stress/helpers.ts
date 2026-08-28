@@ -17,6 +17,16 @@ import { afterAll, describe, expect } from "vitest";
 
 import { smokeConfig, testTimeoutMs, uniqueSmokeTag } from "../smoke/helpers.js";
 
+/** Known-good large unary size (matches Python integration; below 32 MiB cap). */
+export const LARGE_FILE_20_MIB = 20 * 1024 * 1024;
+
+/** Above default unary 32 MiB cap — forces StreamExec buffered fallback. */
+export const LARGE_FILE_40_MIB = 40 * 1024 * 1024;
+
+export const largeFileJourneyTimeoutMs = 300_000;
+export const largeFileDeleteTimeoutMs = 60_000;
+export const largeFileTestTimeoutMs = 420_000;
+
 export type StressLevel = "heavy" | "standard";
 
 export interface StressLimits {
@@ -157,6 +167,21 @@ export function installStressSummary(clientRef: () => SandboxClient | undefined)
       })}`,
     );
   }, stressConfig.timeoutMs);
+}
+
+export function remainingTimeoutMs(deadlineMs: number): number {
+  const remaining = deadlineMs - Date.now();
+  if (remaining <= 0) {
+    throw new Error("large-file journey budget exhausted");
+  }
+  return remaining;
+}
+
+export function largeFileRequestOptions(
+  signal: AbortSignal,
+  deadlineMs: number,
+): { readonly signal: AbortSignal; readonly timeoutMs: number } {
+  return { signal, timeoutMs: remainingTimeoutMs(deadlineMs) };
 }
 
 export function recordBytes(value: number): void {

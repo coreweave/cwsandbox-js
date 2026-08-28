@@ -2,11 +2,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
-import { CWSandboxExecutionError, type Sandbox, type SandboxClient } from "@coreweave/cwsandbox";
+import { randomUUID } from "node:crypto";
+
+import {
+  CWSANDBOX_FILE_NOT_FOUND,
+  CWSandboxExecutionError,
+  CWSandboxFileError,
+  CWSandboxNotFoundError,
+  CWSandboxTimeoutError,
+  CWSandboxTransportError,
+  type CommandProcess,
+  type Sandbox,
+  type SandboxClient,
+} from "@coreweave/cwsandbox";
 import { createSandboxClientFromEnv } from "@coreweave/cwsandbox/node";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
+  captureOp,
+  combineCleanupError,
   createPatternedPayload,
   dualHttpServerScript,
   expectBytesEqual,
@@ -14,23 +28,16 @@ import {
   expectRunning,
   expectTerminalStatus,
   httpsUrlToWss,
-  LARGE_FILE_20_MIB,
-  LARGE_FILE_40_MIB,
-  largeFileTimeout20Ms,
-  largeFileTimeout40Ms,
   STREAM_SMOKE_1_MIB,
-  listAllIncludesSandbox,
-  listIncludesSandbox,
-  logCaughtError,
   logProcessResult,
   mountedBinaryContent,
   noInternetProbeScript,
-  portProtocols,
+  normalizedListenPorts,
   publicHttpsService,
-  resourceProbeScript,
+  rejectAndNarrow,
+  requireLogResumeCursor,
   runPython,
   smokeConfig,
-  defaultNetworkOptions,
   DNS_EGRESS_EXACT,
   DNS_EGRESS_UNGRANTED,
   DNS_EGRESS_WILD,
@@ -43,16 +50,21 @@ import {
   testTimeoutMs,
   uniqueSmokeTag,
   waitForHttpOk,
-  waitForSandboxListPresence,
   waitForServiceUrl,
   waitForServiceUrls,
   waitForWebSocketEcho,
+  sortedSandboxIds,
+  waitUntilFromIdTerminal,
+  waitUntilListCondition,
   websocketEchoScript,
   withDedicatedTaggedSandbox,
   withStartedSandbox,
 } from "./helpers.js";
 
 const describeWithCredentials = smokeConfig.hasCredentials ? describe : describe.skip;
+const sharedTag = uniqueSmokeTag();
+const reconnectPath = `/tmp/cwsandbox-js-reconnect-${sharedTag}.txt`;
+const missingFilePath = `/tmp/cwsandbox-js-missing-${sharedTag}.txt`;
 
 describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
   let client: SandboxClient;
@@ -60,19 +72,34 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
 
   beforeAll(async () => {
     client = createSandboxClientFromEnv();
-    sandbox = await client.create();
+    sandbox = await client.create({ tags: [sharedTag] });
     console.log(`Started sandbox: ${sandbox.sandboxId}`);
     console.log("Sandbox ready: running");
   }, testTimeoutMs);
 
   afterAll(async () => {
-    if (sandbox === undefined) {
-      return;
-    }
-
-    console.log(`Stopping sandbox: ${sandbox.sandboxId}`);
-    await sandbox[Symbol.asyncDispose]();
-    sandbox = undefined;
+    const sharedId = sandbox?.sandboxId;
+    const primary = await captureOp(async () => {
+      if (sandbox === undefined) {
+        return;
+      }
+      console.log(`Stopping sandbox: ${sandbox.sandboxId}`);
+      await sandbox[Symbol.asyncDispose]();
+      sandbox = undefined;
+      if (sharedId !== undefined) {
+        await waitUntilListCondition(client, {
+          expectedSandboxIds: [],
+          listOptions: { tags: [sharedTag] },
+          pollTimeoutMs: 30_000,
+        });
+      }
+    });
+    const cleanup = await captureOp(async () => {
+      if (sharedId !== undefined) {
+        await client.delete(sharedId, { missingOk: true });
+      }
+    });
+    combineCleanupError(primary, cleanup);
   }, testTimeoutMs);
 
   describe("shared sandbox basics", () => {
@@ -80,7 +107,6 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
       "gets status and waits until running",
       async () => {
         expect.hasAssertions();
-
         await expectRunning(currentSandbox());
       },
       testTimeoutMs,
@@ -92,15 +118,6 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
         const activeSandbox = currentSandbox();
         await activeSandbox.wait();
         const info = await activeSandbox.inspect();
-
-        console.log("inspect metadata:", {
-          exposedPorts: info.exposedPorts,
-          runnerGroupId: info.runnerGroupId,
-          runnerId: info.runnerId,
-          serviceUrls: info.serviceUrls,
-          startedAt: info.startedAt?.toISOString(),
-          statusReason: info.statusReason,
-        });
 
         expect(info).toMatchObject({
           runnerId: expect.stringMatching(/\S/),
@@ -133,9 +150,16 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     it(
       "reconnects to an existing sandbox by id",
       async () => {
-        const reconnected = await client.fromId(currentSandbox().sandboxId);
+        const activeSandbox = currentSandbox();
+        await activeSandbox.files.write(reconnectPath, "hello from reconnect");
 
-        await expect(reconnected.getStatus()).resolves.toBe("running");
+        const fresh = await createSandboxClientFromEnv().fromId(activeSandbox.sandboxId);
+
+        await expect(fresh.getStatus()).resolves.toBe("running");
+        const execResult = await fresh.exec(["cat", reconnectPath]);
+        expect(execResult.exitCode).toBe(0);
+        expect(execResult.stdout).toBe("hello from reconnect");
+        expect(await fresh.files.readText(reconnectPath)).toBe("hello from reconnect");
       },
       testTimeoutMs,
     );
@@ -143,9 +167,12 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     it(
       "lists the current sandbox",
       async () => {
-        const isListed = await listIncludesSandbox(client, currentSandbox().sandboxId);
-
-        expect(isListed).toBe(true);
+        const ids = await waitUntilListCondition(client, {
+          expectedSandboxIds: [currentSandbox().sandboxId],
+          listOptions: { tags: [sharedTag] },
+          pollTimeoutMs: 30_000,
+        });
+        expect(ids).toEqual(sortedSandboxIds([currentSandbox().sandboxId]));
       },
       testTimeoutMs,
     );
@@ -191,14 +218,12 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
         await activeSandbox.files.write(path, "hello from cwd");
 
         const pwdResult = await activeSandbox.commands.run(["pwd"], { cwd: "/tmp" });
-        logProcessResult("cwd pwd", pwdResult);
         expect(pwdResult.exitCode).toBe(0);
         expect(pwdResult.stdout.trim()).toBe("/tmp");
 
         const catResult = await activeSandbox.commands.run(["cat", "cwsandbox-js-cwd.txt"], {
           cwd: "/tmp",
         });
-        logProcessResult("cwd cat", catResult);
         expect(catResult.exitCode).toBe(0);
         expect(catResult.stdout).toBe("hello from cwd");
       },
@@ -209,8 +234,6 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
       "returns non-zero command exit codes",
       async () => {
         const result = await runPython(currentSandbox(), "import sys; sys.exit(7)");
-        logProcessResult("failing command", result);
-
         expect(result.exitCode).toBe(7);
       },
       testTimeoutMs,
@@ -219,11 +242,32 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     it(
       "throws execution errors for checked non-zero command exits",
       async () => {
-        await expect(
-          currentSandbox().commands.run(["python", "-c", "import sys; sys.exit(7)"], {
-            check: true,
-          }),
-        ).rejects.toBeInstanceOf(CWSandboxExecutionError);
+        const error = await rejectAndNarrow(
+          () =>
+            currentSandbox().commands.run(["python", "-c", "import sys; sys.exit(7)"], {
+              check: true,
+            }),
+          (value): value is CWSandboxExecutionError => value instanceof CWSandboxExecutionError,
+        );
+        expect(error.code).toBe("execution_error");
+        if (error.result === undefined) {
+          throw new Error("CWSandboxExecutionError.result is required");
+        }
+        expect(error.result.exitCode).toBe(7);
+      },
+      testTimeoutMs,
+    );
+
+    it(
+      "times out a remote run and then reuses the sandbox",
+      async () => {
+        const error = await rejectAndNarrow(
+          () => currentSandbox().commands.run(["sleep", "10"], { timeoutMs: 1000 }),
+          (value): value is CWSandboxTimeoutError => value instanceof CWSandboxTimeoutError,
+        );
+        expect(error.code).toBe("timeout_error");
+        const result = await currentSandbox().exec(["true"]);
+        expect(result.exitCode).toBe(0);
       },
       testTimeoutMs,
     );
@@ -231,37 +275,42 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     it(
       "streams stdout and stderr through commands.start",
       async () => {
-        const process = await currentSandbox().commands.start([
-          "python",
-          "-c",
-          [
-            "import sys",
-            "print('stream-out-1')",
-            "print('stream-err-1', file=sys.stderr)",
-            "print('stream-out-2')",
-          ].join("; "),
-        ]);
-        expect(["running", "starting"]).toContain(process.status);
-        expect(process.poll()).toBeUndefined();
-        const [stderr, stdout] = await Promise.all([
-          collectStream(process.stderr),
-          collectStream(process.stdout),
-        ]);
-        const result = await process.wait();
+        await withProcessCleanup(
+          () =>
+            currentSandbox().commands.start([
+              "python",
+              "-c",
+              [
+                "import sys",
+                "print('stream-out-1')",
+                "print('stream-err-1', file=sys.stderr)",
+                "print('stream-out-2')",
+              ].join("; "),
+            ]),
+          async (process) => {
+            expect(["running", "starting"]).toContain(process.status);
+            expect(process.poll()).toBeUndefined();
+            const [stderr, stdout] = await Promise.all([
+              collectStream(process.stderr),
+              collectStream(process.stdout),
+            ]);
+            const result = await process.wait();
 
-        expect(process.status).toBe("exited");
-        expect(process.exitCode).toBe(0);
-        expect(process.poll()).toBe(0);
-        expect(stdout.join("")).toContain("stream-out-1");
-        expect(stdout.join("")).toContain("stream-out-2");
-        expect(stderr.join("")).toContain("stream-err-1");
-        expect(result.exitCode).toBe(0);
-        expect(result.ok).toBe(true);
-        expect(result.failed).toBe(false);
-        expect(result.stdout).toContain("stream-out-1");
-        expect(result.stderr).toContain("stream-err-1");
-        expect(new TextDecoder().decode(result.stdoutBytes)).toContain("stream-out-1");
-        expect(new TextDecoder().decode(result.stderrBytes)).toContain("stream-err-1");
+            expect(process.status).toBe("exited");
+            expect(process.exitCode).toBe(0);
+            expect(process.poll()).toBe(0);
+            expect(stdout.join("")).toContain("stream-out-1");
+            expect(stdout.join("")).toContain("stream-out-2");
+            expect(stderr.join("")).toContain("stream-err-1");
+            expect(result.exitCode).toBe(0);
+            expect(result.ok).toBe(true);
+            expect(result.failed).toBe(false);
+            expect(result.stdout).toContain("stream-out-1");
+            expect(result.stderr).toContain("stream-err-1");
+            expect(new TextDecoder().decode(result.stdoutBytes)).toContain("stream-out-1");
+            expect(new TextDecoder().decode(result.stderrBytes)).toContain("stream-err-1");
+          },
+        );
       },
       testTimeoutMs,
     );
@@ -269,21 +318,25 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     it(
       "returns non-zero streaming command exit codes",
       async () => {
-        const process = await currentSandbox().commands.start([
-          "python",
-          "-c",
-          "import sys; print('stream failing'); sys.exit(7)",
-        ]);
-        const stdout = collectStream(process.stdout);
-
-        const result = await process.wait();
-        expect(result.exitCode).toBe(7);
-        expect(result.ok).toBe(false);
-        expect(result.failed).toBe(true);
-        expect(process.status).toBe("exited");
-        expect(process.exitCode).toBe(7);
-        await expect(stdout).resolves.toEqual(
-          expect.arrayContaining([expect.stringContaining("stream failing")]),
+        await withProcessCleanup(
+          () =>
+            currentSandbox().commands.start([
+              "python",
+              "-c",
+              "import sys; print('stream failing'); sys.exit(7)",
+            ]),
+          async (process) => {
+            const stdout = collectStream(process.stdout);
+            const result = await process.wait();
+            expect(result.exitCode).toBe(7);
+            expect(result.ok).toBe(false);
+            expect(result.failed).toBe(true);
+            expect(process.status).toBe("exited");
+            expect(process.exitCode).toBe(7);
+            await expect(stdout).resolves.toEqual(
+              expect.arrayContaining([expect.stringContaining("stream failing")]),
+            );
+          },
         );
       },
       testTimeoutMs,
@@ -292,17 +345,21 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     it(
       "accumulates streaming output without consuming streams",
       async () => {
-        const process = await currentSandbox().commands.start([
-          "python",
-          "-c",
-          "import sys; print('wait-out'); print('wait-err', file=sys.stderr)",
-        ]);
-
-        await expect(process.wait()).resolves.toMatchObject({
-          exitCode: 0,
-          stderr: expect.stringContaining("wait-err"),
-          stdout: expect.stringContaining("wait-out"),
-        });
+        await withProcessCleanup(
+          () =>
+            currentSandbox().commands.start([
+              "python",
+              "-c",
+              "import sys; print('wait-out'); print('wait-err', file=sys.stderr)",
+            ]),
+          async (process) => {
+            await expect(process.wait()).resolves.toMatchObject({
+              exitCode: 0,
+              stderr: expect.stringContaining("wait-err"),
+              stdout: expect.stringContaining("wait-out"),
+            });
+          },
+        );
       },
       testTimeoutMs,
     );
@@ -310,18 +367,22 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     it(
       "accumulates stderr when only stdout is consumed",
       async () => {
-        const process = await currentSandbox().commands.start([
-          "python",
-          "-c",
-          "import sys; print('stdout-only'); print('hidden-stderr', file=sys.stderr)",
-        ]);
-        const stdout = collectStream(process.stdout);
-        const result = await process.wait();
-
-        await expect(stdout).resolves.toEqual(
-          expect.arrayContaining([expect.stringContaining("stdout-only")]),
+        await withProcessCleanup(
+          () =>
+            currentSandbox().commands.start([
+              "python",
+              "-c",
+              "import sys; print('stdout-only'); print('hidden-stderr', file=sys.stderr)",
+            ]),
+          async (process) => {
+            const stdout = collectStream(process.stdout);
+            const result = await process.wait();
+            await expect(stdout).resolves.toEqual(
+              expect.arrayContaining([expect.stringContaining("stdout-only")]),
+            );
+            expect(result.stderr).toContain("hidden-stderr");
+          },
         );
-        expect(result.stderr).toContain("hidden-stderr");
       },
       testTimeoutMs,
     );
@@ -329,17 +390,20 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     it(
       "caps accumulated streaming output without stopping live streaming",
       async () => {
-        const process = await currentSandbox().commands.start(
-          ["python", "-c", "print('x' * 2048)"],
-          { bufferedMaxKiB: 1 },
+        await withProcessCleanup(
+          () =>
+            currentSandbox().commands.start(["python", "-c", "print('x' * 2048)"], {
+              bufferedMaxKiB: 1,
+            }),
+          async (process) => {
+            const stdout = await collectStream(process.stdout);
+            const result = await process.wait();
+            expect(stdout.join("").length).toBeGreaterThan(1024);
+            expect(result.stdout.length).toBe(1024);
+            expect(result.stdoutBytesProduced).toBe(2049);
+            expect(result.stdoutTruncated).toBe(true);
+          },
         );
-        const stdout = await collectStream(process.stdout);
-        const result = await process.wait();
-
-        expect(stdout.join("").length).toBeGreaterThan(1024);
-        expect(result.stdout.length).toBe(1024);
-        expect(result.stdoutBytesProduced).toBe(2049);
-        expect(result.stdoutTruncated).toBe(true);
       },
       testTimeoutMs,
     );
@@ -347,20 +411,21 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     it(
       "writes stdin to a streaming command and closes EOF",
       async () => {
-        const process = await currentSandbox().commands.start(["cat"], { stdin: true });
-        const stdout = collectStream(process.stdout);
-
-        await process.stdin.write("hello ");
-        await process.stdin.writeln("stdin");
-        await process.stdin.close();
-
-        const result = await process.wait();
-        const stdoutChunks = await stdout;
-
-        expect(stdoutChunks.join("")).toContain("hello stdin\n");
-        expect(process.stdin.closed).toBe(true);
-        expect(result.exitCode).toBe(0);
-        expect(result.stdout).toContain("hello stdin\n");
+        await withProcessCleanup(
+          () => currentSandbox().commands.start(["cat"], { stdin: true }),
+          async (process) => {
+            const stdout = collectStream(process.stdout);
+            await process.stdin.write("hello ");
+            await process.stdin.writeln("stdin");
+            await process.stdin.close();
+            const result = await process.wait();
+            const stdoutChunks = await stdout;
+            expect(stdoutChunks.join("")).toContain("hello stdin\n");
+            expect(process.stdin.closed).toBe(true);
+            expect(result.exitCode).toBe(0);
+            expect(result.stdout).toContain("hello stdin\n");
+          },
+        );
       },
       testTimeoutMs,
     );
@@ -368,28 +433,30 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     it(
       "lets Python read multiple stdin lines before EOF",
       async () => {
-        const process = await currentSandbox().commands.start(
-          [
-            "python",
-            "-c",
-            [
-              "import sys",
-              "first = sys.stdin.readline().strip()",
-              "second = sys.stdin.readline().strip()",
-              "print(f'{first}:{second}')",
-            ].join("; "),
-          ],
-          { stdin: true },
+        await withProcessCleanup(
+          () =>
+            currentSandbox().commands.start(
+              [
+                "python",
+                "-c",
+                [
+                  "import sys",
+                  "first = sys.stdin.readline().strip()",
+                  "second = sys.stdin.readline().strip()",
+                  "print(f'{first}:{second}')",
+                ].join("; "),
+              ],
+              { stdin: true },
+            ),
+          async (process) => {
+            await process.stdin.writeln("alpha");
+            await process.stdin.writeln("beta");
+            await process.stdin.close();
+            const result = await process.wait();
+            expect(result.exitCode).toBe(0);
+            expect(result.stdout.trim()).toBe("alpha:beta");
+          },
         );
-
-        await process.stdin.writeln("alpha");
-        await process.stdin.writeln("beta");
-        await process.stdin.close();
-
-        const result = await process.wait();
-
-        expect(result.exitCode).toBe(0);
-        expect(result.stdout.trim()).toBe("alpha:beta");
       },
       testTimeoutMs,
     );
@@ -402,17 +469,89 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
           command: ["/bin/sh"],
           rows: 24,
         });
-        const output = collectStream(terminal.output);
+        const primary = await captureOp(async () => {
+          const output = collectStream(terminal.output);
+          await terminal.stdin.writeln("echo tty-smoke");
+          await terminal.stdin.writeln("exit 0");
+          await terminal.stdin.close();
+          const result = await terminal.wait();
+          const text = new TextDecoder().decode(concatBytes(await output));
+          expect(result.exitCode).toBe(0);
+          expect(text).toContain("tty-smoke");
+        });
+        const cleanup = await captureOp(async () => {
+          if (primary.failed) {
+            await terminal.cancel();
+          }
+        });
+        combineCleanupError(primary, cleanup);
+      },
+      testTimeoutMs,
+    );
 
-        await terminal.stdin.writeln("echo tty-smoke");
-        await terminal.stdin.writeln("exit 0");
-        await terminal.stdin.close();
+    it(
+      "times out a local process.wait then finishes the same process",
+      async () => {
+        await withProcessCleanup(
+          () =>
+            currentSandbox().commands.start([
+              "python",
+              "-c",
+              "import time; time.sleep(2); print('local-wait-done', flush=True)",
+            ]),
+          async (process) => {
+            const error = await rejectAndNarrow(
+              () => process.wait({ timeoutMs: 200 }),
+              (value): value is CWSandboxTimeoutError => value instanceof CWSandboxTimeoutError,
+            );
+            expect(error.code).toBe("timeout_error");
+            const result = await process.wait();
+            expect(result.exitCode).toBe(0);
+            expect(result.stdout.trim()).toBe("local-wait-done");
+            const reuse = await currentSandbox().exec(["true"]);
+            expect(reuse.exitCode).toBe(0);
+          },
+        );
+      },
+      testTimeoutMs,
+    );
 
-        const result = await terminal.wait();
-        const text = new TextDecoder().decode(concatBytes(await output));
-
-        expect(result.exitCode).toBe(0);
-        expect(text).toContain("tty-smoke");
+    it(
+      "cancels a streaming command and reuses the sandbox",
+      async () => {
+        const process = await currentSandbox().commands.start([
+          "python",
+          "-c",
+          "import time; print('tick', flush=True); time.sleep(30)",
+        ]);
+        let cancelled = false;
+        const primary = await captureOp(async () => {
+          let sawTick = false;
+          for await (const chunk of process.stdout) {
+            if (chunk.includes("tick")) {
+              sawTick = true;
+              break;
+            }
+          }
+          expect(sawTick).toBe(true);
+          await process.cancel();
+          cancelled = true;
+          const error = await rejectAndNarrow(
+            () => process.wait(),
+            (value): value is CWSandboxTransportError => value instanceof CWSandboxTransportError,
+          );
+          expect(error.code).toBe("transport_error");
+          expect(error.message).toBe("Streaming command cancelled.");
+          expect(process.status).toBe("cancelled");
+          const reuse = await currentSandbox().exec(["true"]);
+          expect(reuse.exitCode).toBe(0);
+        });
+        const cleanup = await captureOp(async () => {
+          if (!cancelled) {
+            await process.cancel();
+          }
+        });
+        combineCleanupError(primary, cleanup);
       },
       testTimeoutMs,
     );
@@ -427,11 +566,9 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
 
         await activeSandbox.files.write(path, "hello from files");
         const fileText = await activeSandbox.files.readText(path);
-        console.log(`file readText: ${JSON.stringify(fileText)}`);
         expect(fileText).toBe("hello from files");
 
         const catResult = await activeSandbox.commands.run(["cat", path]);
-        logProcessResult("cat", catResult);
         expect(catResult.exitCode).toBe(0);
         expect(catResult.stdout).toBe("hello from files");
       },
@@ -447,7 +584,6 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
 
         await activeSandbox.files.write(path, content);
         const result = await activeSandbox.files.read(path);
-
         expect(Array.from(result)).toEqual(Array.from(content));
       },
       testTimeoutMs,
@@ -474,6 +610,20 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
 
         const binaryFiles = await activeSandbox.files.read([binaryPath]);
         expect(Array.from(binaryFiles[binaryPath] ?? [])).toEqual(Array.from(binaryContent));
+      },
+      testTimeoutMs,
+    );
+
+    it(
+      "throws a typed error for a missing file",
+      async () => {
+        const error = await rejectAndNarrow(
+          () => currentSandbox().files.read(missingFilePath),
+          (value): value is CWSandboxFileError => value instanceof CWSandboxFileError,
+        );
+        expect(error.code).toBe("transport_error");
+        expect(error.reason).toBe(CWSANDBOX_FILE_NOT_FOUND);
+        expect(error.filepath).toBe(missingFilePath);
       },
       testTimeoutMs,
     );
@@ -513,69 +663,6 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     );
   });
 
-  describe("large files", () => {
-    it(
-      "round-trips a 20 MiB file (Python known-good size) at 256Mi",
-      async () => {
-        expect.hasAssertions();
-
-        const payload = createPatternedPayload(LARGE_FILE_20_MIB);
-        const path = `/tmp/cwsandbox-js-large-write-${LARGE_FILE_20_MIB}.bin`;
-
-        // Match Python integration defaults (20 MiB @ 256Mi). Above ~64 MiB the
-        // single-session StreamExec path OOMs (exit 137) regardless of memory.
-        await withStartedSandbox(
-          client,
-          {
-            resources: { cpu: "500m", memory: "256Mi" },
-            tags: [uniqueSmokeTag()],
-          },
-          async (sandbox) => {
-            try {
-              await sandbox.files.write(path, payload, { timeoutMs: largeFileTimeout20Ms });
-              const readBack = await sandbox.files.read(path, { timeoutMs: largeFileTimeout20Ms });
-              expectBytesEqual(readBack, payload);
-            } catch (error) {
-              logCaughtError("large file write 20 MiB", error);
-              throw error;
-            }
-          },
-        );
-      },
-      largeFileTimeout20Ms,
-    );
-
-    it(
-      "round-trips a 40 MiB file via StreamExec fallback at 256Mi",
-      async () => {
-        expect.hasAssertions();
-
-        const payload = createPatternedPayload(LARGE_FILE_40_MIB);
-        const path = `/tmp/cwsandbox-js-large-write-${LARGE_FILE_40_MIB}.bin`;
-
-        // Above default unary 32 MiB cap — exercises buffered StreamExec write/read.
-        await withStartedSandbox(
-          client,
-          {
-            resources: { cpu: "500m", memory: "256Mi" },
-            tags: [uniqueSmokeTag()],
-          },
-          async (sandbox) => {
-            try {
-              await sandbox.files.write(path, payload, { timeoutMs: largeFileTimeout40Ms });
-              const readBack = await sandbox.files.read(path, { timeoutMs: largeFileTimeout40Ms });
-              expectBytesEqual(readBack, payload);
-            } catch (error) {
-              logCaughtError("large file write 40 MiB", error);
-              throw error;
-            }
-          },
-        );
-      },
-      largeFileTimeout40Ms,
-    );
-  });
-
   describe("logs", () => {
     it(
       "reads finite main-command logs with tailLines",
@@ -584,9 +671,9 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
           ["/bin/sh", "-lc", "printf 'one\\ntwo\\nthree\\n'; sleep infinity"],
           async (sandbox) => {
             const lines = await sandbox.logs.read({ tailLines: 2 });
-
             expect(lines.join("")).toBe("two\nthree\n");
           },
+          { tags: [uniqueSmokeTag()] },
         );
       },
       testTimeoutMs,
@@ -596,7 +683,6 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
       "does not emit logs for the default keep-alive command",
       async () => {
         const lines = await currentSandbox().logs.read({ tailLines: 10 });
-
         expect(lines).toEqual([]);
       },
       testTimeoutMs,
@@ -611,9 +697,7 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
           "print('exec-only-log-smoke')",
         ]);
         expect(result.stdout).toContain("exec-only-log-smoke");
-
         const lines = await currentSandbox().logs.read({ tailLines: 20 });
-
         expect(lines.join("")).not.toContain("exec-only-log-smoke");
       },
       testTimeoutMs,
@@ -626,22 +710,23 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
           ["/bin/sh", "-lc", "sleep 1; printf 'READY\\n'; sleep infinity"],
           async (sandbox) => {
             const logs = await sandbox.logs.stream({ follow: true });
-            const lines: string[] = [];
-
-            try {
+            const primary = await captureOp(async () => {
+              const lines: string[] = [];
               for await (const line of logs) {
                 lines.push(line);
                 if (line.includes("READY")) {
                   await logs.close();
                 }
               }
-            } finally {
+              expect(lines.join("")).toContain("READY\n");
+              expect(logs.closed).toBe(true);
+            });
+            const cleanup = await captureOp(async () => {
               await logs.close();
-            }
-
-            expect(lines.join("")).toContain("READY\n");
-            expect(logs.closed).toBe(true);
+            });
+            combineCleanupError(primary, cleanup);
           },
+          { tags: [uniqueSmokeTag()] },
         );
       },
       testTimeoutMs,
@@ -654,17 +739,18 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
           ["/bin/sh", "-lc", "printf 'structured-log\\n'; sleep infinity"],
           async (sandbox) => {
             const stream = await sandbox.logs.streamEntries({ tailLines: 1, timestamps: true });
-
-            try {
+            const primary = await captureOp(async () => {
               const entries = await collectStream(stream);
               const entry = entries.at(0);
-
               expect(entry?.line).toContain("structured-log");
               expect(entry?.offset).not.toBe("");
-            } finally {
+            });
+            const cleanup = await captureOp(async () => {
               await stream.close();
-            }
+            });
+            combineCleanupError(primary, cleanup);
           },
+          { tags: [uniqueSmokeTag()] },
         );
       },
       testTimeoutMs,
@@ -677,18 +763,92 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
           ["/bin/sh", "-lc", "printf 'raw-log\\n'; sleep infinity"],
           async (sandbox) => {
             const stream = await sandbox.logs.streamRaw({ tailLines: 1 });
-
-            try {
+            const primary = await captureOp(async () => {
               const chunks = await collectStream(stream);
               const chunk = chunks.at(0);
-
               expect(chunk?.data).toBeInstanceOf(Uint8Array);
               expect(chunk?.text).toContain("raw-log");
               expect(chunk?.offset).not.toBe("");
-            } finally {
+            });
+            const cleanup = await captureOp(async () => {
               await stream.close();
-            }
+            });
+            combineCleanupError(primary, cleanup);
           },
+          { tags: [uniqueSmokeTag()] },
+        );
+      },
+      testTimeoutMs,
+    );
+
+    it(
+      "resumes a follow stream from the captured cursor in order",
+      async () => {
+        const producer = [
+          "import time, pathlib",
+          "p = pathlib.Path('/tmp/cwsandbox-js-log-go')",
+          "while not p.exists():",
+          "    time.sleep(0.05)",
+          "for i in range(1, 21):",
+          "    print(f'line-{i:04d}', flush=True)",
+          "    time.sleep(0.1)",
+          "time.sleep(60)",
+        ].join("\n");
+
+        await client.withSandbox(
+          ["python", "-c", producer],
+          async (sandbox) => {
+            const first = await sandbox.logs.streamRaw({ follow: true });
+            const firstChunks: Uint8Array[] = [];
+            let resume: ReturnType<typeof requireLogResumeCursor> | undefined;
+            const firstPrimary = await captureOp(async () => {
+              await sandbox.files.write("/tmp/cwsandbox-js-log-go", "go");
+              let lastChunk: { offset?: string; sessionId?: string } | undefined;
+              for await (const chunk of first) {
+                lastChunk = chunk;
+                firstChunks.push(chunk.data);
+                if (numberedLogLines(concatBytes(firstChunks)).length >= 5) {
+                  break;
+                }
+              }
+              if (lastChunk === undefined) {
+                throw new Error("expected at least one raw log chunk before resume");
+              }
+              resume = requireLogResumeCursor({
+                ...(lastChunk.offset === undefined ? {} : { offset: lastChunk.offset }),
+                ...(lastChunk.sessionId === undefined ? {} : { sessionId: lastChunk.sessionId }),
+              });
+            });
+            const firstCleanup = await captureOp(async () => {
+              await first.close();
+            });
+            combineCleanupError(firstPrimary, firstCleanup);
+
+            if (resume === undefined) {
+              throw new Error("log resume cursor is required after the first follow stream");
+            }
+            const second = await sandbox.logs.streamRaw({ follow: true, resume });
+            const secondPrimary = await captureOp(async () => {
+              const secondChunks: Uint8Array[] = [];
+              for await (const chunk of second) {
+                secondChunks.push(chunk.data);
+                if (numberedLogLines(concatBytes([...firstChunks, ...secondChunks])).length >= 12) {
+                  break;
+                }
+              }
+              const combined = numberedLogLines(concatBytes([...firstChunks, ...secondChunks]));
+              const expected = Array.from(
+                { length: combined.length },
+                (_, index) => `line-${String(index + 1).padStart(4, "0")}`,
+              );
+              expect(combined).toEqual(expected);
+            });
+            const secondCleanup = await captureOp(async () => {
+              await second.close();
+            });
+            combineCleanupError(secondPrimary, secondCleanup);
+          },
+          { tags: [uniqueSmokeTag()] },
         );
       },
       testTimeoutMs,
@@ -696,92 +856,6 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
   });
 
   describe("start options", () => {
-    it(
-      "starts a sandbox with annotations",
-      async () => {
-        await withStartedSandbox(
-          client,
-          {
-            annotations: {
-              purpose: "smoke-test",
-              team: "platform",
-            },
-          },
-          (sandbox) => {
-            expect(sandbox.sandboxId).not.toBe("");
-          },
-        );
-      },
-      testTimeoutMs,
-    );
-
-    it(
-      "starts and lists a sandbox by tag",
-      async () => {
-        const tag = uniqueSmokeTag();
-
-        await withStartedSandbox(
-          client,
-          {
-            tags: [tag],
-          },
-          async (sandbox) => {
-            const isListed = await listIncludesSandbox(client, sandbox.sandboxId, [tag]);
-
-            expect(isListed).toBe(true);
-          },
-        );
-      },
-      testTimeoutMs,
-    );
-
-    it(
-      "lists matching sandboxes via listSandboxes",
-      async () => {
-        const tag = uniqueSmokeTag();
-        const count = 3;
-        const created: Sandbox[] = [];
-        const listOptions = { pageSize: 1 as const, tags: [tag] };
-
-        try {
-          const batch = await Promise.all(
-            Array.from({ length: count }, () => client.create({ tags: [tag] })),
-          );
-          created.push(...batch);
-
-          // pageSize: 1 forces nextPageToken follow-up across the created batch.
-          const fromItems = new Set<string>();
-          for await (const sandbox of client.listSandboxes(listOptions)) {
-            fromItems.add(sandbox.sandboxId);
-          }
-
-          const fromPages = new Set<string>();
-          for await (const page of client.listSandboxes(listOptions).byPage()) {
-            for (const sandbox of page) {
-              fromPages.add(sandbox.sandboxId);
-            }
-          }
-
-          const fromCollect = new Set(
-            (await client.listSandboxes(listOptions).collect()).map((sandbox) => sandbox.sandboxId),
-          );
-          const fromListAll = new Set(
-            (await client.listAll(listOptions)).map((sandbox) => sandbox.sandboxId),
-          );
-
-          for (const sandbox of created) {
-            expect(fromItems.has(sandbox.sandboxId)).toBe(true);
-            expect(fromPages.has(sandbox.sandboxId)).toBe(true);
-            expect(fromCollect.has(sandbox.sandboxId)).toBe(true);
-            expect(fromListAll.has(sandbox.sandboxId)).toBe(true);
-          }
-        } finally {
-          await Promise.allSettled(created.map((sandbox) => sandbox.delete({ missingOk: true })));
-        }
-      },
-      testTimeoutMs,
-    );
-
     it(
       "starts a sandbox with environment variables",
       async () => {
@@ -791,125 +865,16 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
             environmentVariables: {
               CWSANDBOX_JS_SMOKE: "hello from env",
             },
+            tags: [uniqueSmokeTag()],
           },
           async (sandbox) => {
             const result = await runPython(
               sandbox,
               "import os; print(os.environ['CWSANDBOX_JS_SMOKE'])",
             );
-            logProcessResult("environment variables", result);
-
             expect(result.exitCode).toBe(0);
             expect(result.stdout.trim()).toBe("hello from env");
             expect(result.stderr).toBe("");
-          },
-        );
-      },
-      testTimeoutMs,
-    );
-
-    it(
-      "runs a mounted Python script",
-      async () => {
-        const mountedSandbox = await client.run(["python", "/workspace/mounted.py"], {
-          mountedFiles: {
-            "/workspace/mounted.py": "print('hello from mounted file')",
-          },
-          waitUntilRunning: false,
-        });
-
-        await expect(mountedSandbox.wait({ targetStatus: "completed" })).resolves.toBe(
-          mountedSandbox,
-        );
-        await expect(mountedSandbox.getStatus()).resolves.toBe("completed");
-      },
-      testTimeoutMs,
-    );
-
-    it(
-      "starts a sandbox with a mounted binary file",
-      async () => {
-        await withStartedSandbox(
-          client,
-          {
-            mountedFiles: [
-              {
-                content: mountedBinaryContent,
-                path: "/workspace/startup.bin",
-              },
-            ],
-          },
-          async (sandbox) => {
-            const content = await sandbox.files.read("/workspace/startup.bin");
-
-            expect(Array.from(content)).toEqual(Array.from(mountedBinaryContent));
-          },
-        );
-      },
-      testTimeoutMs,
-    );
-
-    it(
-      "starts a sandbox with resource requests",
-      async () => {
-        await withStartedSandbox(
-          client,
-          {
-            resources: {
-              cpu: "100m",
-              memory: "128Mi",
-            },
-          },
-          async (sandbox) => {
-            const result = await runPython(sandbox, resourceProbeScript);
-            logProcessResult("resources", result);
-
-            expect(result.exitCode).toBe(0);
-            expect(result.stdout).toContain("cpu.max=");
-            expect(result.stdout).toContain("memory.max=");
-          },
-        );
-      },
-      testTimeoutMs,
-    );
-
-    it.each(portProtocols)(
-      "accepts listen-only %s service without assigning a URL",
-      async (protocol) => {
-        await withStartedSandbox(
-          client,
-          {
-            services: [
-              {
-                name: `port-${protocol}`,
-                port: 8000,
-                protocol,
-              },
-            ],
-          },
-          async (sandbox) => {
-            console.log(`Started ${protocol} service sandbox: ${sandbox.sandboxId}`);
-            const info = await sandbox.inspect();
-            expect(info.serviceUrls ?? []).toEqual([]);
-          },
-        );
-      },
-      testTimeoutMs,
-    );
-
-    it(
-      "assigns a public HTTPS service URL",
-      async () => {
-        await withStartedSandbox(
-          client,
-          {
-            services: [publicHttpsService(8000, "http")],
-          },
-          async (sandbox) => {
-            const service = await waitForServiceUrl(sandbox, 8000);
-            console.log("HTTPS service assignment:", service.url);
-            expect(service.url).toEqual(expect.stringMatching(/^https:\/\//));
-            expectExposedPorts(sandbox.exposedPorts, [8000]);
           },
         );
       },
@@ -928,6 +893,7 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
               "/workspace/dual-http-server.js": dualHttpServerScript,
             },
             services: [publicHttpsService(8000, "http-a"), publicHttpsService(8001, "http-b")],
+            tags: [uniqueSmokeTag()],
           },
           async (sandbox) => {
             const services = await waitForServiceUrls(sandbox, [8000, 8001]);
@@ -967,6 +933,7 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
               "/workspace/websocket-echo.js": websocketEchoScript,
             },
             services: [publicHttpsService(8000, "ws")],
+            tags: [uniqueSmokeTag()],
           },
           async (sandbox) => {
             const service = await waitForServiceUrl(sandbox, 8000);
@@ -978,33 +945,115 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
       },
       testTimeoutMs,
     );
-  });
 
-  describe("network behavior", () => {
     it(
-      "creates a sandbox with default network options",
+      "starts a configured-options sandbox and uses it as the tag-negative control",
       async () => {
-        await withStartedSandbox(client, defaultNetworkOptions(), (sandbox) => {
-          console.log(`Started default-network sandbox: ${sandbox.sandboxId}`);
-          expect(sandbox.sandboxId).not.toBe("");
-        });
+        const configuredTag = uniqueSmokeTag();
+        const expectedPorts = [
+          { name: "port-sctp", port: 8002, protocol: "sctp" as const },
+          { name: "port-tcp", port: 8000, protocol: "tcp" as const },
+          { name: "port-udp", port: 8001, protocol: "udp" as const },
+        ].sort((left, right) => left.port - right.port);
+
+        await withStartedSandbox(
+          client,
+          {
+            mountedFiles: {
+              "/workspace/mounted.txt": "hello from mounted text",
+              "/workspace/startup.bin": mountedBinaryContent,
+            },
+            resources: { cpu: "100m", memory: "128Mi" },
+            services: [
+              { name: "port-tcp", port: 8000, protocol: "tcp", visibility: "private" },
+              { name: "port-udp", port: 8001, protocol: "udp", visibility: "private" },
+              { name: "port-sctp", port: 8002, protocol: "sctp", visibility: "private" },
+            ],
+            tags: [configuredTag],
+          },
+          async (sandbox) => {
+            const text = await sandbox.exec(["cat", "/workspace/mounted.txt"]);
+            expect(text.exitCode).toBe(0);
+            expect(text.stdout).toBe("hello from mounted text");
+            expectBytesEqual(
+              await sandbox.files.read("/workspace/startup.bin"),
+              mountedBinaryContent,
+            );
+
+            const expectedResources = { cpu: "100m", memory: "128Mi" };
+            expect(sandbox.resourceRequests).toEqual(expectedResources);
+            expect(sandbox.resourceLimits).toEqual(expectedResources);
+            const inspected = await sandbox.inspect();
+            expect(inspected.resourceRequests).toEqual(expectedResources);
+            expect(inspected.resourceLimits).toEqual(expectedResources);
+
+            expect(normalizedListenPorts(sandbox.exposedPorts)).toEqual(expectedPorts);
+            expect(normalizedListenPorts(inspected.exposedPorts)).toEqual(expectedPorts);
+
+            await waitUntilListCondition(client, {
+              expectedSandboxIds: [sandbox.sandboxId],
+              listOptions: { tags: [configuredTag] },
+              pollTimeoutMs: 30_000,
+            });
+            await waitUntilListCondition(client, {
+              expectedSandboxIds: [currentSandbox().sandboxId],
+              listOptions: { tags: [sharedTag] },
+              pollTimeoutMs: 30_000,
+            });
+          },
+        );
       },
       testTimeoutMs,
     );
 
     it(
+      "reconnects to a stopped sandbox and filters it from the running shared-tag list",
+      async () => {
+        const stoppedTag = uniqueSmokeTag();
+        const dedicated = await client.create({ tags: [stoppedTag, sharedTag] });
+
+        try {
+          await dedicated.wait();
+          await dedicated.stop();
+          const recovered = await createSandboxClientFromEnv().fromId(dedicated.sandboxId);
+          await expectTerminalStatus(recovered);
+
+          const terminated = await waitUntilListCondition(client, {
+            expectedSandboxIds: [currentSandbox().sandboxId, dedicated.sandboxId],
+            listOptions: { showTerminated: true, tags: [sharedTag] },
+            pollTimeoutMs: 30_000,
+          });
+          expect(terminated).toEqual(
+            sortedSandboxIds([currentSandbox().sandboxId, dedicated.sandboxId]),
+          );
+          const running = await waitUntilListCondition(client, {
+            expectedSandboxIds: [currentSandbox().sandboxId],
+            listOptions: { showTerminated: true, status: "running", tags: [sharedTag] },
+            pollTimeoutMs: 30_000,
+          });
+          expect(running).toEqual(sortedSandboxIds([currentSandbox().sandboxId]));
+        } finally {
+          await dedicated.delete({ missingOk: true });
+        }
+      },
+      testTimeoutMs,
+    );
+  });
+
+  describe("network behavior", () => {
+    it(
       "blocks outbound internet in a no-internet sandbox",
       async () => {
-        await withStartedSandbox(client, startOptionsForNoInternetNetwork(), async (sandbox) => {
-          console.log(`Started no-internet sandbox: ${sandbox.sandboxId}`);
-
-          const result = await runPython(sandbox, noInternetProbeScript);
-          logProcessResult("no-internet egress", result);
-
-          expect(result.exitCode).toBe(0);
-          expect(result.stdout).toContain("BLOCKED");
-          expect(result.stdout).not.toContain("CONNECTED");
-        });
+        await withStartedSandbox(
+          client,
+          { ...startOptionsForNoInternetNetwork(), tags: [uniqueSmokeTag()] },
+          async (sandbox) => {
+            const result = await runPython(sandbox, noInternetProbeScript);
+            expect(result.exitCode).toBe(0);
+            expect(result.stdout).toContain("BLOCKED");
+            expect(result.stdout).not.toContain("CONNECTED");
+          },
+        );
       },
       testTimeoutMs,
     );
@@ -1012,22 +1061,13 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     it(
       "grants HTTPS to declared dns names and misses the rest",
       async (ctx) => {
+        let admitted: Sandbox | undefined;
         try {
-          await withStartedSandbox(client, startOptionsForDnsNameEgress(), async (sandbox) => {
-            console.log(`Started dns-egress sandbox: ${sandbox.sandboxId}`);
-
-            const granted = [DNS_EGRESS_EXACT, DNS_EGRESS_WILD];
-            expect(sandbox.dnsEgressNames).toEqual(expect.arrayContaining(granted));
-            expect((await sandbox.inspect()).dnsEgressNames).toEqual(
-              expect.arrayContaining(granted),
-            );
-
-            expect(await httpsGetExitCode(sandbox, `https://${DNS_EGRESS_EXACT}`, 20)).toBe(0);
-            expect(await httpsGetExitCode(sandbox, `https://${DNS_EGRESS_WILD_HOST}`, 20)).toBe(0);
-            expect(await httpsGetExitCode(sandbox, `https://${DNS_EGRESS_UNGRANTED}`, 8)).not.toBe(
-              0,
-            );
+          admitted = await client.create({
+            ...startOptionsForDnsNameEgress(),
+            tags: [uniqueSmokeTag()],
           });
+          await admitted.wait();
         } catch (error) {
           if (shouldSkipDnsEgress(error)) {
             ctx.skip(`fleet cannot admit DNS-name egress: ${String(error)}`);
@@ -1035,97 +1075,23 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
           }
           throw error;
         }
+
+        try {
+          const granted = [DNS_EGRESS_EXACT, DNS_EGRESS_WILD];
+          expect(admitted.dnsEgressNames).toEqual(expect.arrayContaining(granted));
+          expect((await admitted.inspect()).dnsEgressNames).toEqual(
+            expect.arrayContaining(granted),
+          );
+          expect(await httpsGetExitCode(admitted, `https://${DNS_EGRESS_EXACT}`, 20)).toBe(0);
+          expect(await httpsGetExitCode(admitted, `https://${DNS_EGRESS_WILD_HOST}`, 20)).toBe(0);
+          expect(await httpsGetExitCode(admitted, `https://${DNS_EGRESS_UNGRANTED}`, 8)).not.toBe(
+            0,
+          );
+        } finally {
+          await admitted.delete({ missingOk: true });
+        }
       },
       dnsEgressSmokeTimeoutMs,
-    );
-  });
-
-  describe("stress coverage", () => {
-    it(
-      "waits for high-volume streaming output without consuming streams",
-      async () => {
-        const process = await currentSandbox().commands.start(
-          [
-            "python",
-            "-c",
-            [
-              "import sys",
-              "for _ in range(128):",
-              "    sys.stdout.write('x' * 4096)",
-              "    sys.stdout.flush()",
-            ].join("\n"),
-          ],
-          { bufferedMaxKiB: 1 },
-        );
-
-        const result = await process.wait({ timeoutMs: 30_000 });
-
-        expect(result.exitCode).toBe(0);
-        expect(result.stdout.length).toBe(1024);
-        expect(result.stdoutBytesProduced).toBeGreaterThan(1024);
-        expect(result.stdoutTruncated).toBe(true);
-      },
-      testTimeoutMs,
-    );
-
-    it(
-      "runs commands from a cwd containing spaces and quotes",
-      async () => {
-        const cwd = "/tmp/cwsandbox js quoted 'dir";
-        const setupResult = await runPython(
-          currentSandbox(),
-          [
-            "import os",
-            `cwd = ${JSON.stringify(cwd)}`,
-            "os.makedirs(cwd, exist_ok=True)",
-            "open(os.path.join(cwd, 'message.txt'), 'w').write('quoted cwd ok')",
-          ].join("; "),
-        );
-        expect(setupResult.exitCode).toBe(0);
-
-        const pwdResult = await currentSandbox().commands.run(["pwd"], { cwd });
-        expect(pwdResult.exitCode).toBe(0);
-        expect(pwdResult.stdout.trim()).toBe(cwd);
-
-        const catResult = await currentSandbox().commands.run(["cat", "message.txt"], { cwd });
-        expect(catResult.exitCode).toBe(0);
-        expect(catResult.stdout).toBe("quoted cwd ok");
-      },
-      testTimeoutMs,
-    );
-
-    it(
-      "round-trips a larger batch of small files",
-      async () => {
-        const files = Object.fromEntries(
-          Array.from({ length: 12 }, (_, index) => [
-            `/tmp/cwsandbox-js-stress-${index}.txt`,
-            `stress-${index}`,
-          ]),
-        );
-
-        await currentSandbox().files.write(files);
-        const result = await currentSandbox().files.readText(Object.keys(files));
-
-        expect(result).toEqual(files);
-      },
-      testTimeoutMs,
-    );
-
-    it(
-      "finds a tagged sandbox through low-page-size pagination",
-      async () => {
-        const tag = uniqueSmokeTag();
-
-        await withStartedSandbox(client, { tags: [tag] }, async (sandbox) => {
-          const isListed = await listIncludesSandbox(client, sandbox.sandboxId, [tag], {
-            pageSize: 1,
-          });
-
-          expect(isListed).toBe(true);
-        });
-      },
-      testTimeoutMs,
     );
   });
 
@@ -1137,10 +1103,8 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
         let deleted = false;
 
         try {
-          dedicatedSandbox = await client.create();
+          dedicatedSandbox = await client.create({ tags: [uniqueSmokeTag()] });
           const sandboxId = dedicatedSandbox.sandboxId;
-          console.log(`Started delete sandbox: ${sandboxId}`);
-
           await client.delete(sandboxId);
           await client.delete(sandboxId, { missingOk: true });
           deleted = true;
@@ -1158,9 +1122,7 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     it(
       "stop({ missingOk: true }) succeeds after delete",
       async () => {
-        const sandbox = await client.create();
-        console.log(`Started stop-missingOk sandbox: ${sandbox.sandboxId}`);
-
+        const sandbox = await client.create({ tags: [uniqueSmokeTag()] });
         await client.delete(sandbox.sandboxId);
         await expect(sandbox.stop({ missingOk: true })).resolves.toBeUndefined();
       },
@@ -1168,48 +1130,97 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     );
 
     it(
-      "lists a stopped sandbox only when showTerminated is true",
+      "cleans up automatically with withSandbox",
       async () => {
         const tag = uniqueSmokeTag();
-        const dedicated = await client.create({ tags: [tag] });
+        const result = await withStartedSandbox(client, { tags: [tag] }, (sandbox) => {
+          return runPython(sandbox, "print('hello from withSandbox')");
+        });
 
-        try {
-          await dedicated.wait();
-          await dedicated.stop();
-          await expectTerminalStatus(dedicated);
-
-          const hidden = await waitForSandboxListPresence(client, dedicated.sandboxId, [tag], {
-            present: false,
-          });
-          expect(hidden).toBe(true);
-          expect(await listAllIncludesSandbox(client, dedicated.sandboxId, [tag])).toBeUndefined();
-
-          const shown = await waitForSandboxListPresence(client, dedicated.sandboxId, [tag], {
-            present: true,
-            showTerminated: true,
-          });
-          expect(shown).toBe(true);
-        } finally {
-          await dedicated.delete({ missingOk: true });
-        }
+        expect(result.exitCode).toBe(0);
+        expect(result.stdout).toContain("hello from withSandbox");
+        expect(result.stderr).toBe("");
+        await waitUntilListCondition(client, {
+          expectedSandboxIds: [],
+          listOptions: { tags: [tag] },
+          pollTimeoutMs: 30_000,
+        });
       },
       testTimeoutMs,
     );
 
     it(
-      "cleans up automatically with withSandbox",
+      "preserves a withSandbox callback error and still cleans up",
       async () => {
-        const result = await withStartedSandbox(client, {}, (sandbox) => {
-          console.log(`Started withSandbox sandbox: ${sandbox.sandboxId}`);
-
-          return runPython(sandbox, "print('hello from withSandbox')");
+        const tag = uniqueSmokeTag();
+        const callbackError = new Error("withSandbox callback failed");
+        let sandboxId: string | undefined;
+        const primary = await captureOp(async () => {
+          await client.withSandbox(
+            async (sandbox) => {
+              sandboxId = sandbox.sandboxId;
+              throw callbackError;
+            },
+            { tags: [tag] },
+          );
         });
+        expect(primary).toEqual({ error: callbackError, failed: true });
+        const observed = await captureOp(async () => {
+          await waitUntilListCondition(client, {
+            expectedSandboxIds: [],
+            listOptions: { tags: [tag] },
+            pollTimeoutMs: 30_000,
+          });
+        });
+        if (!observed.failed) {
+          return;
+        }
+        const cleanupErrors: unknown[] = [observed.error];
+        if (sandboxId !== undefined) {
+          const leftoverId = sandboxId;
+          const fallback = await captureOp(async () => {
+            await client.delete(leftoverId, { missingOk: true });
+          });
+          if (fallback.failed) {
+            cleanupErrors.push(fallback.error);
+          }
+        }
+        throw new AggregateError([callbackError, ...cleanupErrors]);
+      },
+      testTimeoutMs,
+    );
 
-        logProcessResult("withSandbox", result);
+    it(
+      "hides a deleted sandbox from the default list",
+      async () => {
+        const tag = uniqueSmokeTag();
+        const dedicated = await client.create({ tags: [tag] });
+        await dedicated.wait();
+        const sandboxId = dedicated.sandboxId;
+        await client.delete(sandboxId);
+        const remaining = await waitUntilListCondition(client, {
+          expectedSandboxIds: [],
+          listOptions: { tags: [tag] },
+          pollTimeoutMs: 30_000,
+        });
+        expect(remaining).toEqual([]);
+        const recovered = await waitUntilFromIdTerminal(client, sandboxId);
+        await expectTerminalStatus(recovered);
+        expect(recovered.sandboxId).toBe(sandboxId);
+      },
+      testTimeoutMs,
+    );
 
-        expect(result.exitCode).toBe(0);
-        expect(result.stdout).toContain("hello from withSandbox");
-        expect(result.stderr).toBe("");
+    it(
+      "fromId of a never-created id returns a typed not-found error",
+      async () => {
+        const sandboxId = randomUUID();
+        const error = await rejectAndNarrow(
+          () => client.fromId(sandboxId),
+          (value): value is CWSandboxNotFoundError => value instanceof CWSandboxNotFoundError,
+        );
+        expect(error.code).toBe("not_found");
+        expect(error.sandboxId).toBe(sandboxId);
       },
       testTimeoutMs,
     );
@@ -1218,7 +1229,6 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
       "stop() waits until the sandbox reaches a terminal status",
       async () => {
         expect.hasAssertions();
-
         await withDedicatedTaggedSandbox(
           client,
           { waitUntilRunning: true },
@@ -1240,7 +1250,6 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
           async (dedicatedSandbox) => {
             await dedicatedSandbox.stop();
             await expectTerminalStatus(dedicatedSandbox);
-
             await expect(dedicatedSandbox.stop()).resolves.toBeUndefined();
             await expectTerminalStatus(dedicatedSandbox);
           },
@@ -1253,7 +1262,6 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
       "concurrent stop() calls share one in-flight operation",
       async () => {
         expect.hasAssertions();
-
         await withDedicatedTaggedSandbox(
           client,
           { waitUntilRunning: true },
@@ -1305,10 +1313,8 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
             await expect(sandbox.wait({ targetStatus: "completed" })).resolves.toBe(sandbox);
             expect(sandbox.status).toBe("completed");
             expect(sandbox.exitCode).toBe(0);
-
             const info = await sandbox.inspect();
             expect(info.exitCode).toBe(0);
-
             const got = await client.get(sandbox.sandboxId);
             expect(got.exitCode).toBe(0);
           },
@@ -1322,7 +1328,6 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     if (sandbox === undefined) {
       throw new Error("Sandbox has not been started.");
     }
-
     return sandbox;
   }
 });
@@ -1331,24 +1336,41 @@ if (!smokeConfig.hasCredentials) {
   console.log("Skipping live CWSandbox smoke e2e: CWSANDBOX_API_KEY is not set.");
 }
 
+async function withProcessCleanup<TProcess extends CommandProcess>(
+  start: () => Promise<TProcess>,
+  body: (process: TProcess) => Promise<void>,
+): Promise<void> {
+  const process = await start();
+  const primary = await captureOp(async () => {
+    await body(process);
+  });
+  const cleanup = await captureOp(async () => {
+    if (process.status === "running" || process.status === "starting") {
+      await process.cancel();
+    }
+  });
+  combineCleanupError(primary, cleanup);
+}
+
 async function collectStream<T>(stream: AsyncIterable<T>): Promise<T[]> {
   const chunks: T[] = [];
-
   for await (const chunk of stream) {
     chunks.push(chunk);
   }
-
   return chunks;
 }
 
 function concatBytes(chunks: readonly Uint8Array[]): Uint8Array {
   const output = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.byteLength, 0));
   let offset = 0;
-
   for (const chunk of chunks) {
     output.set(chunk, offset);
     offset += chunk.byteLength;
   }
-
   return output;
+}
+
+function numberedLogLines(bytes: Uint8Array): string[] {
+  const complete = new TextDecoder().decode(bytes).split("\n").slice(0, -1);
+  return complete.map((line) => line.trim()).filter((line) => line.startsWith("line-"));
 }
