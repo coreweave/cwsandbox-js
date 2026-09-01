@@ -33,8 +33,9 @@ import {
 } from "./streaming-requests.js";
 
 export async function startGrpcShell(
-  streamingClient: SandboxServiceClient,
+  streamingClient: Pick<SandboxServiceClient, "streamExec">,
   request: StartShellRequest,
+  onSettled: () => Promise<void> = async () => undefined,
 ): Promise<TerminalSession> {
   const abortController = linkedAbortController(request.signal);
   const call = streamingClient.streamExec(
@@ -68,7 +69,11 @@ export async function startGrpcShell(
     request.sandboxId,
   );
 
-  void collectTerminalSession(call, controller, request, completeRequests, stdinReady);
+  const settle = async (): Promise<void> => {
+    await completeRequests().catch(() => undefined);
+    await onSettled().catch(() => undefined);
+  };
+  void collectTerminalSession(call, controller, request, settle, stdinReady);
   return controller.session;
 }
 

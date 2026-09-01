@@ -108,7 +108,6 @@ export function toProtoCreateRequest(request: StartSandboxRequest): CreateSandbo
         ...(network === undefined ? {} : { network }),
         ...(objectStorageAccess === undefined ? {} : { objectStorageAccess }),
         ...(runnerIds.length === 0 ? {} : { mode: SandboxMode.CKS, runnerIds }),
-        primaryContainer: PRIMARY_CONTAINER,
         services: toProtoServices(request.services),
         tags: [...(request.tags ?? [])],
         ...(volumes === undefined ? {} : { volumes }),
@@ -130,7 +129,6 @@ export function toProtoCreateFromTemplateRequest(
 
   if (request.containerImage !== undefined) {
     overrides.containers = [toProtoPartialContainer(request)];
-    overrides.primaryContainer = PRIMARY_CONTAINER;
     hasOverride = true;
     const volumes = toProtoVolumes(request);
     if (volumes !== undefined) {
@@ -211,6 +209,7 @@ function toProtoPartialContainer(
     ...(files === undefined ? {} : { files }),
     image: request.containerImage ?? "",
     name: PRIMARY_CONTAINER,
+    primary: true,
     ...(resourceRequirements === undefined ? {} : { resourceRequirements }),
     ...(secretStores === undefined ? {} : { secretStores }),
     ...(volumeMounts === undefined ? {} : { volumeMounts }),
@@ -230,6 +229,7 @@ function toProtoContainer(request: StartSandboxRequest): ReturnType<typeof Conta
     })),
     image: request.containerImage ?? DEFAULT_CONTAINER_IMAGE,
     name: PRIMARY_CONTAINER,
+    primary: true,
     ...(resourceRequirements === undefined ? {} : { resourceRequirements }),
     secretStores: groupSecretsByStore(normalizeSecrets(request.secrets)).map((group) => ({
       secrets: group.secrets.map((secret) => ({

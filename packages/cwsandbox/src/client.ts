@@ -9,6 +9,7 @@ import { scratchVolumeNamesFromRunOptions } from "./internal/validation/file-sys
 import {
   validateDeleteOptions,
   validateDeleteSnapshotOptions,
+  validateDataPlaneMode,
   validateListSandboxesOptions,
   validateRequestOptions,
   validateSandboxRunFromTemplateOptions,
@@ -17,6 +18,7 @@ import {
 import type { SandboxClient as SandboxClientInterface } from "./public/client.js";
 import type { CommandInput } from "./public/commands.js";
 import type { RequestOptions } from "./public/common.js";
+import type { DataPlaneMode } from "./public/data-plane.js";
 import type {
   DeleteOptions,
   DeleteSnapshotOptions,
@@ -43,6 +45,7 @@ import type { FileAdapter } from "./transport/file-adapter.js";
 const READINESS_CLEANUP_TIMEOUT_MS = 30_000;
 
 export interface SandboxClientOptions {
+  readonly dataPlaneMode?: DataPlaneMode;
   readonly fileAdapter: FileAdapter;
   readonly transport: SandboxTransport;
 }
@@ -52,10 +55,13 @@ export type WithSandboxCallback<TResult> = (sandbox: PublicSandbox) => Promise<T
 export class SandboxClient implements SandboxClientInterface {
   private readonly transport: SandboxTransport;
   private readonly fileAdapter: FileAdapter;
+  private readonly dataPlaneMode: DataPlaneMode;
 
   public constructor(options: SandboxClientOptions) {
+    validateDataPlaneMode(options.dataPlaneMode);
     this.transport = options.transport;
     this.fileAdapter = options.fileAdapter;
+    this.dataPlaneMode = options.dataPlaneMode ?? "auto";
   }
 
   public async create(options: SandboxRunOptions = {}): Promise<PublicSandbox> {
@@ -67,12 +73,13 @@ export class SandboxClient implements SandboxClientInterface {
     const fileAdapter = this.fileAdapter;
     const normalizedCommand = normalizeCommand(command);
     validateSandboxRunOptions(options);
-    const { waitUntilRunning, ...startOptions } = options;
+    const { dataPlaneMode, waitUntilRunning, ...startOptions } = options;
     const result = await transport.start({ ...startOptions, command: normalizedCommand });
     const scratchVolumeNames = scratchVolumeNamesFromRunOptions(options);
 
     const sandbox = new SandboxImpl({
       fileAdapter,
+      dataPlaneMode: dataPlaneMode ?? this.dataPlaneMode,
       metadata: result,
       sandboxId: result.sandboxId,
       transport,
@@ -108,7 +115,7 @@ export class SandboxClient implements SandboxClientInterface {
     const transport = this.transport;
     const fileAdapter = this.fileAdapter;
     validateSandboxRunFromTemplateOptions(templateId, options);
-    const { command, waitUntilRunning, ...startOptions } = options;
+    const { command, dataPlaneMode, waitUntilRunning, ...startOptions } = options;
     const result = await transport.startFromTemplate({
       ...startOptions,
       templateId,
@@ -118,6 +125,7 @@ export class SandboxClient implements SandboxClientInterface {
 
     const sandbox = new SandboxImpl({
       fileAdapter,
+      dataPlaneMode: dataPlaneMode ?? this.dataPlaneMode,
       metadata: result,
       sandboxId: result.sandboxId,
       transport,
@@ -136,16 +144,19 @@ export class SandboxClient implements SandboxClientInterface {
     return sandbox;
   }
 
-  public async get(sandboxId: SandboxId, options: FromIdOptions = {}): Promise<GetSandboxResult> {
+  public async get(sandboxId: SandboxId, options: RequestOptions = {}): Promise<GetSandboxResult> {
     validateRequestOptions(options);
     return this.transport.get({ ...options, sandboxId });
   }
 
   public async fromId(sandboxId: SandboxId, options: FromIdOptions = {}): Promise<PublicSandbox> {
-    const result = await this.get(sandboxId, options);
+    validateDataPlaneMode(options.dataPlaneMode);
+    const { dataPlaneMode, ...requestOptions } = options;
+    const result = await this.get(sandboxId, requestOptions);
 
     return new SandboxImpl({
       fileAdapter: this.fileAdapter,
+      dataPlaneMode: dataPlaneMode ?? this.dataPlaneMode,
       metadata: result,
       sandboxId,
       transport: this.transport,
@@ -159,10 +170,12 @@ export class SandboxClient implements SandboxClientInterface {
 
   public listSandboxes(options: SandboxListOptions = {}): SandboxList {
     validateListSandboxesOptions(options);
+    validateDataPlaneMode(options.dataPlaneMode);
+    const { dataPlaneMode, ...listOptions } = options;
     return new SandboxList(
       (pageOptions) => this.list(pageOptions),
-      (info) => this.toSandbox(info),
-      options,
+      (info) => this.toSandbox(info, dataPlaneMode ?? this.dataPlaneMode),
+      listOptions,
     );
   }
 
@@ -170,9 +183,10 @@ export class SandboxClient implements SandboxClientInterface {
     return this.listSandboxes(options).collect();
   }
 
-  private toSandbox(info: SandboxInfo): PublicSandbox {
+  private toSandbox(info: SandboxInfo, dataPlaneMode: DataPlaneMode): PublicSandbox {
     return new SandboxImpl({
       fileAdapter: this.fileAdapter,
+      dataPlaneMode,
       metadata: info,
       sandboxId: info.sandboxId,
       transport: this.transport,

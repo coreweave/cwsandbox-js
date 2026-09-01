@@ -77,19 +77,11 @@ export interface SandboxSpec {
     /**
      * The containers that make up the sandbox (at least one). They share the
      * sandbox's network (reachable over localhost) and any mounted volumes.
+     * Exactly one container is primary (see Container.primary).
      *
      * @generated from protobuf field: repeated coreweave.sandbox.v1.Container containers = 1
      */
     containers: Container[];
-    /**
-     * Name of the primary container: its exit defines the sandbox outcome
-     * (exit_code / COMPLETED / FAILED) and it is the default target for Exec,
-     * StreamExec, StreamLogs, ReadFile, and WriteFile. Optional when there is a
-     * single container; required when there is more than one.
-     *
-     * @generated from protobuf field: string primary_container = 2
-     */
-    primaryContainer: string;
     /**
      * Sandbox-level volumes. Containers mount these by name via
      * Container.volume_mounts; a volume mounted by more than one container is
@@ -124,7 +116,8 @@ export interface SandboxSpec {
      */
     networkIds: string[];
     /**
-     * Object-storage (S3) access for this sandbox.
+     * Object-storage (S3) access for this sandbox. The minted credential is
+     * injected into every user container.
      *
      * @generated from protobuf field: coreweave.sandbox.v1.ObjectStorageAccess object_storage_access = 7
      */
@@ -163,15 +156,6 @@ export interface SandboxSpec {
     annotations: {
         [key: string]: string;
     };
-    /**
-     * Init containers run to completion, in order, before the main containers
-     * start. Each is a Container (see that message); ports, visibility, and
-     * primary-container semantics do not apply. The policy may prepend its own
-     * platform init containers ahead of these.
-     *
-     * @generated from protobuf field: repeated coreweave.sandbox.v1.Container init_containers = 12
-     */
-    initContainers: Container[];
     /**
      * PROVISIONAL (subject to change): optionally pin the sandbox to a specific
      * node instance type, constrained to the policy's allow-list. When unset, the
@@ -277,7 +261,12 @@ export interface SecurityContext {
  */
 export interface Container {
     /**
-     * Unique name within the sandbox; used to target operations and mount volumes.
+     * Unique name within the sandbox; used as the runtime container name and
+     * to target operations and mount volumes. Must be a DNS-1123 label.
+     * Must not be cw-object-store-agent, cw-object-store-agent-restore,
+     * dns-egress, dns-egress-probe, or start with
+     * cw-object-store-agent-restore-. Duplicate or reserved names are
+     * INVALID_ARGUMENT (CWSANDBOX_INVALID_REQUEST).
      *
      * @generated from protobuf field: string name = 1
      */
@@ -328,9 +317,11 @@ export interface Container {
      */
     volumeMounts: VolumeMount[];
     /**
-     * External secret stores to resolve and inject as environment variables.
-     * Referencing a store that is not provisioned for the caller returns
-     * FAILED_PRECONDITION (CWSANDBOX_SECRET_STORE_NOT_PROVISIONED).
+     * External secret stores to resolve and inject as environment variables
+     * into this container only. Other containers on the same sandbox do not
+     * receive these values. Referencing a store that is not provisioned for
+     * the caller returns FAILED_PRECONDITION
+     * (CWSANDBOX_SECRET_STORE_NOT_PROVISIONED).
      *
      * @generated from protobuf field: repeated coreweave.sandbox.v1.SecretStoreReference secret_stores = 9
      */
@@ -369,6 +360,19 @@ export interface Container {
      * @generated from protobuf field: coreweave.sandbox.v1.ImagePullCredentials image_pull_credentials = 13
      */
     imagePullCredentials?: ImagePullCredentials;
+    /**
+     * When true, this container is the primary: its exit is the sandbox
+     * outcome (exit_code / COMPLETED / FAILED) and it is the default target
+     * for Exec, StreamExec, StreamLogs, ReadFile, and WriteFile.
+     *
+     * One container: omit or false — that container is primary. true is also
+     * accepted.
+     * More than one container: exactly one must be true. None set, or more
+     * than one true, is INVALID_ARGUMENT (CWSANDBOX_INVALID_REQUEST).
+     *
+     * @generated from protobuf field: optional bool primary = 14
+     */
+    primary?: boolean;
 }
 /**
  * PartialContainer is a Container overlay for templates and
@@ -421,6 +425,9 @@ export interface PartialContainer {
      */
     volumeMounts: VolumeMount[];
     /**
+     * Same meaning as Container.secret_stores: resolved values inject into
+     * this container only.
+     *
      * @generated from protobuf field: repeated coreweave.sandbox.v1.SecretStoreReference secret_stores = 9
      */
     secretStores: SecretStoreReference[];
@@ -436,6 +443,22 @@ export interface PartialContainer {
      * @generated from protobuf field: coreweave.sandbox.v1.SecurityContext security_context = 12
      */
     securityContext?: SecurityContext;
+    /**
+     * Request-scoped image pull credentials for this container's image.
+     * Same type and required inner fields as Container.image_pull_credentials.
+     * When this message is present on a template, registry must be a lowercase
+     * host or host:port, and credentials (store_name, path) must be set.
+     * Image/registry match and secret resolution run when the sandbox is created.
+     *
+     * @generated from protobuf field: coreweave.sandbox.v1.ImagePullCredentials image_pull_credentials = 13
+     */
+    imagePullCredentials?: ImagePullCredentials;
+    /**
+     * Same meaning and field number as Container.primary.
+     *
+     * @generated from protobuf field: optional bool primary = 14
+     */
+    primary?: boolean;
 }
 /**
  * PartialSandboxSpec is a SandboxSpec overlay for SandboxTemplate.spec and
@@ -457,10 +480,6 @@ export interface PartialSandboxSpec {
      * @generated from protobuf field: repeated coreweave.sandbox.v1.PartialContainer containers = 1
      */
     containers: PartialContainer[];
-    /**
-     * @generated from protobuf field: string primary_container = 2
-     */
-    primaryContainer: string;
     /**
      * @generated from protobuf field: repeated coreweave.sandbox.v1.SandboxVolume volumes = 3
      */
@@ -499,10 +518,6 @@ export interface PartialSandboxSpec {
     annotations: {
         [key: string]: string;
     };
-    /**
-     * @generated from protobuf field: repeated coreweave.sandbox.v1.PartialContainer init_containers = 12
-     */
-    initContainers: PartialContainer[];
     /**
      * @generated from protobuf field: string instance_type = 13
      */
@@ -691,7 +706,8 @@ export interface Resources {
      */
     memory: string;
     /**
-     * GPU allocation.
+     * GPU allocation. Permitted on the primary container only; a non-primary
+     * container that sets gpu is INVALID_ARGUMENT (CWSANDBOX_INVALID_REQUEST).
      *
      * @generated from protobuf field: coreweave.sandbox.v1.Gpu gpu = 3
      */
@@ -799,6 +815,16 @@ export interface EndpointSpec {
      * @generated from protobuf field: coreweave.sandbox.v1.EndpointAuth auth = 2
      */
     auth: EndpointAuth;
+    /**
+     * Seconds before the platform closes an in-flight HTTPS request while the
+     * sandbox remains alive. Unset or 0 selects the platform default of 15 seconds.
+     * An explicit value must be between 15 and 900 inclusive. Rejected when kind
+     * is not HTTPS. Sandbox lifetime, deletion, or failure may end the request
+     * first, possibly as a transport error rather than HTTP 504.
+     *
+     * @generated from protobuf field: int32 request_timeout_seconds = 3
+     */
+    requestTimeoutSeconds: number;
 }
 /**
  * ServiceStatus echoes a create Service row. Nested endpoint is unset when
@@ -860,6 +886,17 @@ export interface EndpointStatus {
      * @generated from protobuf field: string url = 3
      */
     url: string;
+    /**
+     * Effective configured HTTPS request timeout in seconds while the sandbox
+     * remains alive. Unset or 0 on create is echoed as the platform default.
+     * Unset when kind is not HTTPS. This is the accepted create value, not a
+     * live observation of the serving path. Sandbox lifetime, deletion, or
+     * failure may end the request first, possibly as a transport error rather
+     * than HTTP 504.
+     *
+     * @generated from protobuf field: int32 request_timeout_seconds = 4
+     */
+    requestTimeoutSeconds: number;
 }
 /**
  * NetworkOptions declares the sandbox's network intent beyond port exposure.
@@ -933,16 +970,17 @@ export interface EgressRule {
         /**
          * A DNS name: exact ("pypi.org") or a single leftmost wildcard label
          * ("*.example.com" matches "foo.example.com", not "bar.foo.example.com").
-         * No other pattern forms. On a sandbox this is a hostname grant for HTTPS
-         * (TCP 443). On a name rule, ports must be empty or exactly TCP 443;
-         * empty means this 443 path, not all ports. Any other ports list is
-         * rejected. On Policy.allowed_egress it is a ceiling for those grants:
-         * every declared name must match an allowed pattern or an `any`
-         * entitlement; a CIDR-only envelope does not entitle names.
-         * Policy.default_egress must not set dns_name — a curated site set
-         * belongs on a SandboxTemplate. Requires a runner that can enforce
-         * DNS-name rules; otherwise create is rejected rather than ignoring the
-         * rule.
+         * On Policy.allowed_egress, "*" entitles every name; it is not a sandbox
+         * grant. No other pattern forms. On a sandbox this is a hostname grant
+         * for HTTPS (TCP 443). On a name rule, ports must be empty or exactly
+         * TCP 443; empty means this 443 path, not all ports. Any other ports
+         * list is rejected. On Policy.allowed_egress it is a ceiling for those
+         * grants: every declared name must match an allowed pattern or an `any`
+         * entitlement; a CIDR-only envelope does not entitle names. Carve names
+         * out of this ceiling with dns_name_except. Policy.default_egress must
+         * not set dns_name — a curated site set belongs on a SandboxTemplate.
+         * Requires a runner that can enforce DNS-name rules; otherwise create is
+         * rejected rather than ignoring the rule.
          *
          * @generated from protobuf field: string dns_name = 2
          */
@@ -991,6 +1029,20 @@ export interface EgressRule {
      * @generated from protobuf field: repeated coreweave.sandbox.v1.PortRange ports = 5
      */
     ports: PortRange[];
+    /**
+     * Names carved out of this rule's dns_name. Valid only with dns_name on
+     * Policy.allowed_egress. An except narrows only THIS rule — another
+     * allowed_egress rule may still entitle the name. Grammar matches dns_name
+     * except "*". Each except must be covered by this dns_name ("*" may except
+     * any name; "*.example.com" may except "foo.example.com"). "evil.com"
+     * does not except "www.evil.com"; add "*.evil.com" to cover one label
+     * under that apex. Extra labels (a.b.evil.com) remain entitled under
+     * those excepts. A declared name or wildcard whose match set covers an
+     * except is not entitled by this rule.
+     *
+     * @generated from protobuf field: repeated string dns_name_except = 7
+     */
+    dnsNameExcept: string[];
 }
 /**
  * IngressRule allows inbound traffic from one source class to the sandbox's
@@ -1346,7 +1398,7 @@ export interface SecretSource {
 }
 /**
  * ObjectStorageAccess grants the sandbox temporary access to object-storage
- * buckets.
+ * buckets. The minted credential is injected into every user container.
  *
  * @generated from protobuf message coreweave.sandbox.v1.ObjectStorageAccess
  */
@@ -1673,7 +1725,8 @@ export interface ExecRequest {
      */
     maxOutputBytes: number;
     /**
-     * Target container name. Defaults to the primary container.
+     * Target container name. Empty = the primary. Unknown names and
+     * platform sidecar names are INVALID_ARGUMENT (CWSANDBOX_INVALID_REQUEST).
      *
      * @generated from protobuf field: string container = 5
      */
@@ -1797,7 +1850,8 @@ export interface ExecStreamInit {
         [key: string]: string;
     };
     /**
-     * Target container name. Defaults to the primary container.
+     * Target container name. Empty = the primary. Unknown names and
+     * platform sidecar names are INVALID_ARGUMENT (CWSANDBOX_INVALID_REQUEST).
      *
      * @generated from protobuf field: string container = 7
      */
@@ -1951,7 +2005,8 @@ export interface StreamLogsRequest {
      */
     sinceTime?: Timestamp;
     /**
-     * Target container name. Defaults to the primary container.
+     * Target container name. Empty = the primary. Unknown names and
+     * platform sidecar names are INVALID_ARGUMENT (CWSANDBOX_INVALID_REQUEST).
      *
      * @generated from protobuf field: string container = 5
      */
@@ -2050,7 +2105,8 @@ export interface WriteFileRequest {
      */
     content: Uint8Array; // empty = zero-byte file
     /**
-     * Target container name. Defaults to the primary container.
+     * Target container name. Empty = the primary. Unknown names and
+     * platform sidecar names are INVALID_ARGUMENT (CWSANDBOX_INVALID_REQUEST).
      *
      * @generated from protobuf field: string container = 4
      */
@@ -2074,7 +2130,8 @@ export interface ReadFileRequest {
      */
     path: string;
     /**
-     * Target container name. Defaults to the primary container.
+     * Target container name. Empty = the primary. Unknown names and
+     * platform sidecar names are INVALID_ARGUMENT (CWSANDBOX_INVALID_REQUEST).
      *
      * @generated from protobuf field: string container = 3
      */
@@ -2234,6 +2291,88 @@ export interface DeleteFileSystemSnapshotRequest {
      * @generated from protobuf field: bool allow_missing = 2
      */
     allowMissing: boolean;
+}
+/**
+ * ConnectSandboxRequest requests sandbox-scoped direct-connection
+ * credentials. The sandbox must be running and its Runner must advertise a
+ * compatible direct data-plane endpoint.
+ *
+ * @generated from protobuf message coreweave.sandbox.v1.ConnectSandboxRequest
+ */
+export interface ConnectSandboxRequest {
+    /**
+     * @generated from protobuf field: string sandbox_id = 1
+     */
+    sandboxId: string;
+    /**
+     * DER-encoded PKCS #10 certificate signing request. The issuer validates the
+     * proof-of-possession signature and copies only the public key; requested
+     * identity, extensions, and lifetime are ignored.
+     *
+     * @generated from protobuf field: bytes csr_der = 2
+     */
+    csrDer: Uint8Array;
+    /**
+     * Operations to authorize on the issued certificate. At least one permission
+     * is required. The server returns only permissions allowed for the caller.
+     *
+     * @generated from protobuf field: repeated coreweave.sandbox.v1.SandboxDataPermission requested_permissions = 3
+     */
+    requestedPermissions: SandboxDataPermission[];
+}
+/**
+ * SandboxConnection contains everything except the client private key needed
+ * to establish a sandbox-scoped direct connection.
+ *
+ * @generated from protobuf message coreweave.sandbox.v1.SandboxConnection
+ */
+export interface SandboxConnection {
+    /**
+     * Stable absolute URI for the logical Runner data-plane endpoint.
+     *
+     * @generated from protobuf field: string endpoint_uri = 1
+     */
+    endpointUri: string;
+    /**
+     * PEM certificate chain for the public key in the request CSR. The leaf
+     * certificate is first.
+     *
+     * @generated from protobuf field: bytes client_certificate_chain_pem = 2
+     */
+    clientCertificateChainPem: Uint8Array;
+    /**
+     * PEM trust bundle for authenticating the endpoint. Empty means the endpoint
+     * chains to roots available from the client's system trust store.
+     *
+     * @generated from protobuf field: bytes server_ca_bundle_pem = 3
+     */
+    serverCaBundlePem: Uint8Array;
+    /**
+     * Time at which the client certificate and established connection expire.
+     *
+     * @generated from protobuf field: google.protobuf.Timestamp expires_at = 4
+     */
+    expiresAt?: Timestamp;
+    /**
+     * Opaque stable identity of the logical Runner endpoint.
+     *
+     * @generated from protobuf field: string endpoint_id = 5
+     */
+    endpointId: string;
+    /**
+     * @generated from protobuf field: coreweave.sandbox.v1.SandboxDataTransport transport = 6
+     */
+    transport: SandboxDataTransport;
+    /**
+     * @generated from protobuf field: coreweave.sandbox.v1.SandboxDataProtocol protocol = 7
+     */
+    protocol: SandboxDataProtocol;
+    /**
+     * Effective permissions encoded in the issued certificate.
+     *
+     * @generated from protobuf field: repeated coreweave.sandbox.v1.SandboxDataPermission granted_permissions = 8
+     */
+    grantedPermissions: SandboxDataPermission[];
 }
 /**
  * SandboxMode identifies the placement candidate set: the managed serverless
@@ -2534,6 +2673,74 @@ export enum SnapshotTrigger {
      */
     ON_DELETE = 2
 }
+// ----------------------------------------------------------------------------
+// Direct data-plane connection
+// ----------------------------------------------------------------------------
+
+/**
+ * SandboxDataPermission identifies an operation that a sandbox-scoped direct
+ * client certificate permits.
+ *
+ * @generated from protobuf enum coreweave.sandbox.v1.SandboxDataPermission
+ */
+export enum SandboxDataPermission {
+    /**
+     * @generated from protobuf enum value: SANDBOX_DATA_PERMISSION_UNSPECIFIED = 0;
+     */
+    UNSPECIFIED = 0,
+    /**
+     * @generated from protobuf enum value: SANDBOX_DATA_PERMISSION_EXEC = 1;
+     */
+    EXEC = 1,
+    /**
+     * @generated from protobuf enum value: SANDBOX_DATA_PERMISSION_STREAM_EXEC = 2;
+     */
+    STREAM_EXEC = 2,
+    /**
+     * @generated from protobuf enum value: SANDBOX_DATA_PERMISSION_STREAM_LOGS = 3;
+     */
+    STREAM_LOGS = 3,
+    /**
+     * @generated from protobuf enum value: SANDBOX_DATA_PERMISSION_WRITE_FILE = 4;
+     */
+    WRITE_FILE = 4,
+    /**
+     * @generated from protobuf enum value: SANDBOX_DATA_PERMISSION_READ_FILE = 5;
+     */
+    READ_FILE = 5
+}
+/**
+ * SandboxDataTransport identifies the network transport for sandbox data
+ * operations.
+ *
+ * @generated from protobuf enum coreweave.sandbox.v1.SandboxDataTransport
+ */
+export enum SandboxDataTransport {
+    /**
+     * @generated from protobuf enum value: SANDBOX_DATA_TRANSPORT_UNSPECIFIED = 0;
+     */
+    UNSPECIFIED = 0,
+    /**
+     * @generated from protobuf enum value: SANDBOX_DATA_TRANSPORT_DIRECT_MTLS = 1;
+     */
+    DIRECT_MTLS = 1
+}
+/**
+ * SandboxDataProtocol identifies the application protocol served by a sandbox
+ * data-plane endpoint.
+ *
+ * @generated from protobuf enum coreweave.sandbox.v1.SandboxDataProtocol
+ */
+export enum SandboxDataProtocol {
+    /**
+     * @generated from protobuf enum value: SANDBOX_DATA_PROTOCOL_UNSPECIFIED = 0;
+     */
+    UNSPECIFIED = 0,
+    /**
+     * @generated from protobuf enum value: SANDBOX_DATA_PROTOCOL_CONNECT_H2_V1 = 1;
+     */
+    CONNECT_H2_V1 = 1
+}
 // @generated message type with reflection information, may provide speed optimized methods
 class Sandbox$Type extends MessageType<Sandbox> {
     constructor() {
@@ -2616,7 +2823,6 @@ class SandboxSpec$Type extends MessageType<SandboxSpec> {
     constructor() {
         super("coreweave.sandbox.v1.SandboxSpec", [
             { no: 1, name: "containers", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => Container, options: { "google.api.field_behavior": ["REQUIRED"] } },
-            { no: 2, name: "primary_container", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 3, name: "volumes", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => SandboxVolume, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 4, name: "services", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => Service, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 5, name: "max_lifetime_seconds", kind: "scalar", T: 5 /*ScalarType.INT32*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
@@ -2626,7 +2832,6 @@ class SandboxSpec$Type extends MessageType<SandboxSpec> {
             { no: 9, name: "runner_ids", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 10, name: "network", kind: "message", T: () => NetworkOptions, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 11, name: "annotations", kind: "map", K: 9 /*ScalarType.STRING*/, V: { kind: "scalar", T: 9 /*ScalarType.STRING*/ }, options: { "google.api.field_behavior": ["OPTIONAL"] } },
-            { no: 12, name: "init_containers", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => Container, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 13, name: "instance_type", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 14, name: "mode", kind: "enum", T: () => ["coreweave.sandbox.v1.SandboxMode", SandboxMode, "SANDBOX_MODE_"], options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 15, name: "runtime_class", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } }
@@ -2635,7 +2840,6 @@ class SandboxSpec$Type extends MessageType<SandboxSpec> {
     create(value?: PartialMessage<SandboxSpec>): SandboxSpec {
         const message = globalThis.Object.create((this.messagePrototype!));
         message.containers = [];
-        message.primaryContainer = "";
         message.volumes = [];
         message.services = [];
         message.maxLifetimeSeconds = 0;
@@ -2643,7 +2847,6 @@ class SandboxSpec$Type extends MessageType<SandboxSpec> {
         message.tags = [];
         message.runnerIds = [];
         message.annotations = {};
-        message.initContainers = [];
         message.instanceType = "";
         message.mode = 0;
         message.runtimeClass = "";
@@ -2658,9 +2861,6 @@ class SandboxSpec$Type extends MessageType<SandboxSpec> {
             switch (fieldNo) {
                 case /* repeated coreweave.sandbox.v1.Container containers */ 1:
                     message.containers.push(Container.internalBinaryRead(reader, reader.uint32(), options));
-                    break;
-                case /* string primary_container */ 2:
-                    message.primaryContainer = reader.string();
                     break;
                 case /* repeated coreweave.sandbox.v1.SandboxVolume volumes */ 3:
                     message.volumes.push(SandboxVolume.internalBinaryRead(reader, reader.uint32(), options));
@@ -2688,9 +2888,6 @@ class SandboxSpec$Type extends MessageType<SandboxSpec> {
                     break;
                 case /* map<string, string> annotations */ 11:
                     this.binaryReadMap11(message.annotations, reader, options);
-                    break;
-                case /* repeated coreweave.sandbox.v1.Container init_containers */ 12:
-                    message.initContainers.push(Container.internalBinaryRead(reader, reader.uint32(), options));
                     break;
                 case /* string instance_type */ 13:
                     message.instanceType = reader.string();
@@ -2732,9 +2929,6 @@ class SandboxSpec$Type extends MessageType<SandboxSpec> {
         /* repeated coreweave.sandbox.v1.Container containers = 1; */
         for (let i = 0; i < message.containers.length; i++)
             Container.internalBinaryWrite(message.containers[i], writer.tag(1, WireType.LengthDelimited).fork(), options).join();
-        /* string primary_container = 2; */
-        if (message.primaryContainer !== "")
-            writer.tag(2, WireType.LengthDelimited).string(message.primaryContainer);
         /* repeated coreweave.sandbox.v1.SandboxVolume volumes = 3; */
         for (let i = 0; i < message.volumes.length; i++)
             SandboxVolume.internalBinaryWrite(message.volumes[i], writer.tag(3, WireType.LengthDelimited).fork(), options).join();
@@ -2762,9 +2956,6 @@ class SandboxSpec$Type extends MessageType<SandboxSpec> {
         /* map<string, string> annotations = 11; */
         for (let k of globalThis.Object.keys(message.annotations))
             writer.tag(11, WireType.LengthDelimited).fork().tag(1, WireType.LengthDelimited).string(k).tag(2, WireType.LengthDelimited).string(message.annotations[k]).join();
-        /* repeated coreweave.sandbox.v1.Container init_containers = 12; */
-        for (let i = 0; i < message.initContainers.length; i++)
-            Container.internalBinaryWrite(message.initContainers[i], writer.tag(12, WireType.LengthDelimited).fork(), options).join();
         /* string instance_type = 13; */
         if (message.instanceType !== "")
             writer.tag(13, WireType.LengthDelimited).string(message.instanceType);
@@ -2898,7 +3089,8 @@ class Container$Type extends MessageType<Container> {
             { no: 10, name: "working_dir", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 11, name: "resource_requirements", kind: "message", T: () => ResourceRequirements, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 12, name: "security_context", kind: "message", T: () => SecurityContext, options: { "google.api.field_behavior": ["OPTIONAL"] } },
-            { no: 13, name: "image_pull_credentials", kind: "message", T: () => ImagePullCredentials, options: { "google.api.field_behavior": ["OPTIONAL"] } }
+            { no: 13, name: "image_pull_credentials", kind: "message", T: () => ImagePullCredentials, options: { "google.api.field_behavior": ["OPTIONAL"] } },
+            { no: 14, name: "primary", kind: "scalar", opt: true, T: 8 /*ScalarType.BOOL*/, options: { "google.api.field_behavior": ["OPTIONAL"] } }
         ]);
     }
     create(value?: PartialMessage<Container>): Container {
@@ -2959,6 +3151,9 @@ class Container$Type extends MessageType<Container> {
                     break;
                 case /* coreweave.sandbox.v1.ImagePullCredentials image_pull_credentials */ 13:
                     message.imagePullCredentials = ImagePullCredentials.internalBinaryRead(reader, reader.uint32(), options, message.imagePullCredentials);
+                    break;
+                case /* optional bool primary */ 14:
+                    message.primary = reader.bool();
                     break;
                 default:
                     let u = options.readUnknownField;
@@ -3027,6 +3222,9 @@ class Container$Type extends MessageType<Container> {
         /* coreweave.sandbox.v1.ImagePullCredentials image_pull_credentials = 13; */
         if (message.imagePullCredentials)
             ImagePullCredentials.internalBinaryWrite(message.imagePullCredentials, writer.tag(13, WireType.LengthDelimited).fork(), options).join();
+        /* optional bool primary = 14; */
+        if (message.primary !== undefined)
+            writer.tag(14, WireType.Varint).bool(message.primary);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -3052,7 +3250,9 @@ class PartialContainer$Type extends MessageType<PartialContainer> {
             { no: 9, name: "secret_stores", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => SecretStoreReference, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 10, name: "working_dir", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 11, name: "resource_requirements", kind: "message", T: () => ResourceRequirements, options: { "google.api.field_behavior": ["OPTIONAL"] } },
-            { no: 12, name: "security_context", kind: "message", T: () => SecurityContext, options: { "google.api.field_behavior": ["OPTIONAL"] } }
+            { no: 12, name: "security_context", kind: "message", T: () => SecurityContext, options: { "google.api.field_behavior": ["OPTIONAL"] } },
+            { no: 13, name: "image_pull_credentials", kind: "message", T: () => ImagePullCredentials, options: { "google.api.field_behavior": ["OPTIONAL"] } },
+            { no: 14, name: "primary", kind: "scalar", opt: true, T: 8 /*ScalarType.BOOL*/, options: { "google.api.field_behavior": ["OPTIONAL"] } }
         ]);
     }
     create(value?: PartialMessage<PartialContainer>): PartialContainer {
@@ -3110,6 +3310,12 @@ class PartialContainer$Type extends MessageType<PartialContainer> {
                     break;
                 case /* coreweave.sandbox.v1.SecurityContext security_context */ 12:
                     message.securityContext = SecurityContext.internalBinaryRead(reader, reader.uint32(), options, message.securityContext);
+                    break;
+                case /* coreweave.sandbox.v1.ImagePullCredentials image_pull_credentials */ 13:
+                    message.imagePullCredentials = ImagePullCredentials.internalBinaryRead(reader, reader.uint32(), options, message.imagePullCredentials);
+                    break;
+                case /* optional bool primary */ 14:
+                    message.primary = reader.bool();
                     break;
                 default:
                     let u = options.readUnknownField;
@@ -3175,6 +3381,12 @@ class PartialContainer$Type extends MessageType<PartialContainer> {
         /* coreweave.sandbox.v1.SecurityContext security_context = 12; */
         if (message.securityContext)
             SecurityContext.internalBinaryWrite(message.securityContext, writer.tag(12, WireType.LengthDelimited).fork(), options).join();
+        /* coreweave.sandbox.v1.ImagePullCredentials image_pull_credentials = 13; */
+        if (message.imagePullCredentials)
+            ImagePullCredentials.internalBinaryWrite(message.imagePullCredentials, writer.tag(13, WireType.LengthDelimited).fork(), options).join();
+        /* optional bool primary = 14; */
+        if (message.primary !== undefined)
+            writer.tag(14, WireType.Varint).bool(message.primary);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -3190,7 +3402,6 @@ class PartialSandboxSpec$Type extends MessageType<PartialSandboxSpec> {
     constructor() {
         super("coreweave.sandbox.v1.PartialSandboxSpec", [
             { no: 1, name: "containers", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => PartialContainer, options: { "google.api.field_behavior": ["OPTIONAL"] } },
-            { no: 2, name: "primary_container", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 3, name: "volumes", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => SandboxVolume, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 4, name: "services", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => Service, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 5, name: "max_lifetime_seconds", kind: "scalar", T: 5 /*ScalarType.INT32*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
@@ -3200,7 +3411,6 @@ class PartialSandboxSpec$Type extends MessageType<PartialSandboxSpec> {
             { no: 9, name: "runner_ids", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 10, name: "network", kind: "message", T: () => NetworkOptions, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 11, name: "annotations", kind: "map", K: 9 /*ScalarType.STRING*/, V: { kind: "scalar", T: 9 /*ScalarType.STRING*/ }, options: { "google.api.field_behavior": ["OPTIONAL"] } },
-            { no: 12, name: "init_containers", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => PartialContainer, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 13, name: "instance_type", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 14, name: "mode", kind: "enum", T: () => ["coreweave.sandbox.v1.SandboxMode", SandboxMode, "SANDBOX_MODE_"], options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 15, name: "runtime_class", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } }
@@ -3209,7 +3419,6 @@ class PartialSandboxSpec$Type extends MessageType<PartialSandboxSpec> {
     create(value?: PartialMessage<PartialSandboxSpec>): PartialSandboxSpec {
         const message = globalThis.Object.create((this.messagePrototype!));
         message.containers = [];
-        message.primaryContainer = "";
         message.volumes = [];
         message.services = [];
         message.maxLifetimeSeconds = 0;
@@ -3217,7 +3426,6 @@ class PartialSandboxSpec$Type extends MessageType<PartialSandboxSpec> {
         message.tags = [];
         message.runnerIds = [];
         message.annotations = {};
-        message.initContainers = [];
         message.instanceType = "";
         message.mode = 0;
         message.runtimeClass = "";
@@ -3232,9 +3440,6 @@ class PartialSandboxSpec$Type extends MessageType<PartialSandboxSpec> {
             switch (fieldNo) {
                 case /* repeated coreweave.sandbox.v1.PartialContainer containers */ 1:
                     message.containers.push(PartialContainer.internalBinaryRead(reader, reader.uint32(), options));
-                    break;
-                case /* string primary_container */ 2:
-                    message.primaryContainer = reader.string();
                     break;
                 case /* repeated coreweave.sandbox.v1.SandboxVolume volumes */ 3:
                     message.volumes.push(SandboxVolume.internalBinaryRead(reader, reader.uint32(), options));
@@ -3262,9 +3467,6 @@ class PartialSandboxSpec$Type extends MessageType<PartialSandboxSpec> {
                     break;
                 case /* map<string, string> annotations */ 11:
                     this.binaryReadMap11(message.annotations, reader, options);
-                    break;
-                case /* repeated coreweave.sandbox.v1.PartialContainer init_containers */ 12:
-                    message.initContainers.push(PartialContainer.internalBinaryRead(reader, reader.uint32(), options));
                     break;
                 case /* string instance_type */ 13:
                     message.instanceType = reader.string();
@@ -3306,9 +3508,6 @@ class PartialSandboxSpec$Type extends MessageType<PartialSandboxSpec> {
         /* repeated coreweave.sandbox.v1.PartialContainer containers = 1; */
         for (let i = 0; i < message.containers.length; i++)
             PartialContainer.internalBinaryWrite(message.containers[i], writer.tag(1, WireType.LengthDelimited).fork(), options).join();
-        /* string primary_container = 2; */
-        if (message.primaryContainer !== "")
-            writer.tag(2, WireType.LengthDelimited).string(message.primaryContainer);
         /* repeated coreweave.sandbox.v1.SandboxVolume volumes = 3; */
         for (let i = 0; i < message.volumes.length; i++)
             SandboxVolume.internalBinaryWrite(message.volumes[i], writer.tag(3, WireType.LengthDelimited).fork(), options).join();
@@ -3336,9 +3535,6 @@ class PartialSandboxSpec$Type extends MessageType<PartialSandboxSpec> {
         /* map<string, string> annotations = 11; */
         for (let k of globalThis.Object.keys(message.annotations))
             writer.tag(11, WireType.LengthDelimited).fork().tag(1, WireType.LengthDelimited).string(k).tag(2, WireType.LengthDelimited).string(message.annotations[k]).join();
-        /* repeated coreweave.sandbox.v1.PartialContainer init_containers = 12; */
-        for (let i = 0; i < message.initContainers.length; i++)
-            PartialContainer.internalBinaryWrite(message.initContainers[i], writer.tag(12, WireType.LengthDelimited).fork(), options).join();
         /* string instance_type = 13; */
         if (message.instanceType !== "")
             writer.tag(13, WireType.LengthDelimited).string(message.instanceType);
@@ -3871,13 +4067,15 @@ class EndpointSpec$Type extends MessageType<EndpointSpec> {
     constructor() {
         super("coreweave.sandbox.v1.EndpointSpec", [
             { no: 1, name: "kind", kind: "enum", T: () => ["coreweave.sandbox.v1.EndpointKind", EndpointKind, "ENDPOINT_KIND_"], options: { "google.api.field_behavior": ["REQUIRED"] } },
-            { no: 2, name: "auth", kind: "enum", T: () => ["coreweave.sandbox.v1.EndpointAuth", EndpointAuth, "ENDPOINT_AUTH_"], options: { "google.api.field_behavior": ["OPTIONAL"] } }
+            { no: 2, name: "auth", kind: "enum", T: () => ["coreweave.sandbox.v1.EndpointAuth", EndpointAuth, "ENDPOINT_AUTH_"], options: { "google.api.field_behavior": ["OPTIONAL"] } },
+            { no: 3, name: "request_timeout_seconds", kind: "scalar", T: 5 /*ScalarType.INT32*/, options: { "google.api.field_behavior": ["OPTIONAL"] } }
         ]);
     }
     create(value?: PartialMessage<EndpointSpec>): EndpointSpec {
         const message = globalThis.Object.create((this.messagePrototype!));
         message.kind = 0;
         message.auth = 0;
+        message.requestTimeoutSeconds = 0;
         if (value !== undefined)
             reflectionMergePartial<EndpointSpec>(this, message, value);
         return message;
@@ -3892,6 +4090,9 @@ class EndpointSpec$Type extends MessageType<EndpointSpec> {
                     break;
                 case /* coreweave.sandbox.v1.EndpointAuth auth */ 2:
                     message.auth = reader.int32();
+                    break;
+                case /* int32 request_timeout_seconds */ 3:
+                    message.requestTimeoutSeconds = reader.int32();
                     break;
                 default:
                     let u = options.readUnknownField;
@@ -3911,6 +4112,9 @@ class EndpointSpec$Type extends MessageType<EndpointSpec> {
         /* coreweave.sandbox.v1.EndpointAuth auth = 2; */
         if (message.auth !== 0)
             writer.tag(2, WireType.Varint).int32(message.auth);
+        /* int32 request_timeout_seconds = 3; */
+        if (message.requestTimeoutSeconds !== 0)
+            writer.tag(3, WireType.Varint).int32(message.requestTimeoutSeconds);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -4013,7 +4217,8 @@ class EndpointStatus$Type extends MessageType<EndpointStatus> {
         super("coreweave.sandbox.v1.EndpointStatus", [
             { no: 1, name: "kind", kind: "enum", T: () => ["coreweave.sandbox.v1.EndpointKind", EndpointKind, "ENDPOINT_KIND_"], options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } },
             { no: 2, name: "auth", kind: "enum", T: () => ["coreweave.sandbox.v1.EndpointAuth", EndpointAuth, "ENDPOINT_AUTH_"], options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } },
-            { no: 3, name: "url", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } }
+            { no: 3, name: "url", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } },
+            { no: 4, name: "request_timeout_seconds", kind: "scalar", T: 5 /*ScalarType.INT32*/, options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } }
         ]);
     }
     create(value?: PartialMessage<EndpointStatus>): EndpointStatus {
@@ -4021,6 +4226,7 @@ class EndpointStatus$Type extends MessageType<EndpointStatus> {
         message.kind = 0;
         message.auth = 0;
         message.url = "";
+        message.requestTimeoutSeconds = 0;
         if (value !== undefined)
             reflectionMergePartial<EndpointStatus>(this, message, value);
         return message;
@@ -4038,6 +4244,9 @@ class EndpointStatus$Type extends MessageType<EndpointStatus> {
                     break;
                 case /* string url */ 3:
                     message.url = reader.string();
+                    break;
+                case /* int32 request_timeout_seconds */ 4:
+                    message.requestTimeoutSeconds = reader.int32();
                     break;
                 default:
                     let u = options.readUnknownField;
@@ -4060,6 +4269,9 @@ class EndpointStatus$Type extends MessageType<EndpointStatus> {
         /* string url = 3; */
         if (message.url !== "")
             writer.tag(3, WireType.LengthDelimited).string(message.url);
+        /* int32 request_timeout_seconds = 4; */
+        if (message.requestTimeoutSeconds !== 0)
+            writer.tag(4, WireType.Varint).int32(message.requestTimeoutSeconds);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -4148,13 +4360,15 @@ class EgressRule$Type extends MessageType<EgressRule> {
             { no: 3, name: "tenant", kind: "enum", oneof: "destination", T: () => ["coreweave.sandbox.v1.TenantScope", TenantScope, "TENANT_SCOPE_"] },
             { no: 4, name: "any", kind: "scalar", oneof: "destination", T: 8 /*ScalarType.BOOL*/ },
             { no: 6, name: "selector", kind: "message", oneof: "destination", T: () => SelectorBlock },
-            { no: 5, name: "ports", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => PortRange, options: { "google.api.field_behavior": ["OPTIONAL"] } }
+            { no: 5, name: "ports", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => PortRange, options: { "google.api.field_behavior": ["OPTIONAL"] } },
+            { no: 7, name: "dns_name_except", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } }
         ]);
     }
     create(value?: PartialMessage<EgressRule>): EgressRule {
         const message = globalThis.Object.create((this.messagePrototype!));
         message.destination = { oneofKind: undefined };
         message.ports = [];
+        message.dnsNameExcept = [];
         if (value !== undefined)
             reflectionMergePartial<EgressRule>(this, message, value);
         return message;
@@ -4197,6 +4411,9 @@ class EgressRule$Type extends MessageType<EgressRule> {
                 case /* repeated coreweave.sandbox.v1.PortRange ports */ 5:
                     message.ports.push(PortRange.internalBinaryRead(reader, reader.uint32(), options));
                     break;
+                case /* repeated string dns_name_except */ 7:
+                    message.dnsNameExcept.push(reader.string());
+                    break;
                 default:
                     let u = options.readUnknownField;
                     if (u === "throw")
@@ -4227,6 +4444,9 @@ class EgressRule$Type extends MessageType<EgressRule> {
         /* coreweave.sandbox.v1.SelectorBlock selector = 6; */
         if (message.destination.oneofKind === "selector")
             SelectorBlock.internalBinaryWrite(message.destination.selector, writer.tag(6, WireType.LengthDelimited).fork(), options).join();
+        /* repeated string dns_name_except = 7; */
+        for (let i = 0; i < message.dnsNameExcept.length; i++)
+            writer.tag(7, WireType.LengthDelimited).string(message.dnsNameExcept[i]);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -7350,6 +7570,187 @@ class DeleteFileSystemSnapshotRequest$Type extends MessageType<DeleteFileSystemS
  * @generated MessageType for protobuf message coreweave.sandbox.v1.DeleteFileSystemSnapshotRequest
  */
 export const DeleteFileSystemSnapshotRequest = new DeleteFileSystemSnapshotRequest$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class ConnectSandboxRequest$Type extends MessageType<ConnectSandboxRequest> {
+    constructor() {
+        super("coreweave.sandbox.v1.ConnectSandboxRequest", [
+            { no: 1, name: "sandbox_id", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["REQUIRED"] } },
+            { no: 2, name: "csr_der", kind: "scalar", T: 12 /*ScalarType.BYTES*/, options: { "google.api.field_behavior": ["REQUIRED"] } },
+            { no: 3, name: "requested_permissions", kind: "enum", repeat: 1 /*RepeatType.PACKED*/, T: () => ["coreweave.sandbox.v1.SandboxDataPermission", SandboxDataPermission, "SANDBOX_DATA_PERMISSION_"], options: { "google.api.field_behavior": ["REQUIRED"] } }
+        ]);
+    }
+    create(value?: PartialMessage<ConnectSandboxRequest>): ConnectSandboxRequest {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.sandboxId = "";
+        message.csrDer = new Uint8Array(0);
+        message.requestedPermissions = [];
+        if (value !== undefined)
+            reflectionMergePartial<ConnectSandboxRequest>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: ConnectSandboxRequest): ConnectSandboxRequest {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* string sandbox_id */ 1:
+                    message.sandboxId = reader.string();
+                    break;
+                case /* bytes csr_der */ 2:
+                    message.csrDer = reader.bytes();
+                    break;
+                case /* repeated coreweave.sandbox.v1.SandboxDataPermission requested_permissions */ 3:
+                    if (wireType === WireType.LengthDelimited)
+                        for (let e = reader.int32() + reader.pos; reader.pos < e;)
+                            message.requestedPermissions.push(reader.int32());
+                    else
+                        message.requestedPermissions.push(reader.int32());
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: ConnectSandboxRequest, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* string sandbox_id = 1; */
+        if (message.sandboxId !== "")
+            writer.tag(1, WireType.LengthDelimited).string(message.sandboxId);
+        /* bytes csr_der = 2; */
+        if (message.csrDer.length)
+            writer.tag(2, WireType.LengthDelimited).bytes(message.csrDer);
+        /* repeated coreweave.sandbox.v1.SandboxDataPermission requested_permissions = 3; */
+        if (message.requestedPermissions.length) {
+            writer.tag(3, WireType.LengthDelimited).fork();
+            for (let i = 0; i < message.requestedPermissions.length; i++)
+                writer.int32(message.requestedPermissions[i]);
+            writer.join();
+        }
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message coreweave.sandbox.v1.ConnectSandboxRequest
+ */
+export const ConnectSandboxRequest = new ConnectSandboxRequest$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class SandboxConnection$Type extends MessageType<SandboxConnection> {
+    constructor() {
+        super("coreweave.sandbox.v1.SandboxConnection", [
+            { no: 1, name: "endpoint_uri", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } },
+            { no: 2, name: "client_certificate_chain_pem", kind: "scalar", T: 12 /*ScalarType.BYTES*/, options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } },
+            { no: 3, name: "server_ca_bundle_pem", kind: "scalar", T: 12 /*ScalarType.BYTES*/, options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } },
+            { no: 4, name: "expires_at", kind: "message", T: () => Timestamp, options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } },
+            { no: 5, name: "endpoint_id", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } },
+            { no: 6, name: "transport", kind: "enum", T: () => ["coreweave.sandbox.v1.SandboxDataTransport", SandboxDataTransport, "SANDBOX_DATA_TRANSPORT_"], options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } },
+            { no: 7, name: "protocol", kind: "enum", T: () => ["coreweave.sandbox.v1.SandboxDataProtocol", SandboxDataProtocol, "SANDBOX_DATA_PROTOCOL_"], options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } },
+            { no: 8, name: "granted_permissions", kind: "enum", repeat: 1 /*RepeatType.PACKED*/, T: () => ["coreweave.sandbox.v1.SandboxDataPermission", SandboxDataPermission, "SANDBOX_DATA_PERMISSION_"], options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } }
+        ]);
+    }
+    create(value?: PartialMessage<SandboxConnection>): SandboxConnection {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.endpointUri = "";
+        message.clientCertificateChainPem = new Uint8Array(0);
+        message.serverCaBundlePem = new Uint8Array(0);
+        message.endpointId = "";
+        message.transport = 0;
+        message.protocol = 0;
+        message.grantedPermissions = [];
+        if (value !== undefined)
+            reflectionMergePartial<SandboxConnection>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: SandboxConnection): SandboxConnection {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* string endpoint_uri */ 1:
+                    message.endpointUri = reader.string();
+                    break;
+                case /* bytes client_certificate_chain_pem */ 2:
+                    message.clientCertificateChainPem = reader.bytes();
+                    break;
+                case /* bytes server_ca_bundle_pem */ 3:
+                    message.serverCaBundlePem = reader.bytes();
+                    break;
+                case /* google.protobuf.Timestamp expires_at */ 4:
+                    message.expiresAt = Timestamp.internalBinaryRead(reader, reader.uint32(), options, message.expiresAt);
+                    break;
+                case /* string endpoint_id */ 5:
+                    message.endpointId = reader.string();
+                    break;
+                case /* coreweave.sandbox.v1.SandboxDataTransport transport */ 6:
+                    message.transport = reader.int32();
+                    break;
+                case /* coreweave.sandbox.v1.SandboxDataProtocol protocol */ 7:
+                    message.protocol = reader.int32();
+                    break;
+                case /* repeated coreweave.sandbox.v1.SandboxDataPermission granted_permissions */ 8:
+                    if (wireType === WireType.LengthDelimited)
+                        for (let e = reader.int32() + reader.pos; reader.pos < e;)
+                            message.grantedPermissions.push(reader.int32());
+                    else
+                        message.grantedPermissions.push(reader.int32());
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: SandboxConnection, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* string endpoint_uri = 1; */
+        if (message.endpointUri !== "")
+            writer.tag(1, WireType.LengthDelimited).string(message.endpointUri);
+        /* bytes client_certificate_chain_pem = 2; */
+        if (message.clientCertificateChainPem.length)
+            writer.tag(2, WireType.LengthDelimited).bytes(message.clientCertificateChainPem);
+        /* bytes server_ca_bundle_pem = 3; */
+        if (message.serverCaBundlePem.length)
+            writer.tag(3, WireType.LengthDelimited).bytes(message.serverCaBundlePem);
+        /* google.protobuf.Timestamp expires_at = 4; */
+        if (message.expiresAt)
+            Timestamp.internalBinaryWrite(message.expiresAt, writer.tag(4, WireType.LengthDelimited).fork(), options).join();
+        /* string endpoint_id = 5; */
+        if (message.endpointId !== "")
+            writer.tag(5, WireType.LengthDelimited).string(message.endpointId);
+        /* coreweave.sandbox.v1.SandboxDataTransport transport = 6; */
+        if (message.transport !== 0)
+            writer.tag(6, WireType.Varint).int32(message.transport);
+        /* coreweave.sandbox.v1.SandboxDataProtocol protocol = 7; */
+        if (message.protocol !== 0)
+            writer.tag(7, WireType.Varint).int32(message.protocol);
+        /* repeated coreweave.sandbox.v1.SandboxDataPermission granted_permissions = 8; */
+        if (message.grantedPermissions.length) {
+            writer.tag(8, WireType.LengthDelimited).fork();
+            for (let i = 0; i < message.grantedPermissions.length; i++)
+                writer.int32(message.grantedPermissions[i]);
+            writer.join();
+        }
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message coreweave.sandbox.v1.SandboxConnection
+ */
+export const SandboxConnection = new SandboxConnection$Type();
 /**
  * @generated ServiceType for protobuf service coreweave.sandbox.v1.SandboxService
  */
@@ -7360,6 +7761,7 @@ export const SandboxService = new ServiceType("coreweave.sandbox.v1.SandboxServi
     { name: "ListSandboxes", options: { "google.api.http": { get: "/v1/sandboxes" } }, I: ListSandboxesRequest, O: ListSandboxesResponse },
     { name: "DeleteSandbox", options: { "google.api.http": { delete: "/v1/sandboxes/{sandbox_id}" } }, I: DeleteSandboxRequest, O: DeleteSandboxResponse },
     { name: "PurgeSandboxes", options: { "google.api.http": { post: "/v1/sandboxes:purge", body: "*" } }, I: PurgeSandboxesRequest, O: PurgeSandboxesResponse },
+    { name: "ConnectSandbox", options: { "google.api.http": { post: "/v1/sandboxes/{sandbox_id}:connect", body: "*" } }, I: ConnectSandboxRequest, O: SandboxConnection },
     { name: "Exec", options: { "google.api.http": { post: "/v1/sandboxes/{sandbox_id}:exec", body: "*" } }, I: ExecRequest, O: ExecResponse },
     { name: "StreamExec", serverStreaming: true, clientStreaming: true, options: {}, I: ExecStreamRequest, O: ExecStreamResponse },
     { name: "StreamLogs", serverStreaming: true, options: {}, I: StreamLogsRequest, O: LogEntry },

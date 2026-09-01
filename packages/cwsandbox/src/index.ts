@@ -79,6 +79,7 @@ export type {
   TerminalSession,
 } from "./public/commands.js";
 export type { Milliseconds, RequestOptions, Seconds } from "./public/common.js";
+export type { DataPlaneMode, DataPlaneOptions } from "./public/data-plane.js";
 export type {
   FileChunkSource,
   FileContent,

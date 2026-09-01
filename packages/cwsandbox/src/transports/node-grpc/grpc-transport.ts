@@ -35,11 +35,13 @@ import type {
 } from "../../transport/types.js";
 import { createGrpcClients, type GrpcClients, type GrpcMetadata } from "./channel.js";
 import { startGrpcCommand } from "./command-stream.js";
+import { DirectDataPlane } from "./direct-data-plane.js";
 import {
   CreateFileSystemSnapshotRequest as ProtoCreateFileSystemSnapshotRequest,
   DeleteFileSystemSnapshotRequest as ProtoDeleteFileSystemSnapshotRequest,
   GetFileSystemSnapshotRequest as ProtoGetFileSystemSnapshotRequest,
   ListFileSystemSnapshotsRequest as ProtoListFileSystemSnapshotsRequest,
+  SandboxDataPermission,
 } from "./generated/coreweave/sandbox/v1/sandbox.js";
 import { startGrpcLogStream } from "./log-stream.js";
 import {
@@ -66,11 +68,13 @@ export interface GrpcSandboxTransportOptions {
 export class GrpcSandboxTransport implements SandboxTransport {
   /** Exposed so the factory can create a FileAdapter from the same channel. */
   public readonly clients: GrpcClients;
+  public readonly directDataPlane: DirectDataPlane;
   private readonly client: GrpcClients["client"];
 
   public constructor(options: GrpcSandboxTransportOptions) {
     this.clients = createGrpcClients(options);
     this.client = this.clients.client;
+    this.directDataPlane = new DirectDataPlane(this.client);
   }
 
   public async start(request: StartSandboxRequest): Promise<StartSandboxResult> {
@@ -132,6 +136,7 @@ export class GrpcSandboxTransport implements SandboxTransport {
         this.client.deleteSandbox(toProtoDeleteRequest(request), toRpcOptions(request)).response,
       request.sandboxId,
     );
+    this.directDataPlane.discardSandbox(request.sandboxId);
   }
 
   public async createFileSystemSnapshot(
@@ -208,11 +213,24 @@ export class GrpcSandboxTransport implements SandboxTransport {
   }
 
   public async exec(request: ExecRequest): Promise<ProcessResult> {
-    const response = await withGrpcErrorMapping(
-      "Exec command",
-      () => this.client.exec(toProtoExecRequest(request), toRpcOptions(request)).response,
-      request.sandboxId,
-    );
+    const lease = await this.directDataPlane.acquire({
+      dataPlaneMode: request.dataPlaneMode ?? "auto",
+      permission: SandboxDataPermission.EXEC,
+      sandboxId: request.sandboxId,
+      ...(request.signal === undefined ? {} : { signal: request.signal }),
+      ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+    });
+    const client = lease?.client ?? this.client;
+    let response;
+    try {
+      response = await withGrpcErrorMapping(
+        "Exec command",
+        () => client.exec(toProtoExecRequest(request), toRpcOptions(request)).response,
+        request.sandboxId,
+      );
+    } finally {
+      await lease?.release();
+    }
 
     return toSdkProcessResult(request.command, response);
   }
@@ -226,17 +244,65 @@ export class GrpcSandboxTransport implements SandboxTransport {
   public async startCommand(
     request: StartCommandRequest,
   ): Promise<CommandProcess | CommandProcessWithStdin> {
-    return startGrpcCommand(this.client, request);
+    const lease = await this.directDataPlane.acquire({
+      dataPlaneMode: request.dataPlaneMode ?? "auto",
+      permission: SandboxDataPermission.STREAM_EXEC,
+      sandboxId: request.sandboxId,
+      ...(request.signal === undefined ? {} : { signal: request.signal }),
+      ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+    });
+    try {
+      return await startGrpcCommand(
+        lease?.client ?? this.client,
+        request,
+        lease === undefined ? undefined : () => lease.release(),
+      );
+    } catch (error) {
+      await lease?.release();
+      throw error;
+    }
   }
 
   public async startShell(request: StartShellRequest): Promise<TerminalSession> {
-    return startGrpcShell(this.client, request);
+    const lease = await this.directDataPlane.acquire({
+      dataPlaneMode: request.dataPlaneMode ?? "auto",
+      permission: SandboxDataPermission.STREAM_EXEC,
+      sandboxId: request.sandboxId,
+      ...(request.signal === undefined ? {} : { signal: request.signal }),
+      ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+    });
+    try {
+      return await startGrpcShell(
+        lease?.client ?? this.client,
+        request,
+        lease === undefined ? undefined : () => lease.release(),
+      );
+    } catch (error) {
+      await lease?.release();
+      throw error;
+    }
   }
 
   public async streamLogs(
     request: StreamLogsRequest,
   ): Promise<LogEntryStream | LogRawStream | LogStream> {
-    return startGrpcLogStream(this.client, request);
+    const lease = await this.directDataPlane.acquire({
+      dataPlaneMode: request.dataPlaneMode ?? "auto",
+      permission: SandboxDataPermission.STREAM_LOGS,
+      sandboxId: request.sandboxId,
+      ...(request.signal === undefined ? {} : { signal: request.signal }),
+      ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+    });
+    try {
+      return await startGrpcLogStream(
+        lease?.client ?? this.client,
+        request,
+        lease === undefined ? undefined : () => lease.release(),
+      );
+    } catch (error) {
+      await lease?.release();
+      throw error;
+    }
   }
 
   public async stop(request: StopSandboxRequest): Promise<void> {
@@ -246,5 +312,6 @@ export class GrpcSandboxTransport implements SandboxTransport {
         this.client.deleteSandbox(toProtoDeleteRequest(request), toRpcOptions(request)).response,
       request.sandboxId,
     );
+    this.directDataPlane.discardSandbox(request.sandboxId);
   }
 }

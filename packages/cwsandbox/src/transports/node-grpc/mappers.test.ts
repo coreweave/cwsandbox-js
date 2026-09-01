@@ -76,7 +76,7 @@ describe("node transport mappers", () => {
         image: DEFAULT_CONTAINER_IMAGE,
         name: "main",
       });
-      expect(request.sandbox?.spec?.primaryContainer).toBe("main");
+      expect(primaryContainer(request)?.primary).toBe(true);
     });
 
     it("maps supported create options onto spec and the primary container", () => {
@@ -98,7 +98,6 @@ describe("node transport mappers", () => {
         maxLifetimeSeconds: 60,
         mode: SandboxMode.CKS,
         network: { denyEgress: true },
-        primaryContainer: "main",
         runnerIds: ["runner-id"],
         tags: ["project-demo"],
       });
@@ -113,6 +112,7 @@ describe("node transport mappers", () => {
         args: ["-m", "http.server", "8000"],
         command: "python",
         environmentVariables: { EXAMPLE: "1" },
+        primary: true,
         resourceRequirements: {
           limits: { cpu: "100m", memory: "128Mi" },
           requests: { cpu: "100m", memory: "128Mi" },
@@ -301,10 +301,12 @@ describe("node transport mappers", () => {
       expect(request.sandbox?.spec?.network?.egress).toEqual([
         {
           destination: { dnsName: "pypi.org", oneofKind: "dnsName" },
+          dnsNameExcept: [],
           ports: [],
         },
         {
           destination: { dnsName: "*.pypi.org", oneofKind: "dnsName" },
+          dnsNameExcept: [],
           ports: [],
         },
       ]);
@@ -711,8 +713,8 @@ describe("node transport mappers", () => {
         secretStores: [],
       });
       expect(container).not.toHaveProperty("imagePullCredentials");
-      expect(request.overrides?.primaryContainer).toBe("main");
-      expect(overrideFieldNumbers(request)).toEqual(expect.arrayContaining([1, 2]));
+      expect(container?.primary).toBe(true);
+      expect(overrideFieldNumbers(request)).toEqual(expect.arrayContaining([1]));
       expect(overrideFieldNumbers(request)).not.toContain(3);
       expect(
         PartialSandboxSpec.toBinary(request.overrides ?? PartialSandboxSpec.create()).length,

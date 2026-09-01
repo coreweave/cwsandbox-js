@@ -28,6 +28,7 @@ SDK patterns; use `weave/` / `tanstack/` for integrations with extra dependencie
 | `sdk/large-file-streaming.ts`   | `async function main()` | file streams                   |
 | `sdk/resource-configuration.ts` | `async function main()` | resources                      |
 | `sdk/error-handling.ts`         | `async function main()` | typed errors                   |
+| `sdk/direct-data-plane.ts`      | `async function main()` | direct mTLS transport policy   |
 | `sdk/reconnect-to-sandbox.ts`   | CLI flags               | `fromId`                       |
 | `sdk/delete-sandboxes.ts`       | `async function main()` | delete / missingOk             |
 | `sdk/cleanup-by-tag.ts`         | CLI flags               | tag cleanup                    |

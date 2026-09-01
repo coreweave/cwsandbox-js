@@ -60,8 +60,10 @@ export interface StartExecSessionOptions extends RequestOptions {
   readonly cwd?: string;
 }
 
+type StreamExecClient = Pick<SandboxServiceClient, "streamExec">;
+
 export async function startExecSession(
-  streamingClient: SandboxServiceClient,
+  streamingClient: StreamExecClient,
   options: StartExecSessionOptions,
 ): Promise<ExecSession> {
   const abortController = linkedAbortController(options.signal);

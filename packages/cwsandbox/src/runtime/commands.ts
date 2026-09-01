@@ -36,6 +36,7 @@ export async function execCommand(
 
   const result = await runtime.transport.exec({
     command: normalizedCommand,
+    ...(runtime.dataPlaneMode === undefined ? {} : { dataPlaneMode: runtime.dataPlaneMode }),
     sandboxId: runtime.sandboxId,
     ...(cwd !== undefined ? { cwd } : {}),
     ...(signal !== undefined ? { signal } : {}),
@@ -66,6 +67,7 @@ export async function startCommand(
   return runtime.transport.startCommand({
     ...options,
     command: normalizeCommand(command),
+    ...(runtime.dataPlaneMode === undefined ? {} : { dataPlaneMode: runtime.dataPlaneMode }),
     sandboxId: runtime.sandboxId,
   });
 }

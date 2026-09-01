@@ -11,6 +11,7 @@ import type {
   TerminalSession,
 } from "./commands.js";
 import type { RequestOptions, Seconds } from "./common.js";
+import type { DataPlaneOptions } from "./data-plane.js";
 import type { MountedFiles, SandboxFiles } from "./files.js";
 import type { SandboxLogs } from "./logs.js";
 import type { NetworkOptions, Service, ServiceProtocol, ServiceUrl } from "./network.js";
@@ -18,7 +19,7 @@ import type { ResourceOptions, ResourceSpec } from "./resources.js";
 import type { Secrets } from "./secrets.js";
 
 export type EnvironmentVariables = Readonly<Record<string, string>>;
-export type FromIdOptions = RequestOptions;
+export interface FromIdOptions extends RequestOptions, DataPlaneOptions {}
 export type SandboxAnnotations = Readonly<Record<string, string>>;
 export type SandboxId = string;
 export type SandboxTag = string;
@@ -132,7 +133,7 @@ export interface DeleteSnapshotOptions extends RequestOptions {
   readonly missingOk?: boolean;
 }
 
-export interface SandboxRunOptions extends RequestOptions {
+export interface SandboxRunOptions extends RequestOptions, DataPlaneOptions {
   readonly annotations?: SandboxAnnotations;
   readonly containerImage?: string;
   readonly environmentVariables?: EnvironmentVariables;
@@ -174,7 +175,7 @@ export interface SandboxRunOptions extends RequestOptions {
  * inherit, not clear, except `network: {}`, which replaces the template
  * network. See each property.
  */
-export interface SandboxRunFromTemplateOptions extends RequestOptions {
+export interface SandboxRunFromTemplateOptions extends RequestOptions, DataPlaneOptions {
   /**
    * Non-empty input replaces the complete template map; it does not merge
    * keys. Empty `{}` means inherit, not clear.
@@ -306,7 +307,7 @@ export interface ListSandboxesOptions extends RequestOptions {
  * Omits `pageToken` because the helper owns pagination. `timeoutMs` is a
  * wall-clock budget across all pages (default 300s), not a per-page RPC timeout.
  */
-export type SandboxListOptions = Omit<ListSandboxesOptions, "pageToken">;
+export type SandboxListOptions = Omit<ListSandboxesOptions, "pageToken"> & DataPlaneOptions;
 
 export interface SandboxExposedPort {
   readonly name?: string;

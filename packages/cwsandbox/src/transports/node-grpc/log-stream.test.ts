@@ -3,7 +3,7 @@
 // SPDX-PackageName: cwsandbox
 
 import { RpcError } from "@protobuf-ts/runtime-rpc";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { CWSandboxTransportError } from "../../errors.js";
 import type { LogStream } from "../../public/logs.js";
@@ -25,6 +25,21 @@ describe("startGrpcLogStream", () => {
     stream.end();
 
     await expect(collectLines(logs)).resolves.toEqual(["hello\n"]);
+  });
+
+  it("releases its transport lease when the stream ends", async () => {
+    const stream = createMockLogStream();
+    const onSettled = vi.fn<() => Promise<void>>(async () => undefined);
+    const logs = (await startGrpcLogStream(
+      stream.client,
+      { mode: "lines", sandboxId: "sbx" },
+      onSettled,
+    )) as LogStream;
+
+    stream.end();
+    await collectLines(logs);
+
+    await vi.waitFor(() => expect(onSettled).toHaveBeenCalledTimes(1));
   });
 
   it("maps an in-band stream error", async () => {

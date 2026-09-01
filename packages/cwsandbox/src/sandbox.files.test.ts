@@ -38,6 +38,7 @@ describe("Sandbox files", () => {
 
     expect(writeRequest).toEqual({
       content: new TextEncoder().encode("hello"),
+      dataPlaneMode: "auto",
       path: "/tmp/input.txt",
       sandboxId: "sandbox-for-echo",
       timeoutMs: 1234,
@@ -58,6 +59,7 @@ describe("Sandbox files", () => {
 
     expect(writeRequest).toEqual({
       content,
+      dataPlaneMode: "auto",
       path: "/tmp/input.bin",
       sandboxId: "sandbox-for-echo",
     });
@@ -83,12 +85,14 @@ describe("Sandbox files", () => {
     expect(writeRequests).toEqual([
       {
         content: new TextEncoder().encode("a"),
+        dataPlaneMode: "auto",
         path: "/tmp/a.txt",
         sandboxId: "sandbox-for-echo",
         timeoutMs: 1234,
       },
       {
         content: new TextEncoder().encode("b"),
+        dataPlaneMode: "auto",
         path: "/tmp/b.txt",
         sandboxId: "sandbox-for-echo",
         timeoutMs: 1234,
@@ -114,11 +118,13 @@ describe("Sandbox files", () => {
     expect(writeRequests).toEqual([
       {
         content: new TextEncoder().encode("a"),
+        dataPlaneMode: "auto",
         path: "/tmp/a.txt",
         sandboxId: "sandbox-for-echo",
       },
       {
         content,
+        dataPlaneMode: "auto",
         path: "/tmp/b.bin",
         sandboxId: "sandbox-for-echo",
       },
@@ -211,12 +217,14 @@ describe("Sandbox files", () => {
 
     expect(readRequests).toEqual([
       {
+        dataPlaneMode: "auto",
         path: "/tmp/a.txt",
         sandboxId: "sandbox-for-echo",
         signal,
         timeoutMs: 1234,
       },
       {
+        dataPlaneMode: "auto",
         path: "/tmp/b.txt",
         sandboxId: "sandbox-for-echo",
         signal,
@@ -252,6 +260,7 @@ describe("Sandbox files", () => {
     await sandbox.files.read("/tmp/output.txt", { signal, timeoutMs: 1234 });
 
     expect(readRequest).toEqual({
+      dataPlaneMode: "auto",
       path: "/tmp/output.txt",
       sandboxId: "sandbox-for-echo",
       signal,

@@ -202,6 +202,7 @@ describe("Sandbox", () => {
     expect(shellRequest).toEqual({
       cols: 80,
       command: ["/bin/sh"],
+      dataPlaneMode: "auto",
       rows: 24,
       sandboxId: "sandbox-for-echo",
       signal,

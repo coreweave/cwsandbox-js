@@ -8,6 +8,9 @@ SPDX-PackageName: cwsandbox
 
 ## Unreleased
 
+- Add `dataPlaneMode` (`auto`, `direct`, or `gateway`) for sandbox exec, shell,
+  logs, and file operations. `auto` prefers operation-scoped direct mTLS with a
+  bounded gateway fallback; lifecycle and management calls remain on the API.
 - Normalize inspect/`exposedPorts` protocols to lowercase `tcp` / `udp` /
   `sctp` (`ServiceProtocol`) instead of uppercase proto names. Beta API
   normalization: create and inspect now share the same protocol strings.

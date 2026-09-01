@@ -18,8 +18,9 @@ import { toProtoStreamLogsRequest } from "./mappers.js";
 import { linkedAbortController, toRpcOptions, withGrpcErrorMapping } from "./rpc.js";
 
 export async function startGrpcLogStream(
-  client: SandboxServiceClient,
+  client: Pick<SandboxServiceClient, "streamLogs">,
   request: StreamLogsRequest,
+  onSettled: () => Promise<void> = async () => undefined,
 ): Promise<LogEntryStream | LogRawStream | LogStream> {
   const abortController = linkedAbortController(request.signal);
   const callerAbort = { aborted: false };
@@ -44,7 +45,7 @@ export async function startGrpcLogStream(
 
   await withGrpcErrorMapping("Stream logs", async () => undefined, request.sandboxId);
 
-  void collectLogStream(call, controller, request, callerAbort);
+  void collectLogStream(call, controller, request, callerAbort, onSettled);
   return controller.stream;
 }
 
@@ -53,6 +54,7 @@ async function collectLogStream(
   controller: LogStreamController<LogEntryStream | LogRawStream | LogStream>,
   request: StreamLogsRequest,
   callerAbort: { aborted: boolean },
+  onSettled: () => Promise<void>,
 ): Promise<void> {
   let terminal = false;
 
@@ -99,5 +101,7 @@ async function collectLogStream(
       }),
       type: "error",
     });
+  } finally {
+    await onSettled().catch(() => undefined);
   }
 }

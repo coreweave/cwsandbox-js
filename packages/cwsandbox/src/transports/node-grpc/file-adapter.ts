@@ -33,10 +33,12 @@ import type {
   WriteStreamRequest,
 } from "../../transport/file-adapter.js";
 import type { GrpcClients } from "./channel.js";
+import type { DirectDataPlane, DirectDataPlaneLease } from "./direct-data-plane.js";
 import { startExecSession } from "./exec-session.js";
 import type { SandboxServiceClient } from "./generated/coreweave/sandbox/v1/sandbox.client.js";
 import {
   ReadFileRequest as ProtoReadFileRequest,
+  SandboxDataPermission,
   WriteFileRequest as ProtoWriteFileRequest,
 } from "./generated/coreweave/sandbox/v1/sandbox.js";
 import { toRpcOptions, withGrpcErrorMapping } from "./rpc.js";
@@ -99,19 +101,99 @@ const READ_STREAM_SCRIPT = [
 
 const STAT_SCRIPT = 'stat -c %s -- "$1" 2>/dev/null';
 
-export function createGrpcFileAdapter(clients: GrpcClients): FileAdapter {
+type UnaryFileClient = Pick<SandboxServiceClient, "readFile" | "writeFile">;
+type StreamExecClient = Pick<SandboxServiceClient, "streamExec">;
+
+export function createGrpcFileAdapter(
+  clients: GrpcClients,
+  directDataPlane?: DirectDataPlane,
+): FileAdapter {
   return {
-    read: (request) => grpcReadFile(clients.client, request),
-    write: (request) => grpcWriteFile(clients.client, request),
-    readStream: (request) => grpcReadStream(clients.client, request),
-    writeStream: (request) => grpcWriteStream(clients.client, request),
+    read: (request) => selectedReadFile(clients.client, directDataPlane, request),
+    write: (request) => selectedWriteFile(clients.client, directDataPlane, request),
+    readStream: (request) => selectedReadStream(clients.client, directDataPlane, request),
+    writeStream: (request) => selectedWriteStream(clients.client, directDataPlane, request),
   };
 }
 
-async function grpcWriteFile(
-  client: GrpcClients["client"],
+async function selectedWriteFile(
+  gatewayClient: SandboxServiceClient,
+  directDataPlane: DirectDataPlane | undefined,
   request: WriteFileRequest,
 ): Promise<void> {
+  const lease = await acquireFileLease(directDataPlane, request, SandboxDataPermission.WRITE_FILE);
+  try {
+    await grpcWriteFile(lease?.client ?? gatewayClient, request);
+  } finally {
+    await lease?.release();
+  }
+}
+
+async function selectedReadFile(
+  gatewayClient: SandboxServiceClient,
+  directDataPlane: DirectDataPlane | undefined,
+  request: ReadFileRequest,
+): Promise<ReadFileResult> {
+  const lease = await acquireFileLease(directDataPlane, request, SandboxDataPermission.READ_FILE);
+  try {
+    return await grpcReadFile(lease?.client ?? gatewayClient, request);
+  } finally {
+    await lease?.release();
+  }
+}
+
+function selectedReadStream(
+  gatewayClient: SandboxServiceClient,
+  directDataPlane: DirectDataPlane | undefined,
+  request: ReadStreamRequest,
+): AsyncIterable<Uint8Array> {
+  return {
+    async *[Symbol.asyncIterator]() {
+      const lease = await acquireFileLease(
+        directDataPlane,
+        request,
+        SandboxDataPermission.STREAM_EXEC,
+      );
+      try {
+        yield* grpcReadStream(lease?.client ?? gatewayClient, request);
+      } finally {
+        await lease?.release();
+      }
+    },
+  };
+}
+
+async function selectedWriteStream(
+  gatewayClient: SandboxServiceClient,
+  directDataPlane: DirectDataPlane | undefined,
+  request: WriteStreamRequest,
+): Promise<void> {
+  const lease = await acquireFileLease(directDataPlane, request, SandboxDataPermission.STREAM_EXEC);
+  try {
+    await grpcWriteStream(lease?.client ?? gatewayClient, request);
+  } finally {
+    await lease?.release();
+  }
+}
+
+function acquireFileLease(
+  directDataPlane: DirectDataPlane | undefined,
+  request: ReadFileRequest | ReadStreamRequest | WriteFileRequest | WriteStreamRequest,
+  permission: SandboxDataPermission,
+): Promise<DirectDataPlaneLease | undefined> {
+  if (directDataPlane === undefined) {
+    return Promise.resolve(undefined);
+  }
+  return directDataPlane.acquire({
+    dataPlaneMode: request.dataPlaneMode ?? "auto",
+    permission,
+    sandboxId: request.sandboxId,
+    ...(request.signal === undefined ? {} : { signal: request.signal }),
+    ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+  });
+}
+
+async function grpcWriteFile(client: UnaryFileClient, request: WriteFileRequest): Promise<void> {
   await withGrpcErrorMapping(
     "Write file",
     () =>
@@ -128,7 +210,7 @@ async function grpcWriteFile(
 }
 
 async function grpcReadFile(
-  client: GrpcClients["client"],
+  client: UnaryFileClient,
   request: ReadFileRequest,
 ): Promise<ReadFileResult> {
   const response = await withGrpcErrorMapping(
@@ -148,7 +230,7 @@ async function grpcReadFile(
 }
 
 function grpcReadStream(
-  streamingClient: SandboxServiceClient,
+  streamingClient: StreamExecClient,
   request: ReadStreamRequest,
 ): AsyncIterable<Uint8Array> {
   return {
@@ -159,7 +241,7 @@ function grpcReadStream(
 }
 
 async function* grpcReadStreamIterator(
-  streamingClient: SandboxServiceClient,
+  streamingClient: StreamExecClient,
   request: ReadStreamRequest,
 ): AsyncGenerator<Uint8Array, void, undefined> {
   const deadline = request.timeoutMs === undefined ? undefined : Date.now() + request.timeoutMs;
@@ -285,7 +367,7 @@ async function* grpcReadStreamIterator(
 }
 
 async function grpcWriteStream(
-  streamingClient: SandboxServiceClient,
+  streamingClient: StreamExecClient,
   request: WriteStreamRequest,
 ): Promise<void> {
   const script =
@@ -395,7 +477,7 @@ async function grpcWriteStream(
 }
 
 async function statFileSize(
-  streamingClient: SandboxServiceClient,
+  streamingClient: StreamExecClient,
   request: ReadStreamRequest,
   timeoutMs: number,
 ): Promise<number | undefined> {

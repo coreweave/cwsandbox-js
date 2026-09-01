@@ -10,7 +10,7 @@ import { DEFAULT_GRPC_MAX_MESSAGE_LENGTH_BYTES } from "../../internal/file-limit
 import { SandboxServiceClient } from "./generated/coreweave/sandbox/v1/sandbox.client.js";
 
 /** Match Python `_default_channel_options` (default grpc-js limit is only 4 MiB). */
-const GRPC_CLIENT_OPTIONS: ClientOptions = {
+export const GRPC_CLIENT_OPTIONS: ClientOptions = {
   "grpc.max_receive_message_length": DEFAULT_GRPC_MAX_MESSAGE_LENGTH_BYTES,
   "grpc.max_send_message_length": DEFAULT_GRPC_MAX_MESSAGE_LENGTH_BYTES,
 };

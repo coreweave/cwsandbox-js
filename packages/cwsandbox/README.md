@@ -167,6 +167,40 @@ pnpm example:tanstack:typecheck
   Snapshots outlive sandbox stop/delete; `client.deleteSnapshot(id, { missingOk: true })`
   removes them.
 
+## Direct sandbox connections
+
+Exec, shell, log, and file operations prefer a sandbox-scoped direct mTLS
+connection to the runner by default. Sandbox creation, inspection, snapshots,
+stop, and delete always use the CoreWeave Sandbox API.
+
+```ts
+import { createSandboxClientFromEnv } from "@coreweave/cwsandbox/node";
+
+const client = createSandboxClientFromEnv();
+const sandbox = await client.create({ dataPlaneMode: "auto" });
+
+try {
+  const result = await sandbox.commands.run(["python", "-c", "print('direct when available')"]);
+  console.log(result.stdout);
+} finally {
+  await sandbox.stop();
+}
+```
+
+`dataPlaneMode` supports:
+
+- `"auto"` (default): try direct for up to one second, then use the gateway.
+- `"direct"`: require direct mTLS and return an unavailable error if it cannot
+  be established.
+- `"gateway"`: route all data operations through the gateway.
+
+Set a client-wide default with
+`createSandboxClient({ apiKey, dataPlaneMode: "gateway" })`, or set the mode on
+`create`, `run`, `runFromTemplate`, `fromId`, or `listSandboxes`. Per-sandbox
+options override the client default. Direct credentials are requested lazily,
+kept in memory, scoped to one sandbox and operation, and expire with the
+server-issued certificate. Direct calls do not send the API bearer token.
+
 ## Quickstart
 
 Prefer `withSandbox()` for short-lived work. It starts a sandbox, passes it to your callback, and stops it when the callback finishes.

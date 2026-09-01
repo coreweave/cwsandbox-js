@@ -51,6 +51,7 @@ describe("Sandbox commands", () => {
     expect(execRequest).toEqual({
       command: ["node", "--version"],
       cwd: "/workspace",
+      dataPlaneMode: "auto",
       sandboxId: "sandbox-for-echo",
       timeoutMs: 5000,
     });
@@ -123,6 +124,7 @@ describe("Sandbox commands", () => {
     expect(startCommandRequest).toEqual({
       command: ["node", "--version"],
       cwd: "/workspace",
+      dataPlaneMode: "auto",
       sandboxId: "sandbox-for-echo",
       timeoutMs: 5000,
     });
@@ -144,6 +146,7 @@ describe("Sandbox commands", () => {
     expect(process.stdin.closed).toBe(false);
     expect(startCommandRequest).toEqual({
       command: ["cat"],
+      dataPlaneMode: "auto",
       sandboxId: "sandbox-for-echo",
       stdin: true,
     });
@@ -185,6 +188,7 @@ describe("Sandbox commands", () => {
 
     expect(execRequest).toEqual({
       command: ["node", "--version"],
+      dataPlaneMode: "auto",
       sandboxId: "sandbox-for-echo",
       signal,
       timeoutMs: 5000,
