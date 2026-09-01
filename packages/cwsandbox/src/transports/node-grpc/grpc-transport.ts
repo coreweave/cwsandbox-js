@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
+import { RpcError } from "@protobuf-ts/runtime-rpc";
+
+import { CWSandboxUnavailableError } from "../../errors.js";
 import type {
   CommandProcess,
   CommandProcessWithStdin,
@@ -35,11 +38,30 @@ import type {
 } from "../../transport/types.js";
 import { createGrpcClients, type GrpcClients, type GrpcMetadata } from "./channel.js";
 import { startGrpcCommand } from "./command-stream.js";
+import type {
+  DataPlanePermission,
+  PrepareDataPlaneCall,
+  PrepareDataPlaneCallOptions,
+  PreparedDataPlaneCall,
+} from "./data-plane-rpc.js";
+import {
+  connectSandboxFromGatewayClient,
+  createDirectPreparedCall,
+  createGatewayPreparedCall,
+  DirectDataPlaneClient,
+  DirectDataPlanePermissionUnavailable,
+  DirectDataPlaneUnavailable,
+  isDirectStrict,
+  isGatewayOnly,
+  requestTimeoutMs,
+} from "./direct.js";
+import { mapGrpcError } from "./errors.js";
 import {
   CreateFileSystemSnapshotRequest as ProtoCreateFileSystemSnapshotRequest,
   DeleteFileSystemSnapshotRequest as ProtoDeleteFileSystemSnapshotRequest,
   GetFileSystemSnapshotRequest as ProtoGetFileSystemSnapshotRequest,
   ListFileSystemSnapshotsRequest as ProtoListFileSystemSnapshotsRequest,
+  SandboxDataPermission,
 } from "./generated/coreweave/sandbox/v1/sandbox.js";
 import { startGrpcLogStream } from "./log-stream.js";
 import {
@@ -66,11 +88,15 @@ export interface GrpcSandboxTransportOptions {
 export class GrpcSandboxTransport implements SandboxTransport {
   /** Exposed so the factory can create a FileAdapter from the same channel. */
   public readonly clients: GrpcClients;
+  public readonly prepareDataPlaneCall: PrepareDataPlaneCall;
   private readonly client: GrpcClients["client"];
+  private readonly directClients = new Map<string, DirectDataPlaneClient>();
 
   public constructor(options: GrpcSandboxTransportOptions) {
     this.clients = createGrpcClients(options);
     this.client = this.clients.client;
+    this.prepareDataPlaneCall = (sandboxId, permission, requestOptions) =>
+      this.prepare(sandboxId, permission, requestOptions);
   }
 
   public async start(request: StartSandboxRequest): Promise<StartSandboxResult> {
@@ -208,13 +234,21 @@ export class GrpcSandboxTransport implements SandboxTransport {
   }
 
   public async exec(request: ExecRequest): Promise<ProcessResult> {
-    const response = await withGrpcErrorMapping(
-      "Exec command",
-      () => this.client.exec(toProtoExecRequest(request), toRpcOptions(request)).response,
-      request.sandboxId,
-    );
-
-    return toSdkProcessResult(request.command, response);
+    const prepared = await this.prepare(request.sandboxId, SandboxDataPermission.EXEC, request);
+    try {
+      const response = await withGrpcErrorMapping(
+        "Exec command",
+        () =>
+          prepared.client.exec(toProtoExecRequest(request), {
+            ...prepared.rpcOptions,
+            ...toRpcOptions(request),
+          }).response,
+        request.sandboxId,
+      );
+      return toSdkProcessResult(request.command, response);
+    } finally {
+      prepared.release();
+    }
   }
 
   public async startCommand(
@@ -226,17 +260,53 @@ export class GrpcSandboxTransport implements SandboxTransport {
   public async startCommand(
     request: StartCommandRequest,
   ): Promise<CommandProcess | CommandProcessWithStdin> {
-    return startGrpcCommand(this.client, request);
+    const prepared = await this.prepare(
+      request.sandboxId,
+      SandboxDataPermission.STREAM_EXEC,
+      request,
+    );
+    try {
+      const process = await startGrpcCommand(prepared.client, request);
+      prepared.releaseWhenDone(process.wait().catch(() => undefined));
+      return process;
+    } catch (error) {
+      prepared.release();
+      throw error;
+    }
   }
 
   public async startShell(request: StartShellRequest): Promise<TerminalSession> {
-    return startGrpcShell(this.client, request);
+    const prepared = await this.prepare(
+      request.sandboxId,
+      SandboxDataPermission.STREAM_EXEC,
+      request,
+    );
+    try {
+      const session = await startGrpcShell(prepared.client, request);
+      prepared.releaseWhenDone(session.wait().catch(() => undefined));
+      return session;
+    } catch (error) {
+      prepared.release();
+      throw error;
+    }
   }
 
   public async streamLogs(
     request: StreamLogsRequest,
   ): Promise<LogEntryStream | LogRawStream | LogStream> {
-    return startGrpcLogStream(this.client, request);
+    const prepared = await this.prepare(
+      request.sandboxId,
+      SandboxDataPermission.STREAM_LOGS,
+      request,
+    );
+    try {
+      return await startGrpcLogStream(prepared.client, request, () => {
+        prepared.release();
+      });
+    } catch (error) {
+      prepared.release();
+      throw error;
+    }
   }
 
   public async stop(request: StopSandboxRequest): Promise<void> {
@@ -246,5 +316,57 @@ export class GrpcSandboxTransport implements SandboxTransport {
         this.client.deleteSandbox(toProtoDeleteRequest(request), toRpcOptions(request)).response,
       request.sandboxId,
     );
+    this.directClients.get(request.sandboxId)?.close();
+    this.directClients.delete(request.sandboxId);
+  }
+
+  private async prepare(
+    sandboxId: string,
+    permission: DataPlanePermission,
+    options: PrepareDataPlaneCallOptions = {},
+  ): Promise<PreparedDataPlaneCall> {
+    if (!isGatewayOnly(options.dataPlaneMode)) {
+      try {
+        let client = this.directClients.get(sandboxId);
+        if (client === undefined) {
+          client = new DirectDataPlaneClient(connectSandboxFromGatewayClient(this.client));
+          this.directClients.set(sandboxId, client);
+        }
+        const lease = await client.acquire({
+          permission,
+          requestTimeoutMs: requestTimeoutMs(options.timeoutMs),
+          sandboxId,
+          strict: isDirectStrict(options.dataPlaneMode),
+        });
+        return createDirectPreparedCall(lease);
+      } catch (error) {
+        if (error instanceof RpcError) {
+          throw mapGrpcError(error, {
+            operation: "Connect to sandbox data plane",
+            sandboxId,
+          });
+        }
+        if (
+          error instanceof DirectDataPlaneUnavailable ||
+          error instanceof DirectDataPlanePermissionUnavailable
+        ) {
+          if (isDirectStrict(options.dataPlaneMode)) {
+            throw new CWSandboxUnavailableError(
+              `Direct data-plane access is unavailable for sandbox ${sandboxId}: ${error.message}`,
+              {
+                cause: error,
+                operation: "Connect to sandbox data plane",
+                sandboxId,
+                transport: "grpc",
+              },
+            );
+          }
+        } else {
+          throw error;
+        }
+      }
+    }
+
+    return createGatewayPreparedCall(this.client, options);
   }
 }

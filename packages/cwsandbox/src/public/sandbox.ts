@@ -10,7 +10,7 @@ import type {
   ShellOptions,
   TerminalSession,
 } from "./commands.js";
-import type { RequestOptions, Seconds } from "./common.js";
+import type { DataPlaneMode, RequestOptions, Seconds } from "./common.js";
 import type { MountedFiles, SandboxFiles } from "./files.js";
 import type { SandboxLogs } from "./logs.js";
 import type { NetworkOptions, Service, ServiceProtocol, ServiceUrl } from "./network.js";
@@ -18,7 +18,14 @@ import type { ResourceOptions, ResourceSpec } from "./resources.js";
 import type { Secrets } from "./secrets.js";
 
 export type EnvironmentVariables = Readonly<Record<string, string>>;
-export type FromIdOptions = RequestOptions;
+export interface FromIdOptions extends RequestOptions {
+  /**
+   * Data path for this handle. Omitted uses the client default (`auto`).
+   * Create-time mode is not remembered; pass `direct` again to reconnect
+   * on mTLS.
+   */
+  readonly dataPlaneMode?: DataPlaneMode;
+}
 export type SandboxAnnotations = Readonly<Record<string, string>>;
 export type SandboxId = string;
 export type SandboxTag = string;
@@ -164,6 +171,11 @@ export interface SandboxRunOptions extends RequestOptions {
    * the backend accepts the start request.
    */
   readonly waitUntilRunning?: boolean;
+  /**
+   * Data path for exec, logs, and files on this handle. Omitted uses the
+   * client default (`auto`). Lifecycle RPCs always use the API gateway.
+   */
+  readonly dataPlaneMode?: DataPlaneMode;
 }
 
 /**
@@ -264,6 +276,11 @@ export interface SandboxRunFromTemplateOptions extends RequestOptions {
    * the backend accepts the start request.
    */
   readonly waitUntilRunning?: boolean;
+  /**
+   * Data path for exec, logs, and files on this handle. Omitted uses the
+   * client default (`auto`).
+   */
+  readonly dataPlaneMode?: DataPlaneMode;
 }
 
 export interface StopOptions extends RequestOptions {

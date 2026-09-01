@@ -9,13 +9,13 @@ import {
   type InternalCommandEvent,
 } from "../../streaming/command-process.js";
 import type { StartCommandRequest } from "../../transport/types.js";
+import type { DataPlaneRpcClient } from "./data-plane-rpc.js";
 import { startExecSession, mapExecSessionError, type ExecSession } from "./exec-session.js";
-import type { SandboxServiceClient } from "./generated/coreweave/sandbox/v1/sandbox.client.js";
 
 export { mapExecSessionError as mapExecStreamError };
 
 export async function startGrpcCommand(
-  streamingClient: SandboxServiceClient,
+  streamingClient: DataPlaneRpcClient,
   request: StartCommandRequest,
 ): Promise<CommandProcess | CommandProcessWithStdin> {
   const session = await startExecSession(streamingClient, {

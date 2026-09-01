@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import { SandboxClient } from "../client.js";
-import { CWSandboxConfigurationError } from "../errors.js";
+import { CWSandboxConfigurationError, CWSandboxValidationError } from "../errors.js";
 import {
   DEFAULT_BASE_URL,
   DEFAULT_CONTAINER_IMAGE,
@@ -38,6 +38,15 @@ describe("createSandboxClient", () => {
     expect(() => createSandboxClient({ apiKey: "test-key", baseUrl: "ftp://example.com" })).toThrow(
       CWSandboxConfigurationError,
     );
+  });
+
+  it("rejects an unknown dataPlaneMode before opening a channel", () => {
+    expect(() =>
+      createSandboxClient({
+        apiKey: "test-key",
+        dataPlaneMode: "mtls" as never,
+      }),
+    ).toThrow(CWSandboxValidationError);
   });
 });
 

@@ -14,7 +14,7 @@ import {
   fileOperationCapBytes,
   recordObservedFileOpCap,
 } from "../internal/file-limits.js";
-import type { RequestOptions } from "../public/common.js";
+import type { DataPlaneMode, RequestOptions } from "../public/common.js";
 import type { FileChunkSource } from "../public/files.js";
 import type { SandboxId } from "../public/sandbox.js";
 import type { FileAdapter } from "../transport/file-adapter.js";
@@ -28,12 +28,14 @@ export class FileTransfer {
   public constructor(
     private readonly sandboxId: SandboxId,
     private readonly adapter: FileAdapter,
+    private readonly dataPlaneMode: DataPlaneMode,
   ) {}
 
   public async readSingle(path: string, options: RequestOptions): Promise<Uint8Array> {
     try {
       const result = await this.adapter.read({
         ...options,
+        dataPlaneMode: this.dataPlaneMode,
         path,
         sandboxId: this.sandboxId,
       });
@@ -90,6 +92,7 @@ export class FileTransfer {
       await this.adapter.write({
         ...options,
         content: bytes,
+        dataPlaneMode: this.dataPlaneMode,
         path,
         sandboxId: this.sandboxId,
       });
@@ -114,6 +117,7 @@ export class FileTransfer {
   ): Promise<void> {
     return this.adapter.writeStream({
       ...options,
+      dataPlaneMode: this.dataPlaneMode,
       mode: "direct",
       path,
       sandboxId: this.sandboxId,
@@ -124,6 +128,7 @@ export class FileTransfer {
   public readStream(path: string, options: RequestOptions): AsyncIterable<Uint8Array> {
     return this.adapter.readStream({
       ...options,
+      dataPlaneMode: this.dataPlaneMode,
       path,
       sandboxId: this.sandboxId,
     });
@@ -138,6 +143,7 @@ export class FileTransfer {
     let totalBytes = 0;
     for await (const chunk of this.adapter.readStream({
       ...options,
+      dataPlaneMode: this.dataPlaneMode,
       path,
       sandboxId: this.sandboxId,
       ...(expectedSize === undefined ? {} : { expectedSize }),
@@ -182,6 +188,7 @@ export class FileTransfer {
   ): Promise<void> {
     await this.adapter.writeStream({
       ...options,
+      dataPlaneMode: this.dataPlaneMode,
       expectedBytes: bytes.byteLength,
       mode: "atomic",
       path,

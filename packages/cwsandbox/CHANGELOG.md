@@ -8,6 +8,13 @@ SPDX-PackageName: cwsandbox
 
 ## Unreleased
 
+- Add `dataPlaneMode` (`auto` | `direct` | `gateway`) on the Node/W&B client
+  factories and on `create` / `run` / `runFromTemplate` / `fromId`. Default
+  `auto` tries a one-second direct mTLS setup, then the API gateway. `direct`
+  requires mTLS and never falls back (`CWSandboxUnavailableError`). `gateway`
+  keeps today's Bearer path. Create, inspect, stop, and snapshots always use
+  the gateway. Direct RPCs send empty metadata (no API key). Behavior matches
+  Python [cwsandbox-client#162](https://github.com/coreweave/cwsandbox-client/pull/162).
 - Add optional `requestTimeoutSeconds` on HTTPS `Endpoint`. Omit/`0` keeps
   the platform default (15s on serverless). The SDK only checks that the
   value is a non-negative integer; Aviato currently accepts `0` or

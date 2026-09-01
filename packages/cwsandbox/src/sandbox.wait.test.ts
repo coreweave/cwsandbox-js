@@ -386,6 +386,7 @@ describe("Sandbox status and wait", () => {
       },
     };
     const runtime: SandboxRuntime = {
+      dataPlaneMode: "auto",
       sandboxId: "sandbox-clamp",
       transport,
     };
@@ -421,6 +422,7 @@ describe("Sandbox status and wait", () => {
       },
     };
     const runtime: SandboxRuntime = {
+      dataPlaneMode: "auto",
       sandboxId: "sandbox-overrun",
       transport,
     };
@@ -451,6 +453,7 @@ describe("Sandbox status and wait", () => {
       },
     };
     const runtime: SandboxRuntime = {
+      dataPlaneMode: "auto",
       sandboxId: "sandbox-budget",
       transport,
     };
@@ -610,6 +613,7 @@ describe("Sandbox status and wait", () => {
       },
     };
     const runtime: SandboxRuntime = {
+      dataPlaneMode: "auto",
       sandboxId: "sandbox-stop-owned",
       transport,
     };

@@ -9,6 +9,8 @@ import {
   DEFAULT_GRACEFUL_SHUTDOWN_SECONDS,
   DEFAULT_KEEP_ALIVE_COMMAND,
   DEFAULT_SNAPSHOT_TIMEOUT_MS,
+  DATA_PLANE_MODES,
+  type DataPlaneMode,
   type Command,
   type CommandInputWriter,
   type CommandProcess,
@@ -103,8 +105,23 @@ declare const client: SandboxClient;
 expectTypeOf(DEFAULT_KEEP_ALIVE_COMMAND).toExtend<CommandInput>();
 expectTypeOf(DEFAULT_GRACEFUL_SHUTDOWN_SECONDS).toEqualTypeOf<10>();
 expectTypeOf(DEFAULT_SNAPSHOT_TIMEOUT_MS).toEqualTypeOf<600_000>();
-const sandboxRunOptions: SandboxRunOptions = { waitUntilRunning: false };
+expectTypeOf<DataPlaneMode>().toEqualTypeOf<"auto" | "direct" | "gateway">();
+expectTypeOf(DATA_PLANE_MODES).toEqualTypeOf<readonly ["auto", "direct", "gateway"]>();
+const nodeWithMode: NodeSandboxClientOptions = { apiKey: "test-key", dataPlaneMode: "gateway" };
+expectTypeOf(nodeWithMode.dataPlaneMode).toEqualTypeOf<DataPlaneMode | undefined>();
+const wandbWithMode: WandbSandboxClientOptions = { dataPlaneMode: "direct" };
+expectTypeOf(wandbWithMode.dataPlaneMode).toEqualTypeOf<DataPlaneMode | undefined>();
+const sandboxRunOptions: SandboxRunOptions = { waitUntilRunning: false, dataPlaneMode: "auto" };
 expectTypeOf(sandboxRunOptions.waitUntilRunning).toEqualTypeOf<boolean | undefined>();
+expectTypeOf(sandboxRunOptions.dataPlaneMode).toEqualTypeOf<DataPlaneMode | undefined>();
+expectTypeOf(client.create({ dataPlaneMode: "gateway" })).toEqualTypeOf<
+  ReturnType<SandboxClient["create"]>
+>();
+expectTypeOf(client.fromId("sandbox-123", { dataPlaneMode: "direct" })).toEqualTypeOf<
+  ReturnType<SandboxClient["fromId"]>
+>();
+// @ts-expect-error dataPlaneMode does not accept arbitrary strings
+void client.create({ dataPlaneMode: "mtls" });
 expectTypeOf(client.create()).toEqualTypeOf<ReturnType<SandboxClient["create"]>>();
 expectTypeOf(client.create({ waitUntilRunning: false })).toEqualTypeOf<
   ReturnType<SandboxClient["create"]>

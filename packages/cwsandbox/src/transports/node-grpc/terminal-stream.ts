@@ -12,8 +12,8 @@ import {
   type TerminalSessionController,
 } from "../../streaming/terminal-session.js";
 import type { StartShellRequest } from "../../transport/types.js";
+import type { DataPlaneRpcClient } from "./data-plane-rpc.js";
 import { mapGrpcError } from "./errors.js";
-import type { SandboxServiceClient } from "./generated/coreweave/sandbox/v1/sandbox.client.js";
 import type {
   ExecStreamRequest as ProtoExecStreamRequest,
   ExecStreamResponse as ProtoExecStreamResponse,
@@ -33,7 +33,7 @@ import {
 } from "./streaming-requests.js";
 
 export async function startGrpcShell(
-  streamingClient: SandboxServiceClient,
+  streamingClient: DataPlaneRpcClient,
   request: StartShellRequest,
 ): Promise<TerminalSession> {
   const abortController = linkedAbortController(request.signal);

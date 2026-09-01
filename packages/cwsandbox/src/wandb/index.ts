@@ -3,6 +3,7 @@
 // SPDX-PackageName: cwsandbox
 
 import { SandboxClient } from "../client.js";
+import { DEFAULT_DATA_PLANE_MODE, validateDataPlaneMode } from "../internal/data-plane.js";
 import type { SandboxClient as SandboxClientInterface } from "../public/client.js";
 import {
   toWandbMetadata,
@@ -28,6 +29,7 @@ export type {
 export const DEFAULT_WANDB_SANDBOX_BASE_URL = "https://api.cwsandbox.com";
 
 export function createSandboxClient(options: WandbSandboxClientOptions = {}): SandboxClientInterface {
+  validateDataPlaneMode(options.dataPlaneMode);
   const env = options.env ?? process.env;
   const baseUrl = normalizeBaseUrl(options.baseUrl ?? env["WANDB_SANDBOX_BASE_URL"]);
   const transport = new GrpcSandboxTransport({
@@ -40,9 +42,13 @@ export function createSandboxClient(options: WandbSandboxClientOptions = {}): Sa
       ...(options.project === undefined ? {} : { project: options.project }),
     }),
   });
-  const fileAdapter = createGrpcFileAdapter(transport.clients);
+  const fileAdapter = createGrpcFileAdapter(transport.prepareDataPlaneCall);
 
-  return new SandboxClient({ fileAdapter, transport });
+  return new SandboxClient({
+    dataPlaneMode: options.dataPlaneMode ?? DEFAULT_DATA_PLANE_MODE,
+    fileAdapter,
+    transport,
+  });
 }
 
 export function createSandboxClientFromEnv(

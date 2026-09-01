@@ -8,8 +8,8 @@ import { CWSandboxTransportError } from "../../errors.js";
 import type { LogEntryStream, LogRawStream, LogStream } from "../../public/logs.js";
 import { createLogStream, type LogStreamController } from "../../streaming/log-stream.js";
 import type { StreamLogsRequest } from "../../transport/types.js";
+import type { DataPlaneRpcClient } from "./data-plane-rpc.js";
 import { mapGrpcError } from "./errors.js";
-import type { SandboxServiceClient } from "./generated/coreweave/sandbox/v1/sandbox.client.js";
 import type {
   LogEntry as ProtoLogEntry,
   StreamLogsRequest as ProtoStreamLogsRequest,
@@ -18,8 +18,9 @@ import { toProtoStreamLogsRequest } from "./mappers.js";
 import { linkedAbortController, toRpcOptions, withGrpcErrorMapping } from "./rpc.js";
 
 export async function startGrpcLogStream(
-  client: SandboxServiceClient,
+  client: DataPlaneRpcClient,
   request: StreamLogsRequest,
+  onFinished?: () => void,
 ): Promise<LogEntryStream | LogRawStream | LogStream> {
   const abortController = linkedAbortController(request.signal);
   const callerAbort = { aborted: false };
@@ -44,7 +45,9 @@ export async function startGrpcLogStream(
 
   await withGrpcErrorMapping("Stream logs", async () => undefined, request.sandboxId);
 
-  void collectLogStream(call, controller, request, callerAbort);
+  void collectLogStream(call, controller, request, callerAbort).finally(() => {
+    onFinished?.();
+  });
   return controller.stream;
 }
 

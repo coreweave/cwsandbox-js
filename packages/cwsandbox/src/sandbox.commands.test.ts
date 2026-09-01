@@ -4,10 +4,12 @@
 
 import { describe, expect, it } from "vitest";
 
+import { SandboxClient } from "./client.js";
 import { CWSandboxExecutionError, CWSandboxValidationError } from "./index.js";
 import {
   createClient,
   createCommandProcess,
+  createFakeFileAdapter,
   createFakeTransport,
   createProcessResult,
 } from "./test/helpers.js";
@@ -51,6 +53,7 @@ describe("Sandbox commands", () => {
     expect(execRequest).toEqual({
       command: ["node", "--version"],
       cwd: "/workspace",
+      dataPlaneMode: "auto",
       sandboxId: "sandbox-for-echo",
       timeoutMs: 5000,
     });
@@ -123,6 +126,7 @@ describe("Sandbox commands", () => {
     expect(startCommandRequest).toEqual({
       command: ["node", "--version"],
       cwd: "/workspace",
+      dataPlaneMode: "auto",
       sandboxId: "sandbox-for-echo",
       timeoutMs: 5000,
     });
@@ -144,6 +148,7 @@ describe("Sandbox commands", () => {
     expect(process.stdin.closed).toBe(false);
     expect(startCommandRequest).toEqual({
       command: ["cat"],
+      dataPlaneMode: "auto",
       sandboxId: "sandbox-for-echo",
       stdin: true,
     });
@@ -185,10 +190,48 @@ describe("Sandbox commands", () => {
 
     expect(execRequest).toEqual({
       command: ["node", "--version"],
+      dataPlaneMode: "auto",
       sandboxId: "sandbox-for-echo",
       signal,
       timeoutMs: 5000,
     });
+  });
+
+  it("forwards create-time dataPlaneMode on later exec", async () => {
+    let execRequest: Parameters<SandboxTransport["exec"]>[0] | undefined;
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async exec(request) {
+        execRequest = request;
+        return createProcessResult(request.command);
+      },
+    };
+    const sandbox = await createClient(transport).create({ dataPlaneMode: "gateway" });
+
+    await sandbox.exec(["echo"]);
+
+    expect(execRequest?.dataPlaneMode).toBe("gateway");
+  });
+
+  it("forwards the client default dataPlaneMode when create omits it", async () => {
+    let execRequest: Parameters<SandboxTransport["exec"]>[0] | undefined;
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async exec(request) {
+        execRequest = request;
+        return createProcessResult(request.command);
+      },
+    };
+    const client = new SandboxClient({
+      dataPlaneMode: "direct",
+      fileAdapter: createFakeFileAdapter(),
+      transport,
+    });
+    const sandbox = await client.create();
+
+    await sandbox.exec(["echo"]);
+
+    expect(execRequest?.dataPlaneMode).toBe("direct");
   });
 
   it("throws typed validation errors for invalid command inputs and options", async () => {

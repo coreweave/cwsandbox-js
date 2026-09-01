@@ -4,7 +4,9 @@
 
 import { SandboxClient } from "../client.js";
 import { CWSandboxConfigurationError } from "../errors.js";
+import { DEFAULT_DATA_PLANE_MODE, validateDataPlaneMode } from "../internal/data-plane.js";
 import type { SandboxClient as SandboxClientInterface } from "../public/client.js";
+import type { DataPlaneMode } from "../public/common.js";
 import { createGrpcFileAdapter } from "../transports/node-grpc/file-adapter.js";
 import { GrpcSandboxTransport } from "../transports/node-grpc/grpc-transport.js";
 
@@ -22,6 +24,7 @@ export interface CWSandboxEnvironment extends Readonly<Record<string, Environmen
 export interface NodeSandboxClientOptions {
   readonly apiKey: string;
   readonly baseUrl?: string;
+  readonly dataPlaneMode?: DataPlaneMode;
 }
 
 export function createSandboxClient(options: NodeSandboxClientOptions): SandboxClientInterface {
@@ -30,11 +33,16 @@ export function createSandboxClient(options: NodeSandboxClientOptions): SandboxC
     throw new CWSandboxConfigurationError("CWSandbox API key is required.");
   }
 
+  validateDataPlaneMode(options.dataPlaneMode);
   const baseUrl = normalizeBaseUrl(options.baseUrl);
   const transport = new GrpcSandboxTransport({ apiKey, baseUrl });
-  const fileAdapter = createGrpcFileAdapter(transport.clients);
+  const fileAdapter = createGrpcFileAdapter(transport.prepareDataPlaneCall);
 
-  return new SandboxClient({ fileAdapter, transport });
+  return new SandboxClient({
+    dataPlaneMode: options.dataPlaneMode ?? DEFAULT_DATA_PLANE_MODE,
+    fileAdapter,
+    transport,
+  });
 }
 
 export function createSandboxClientFromEnv(

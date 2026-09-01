@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { CWSandboxConfigurationError } from "../../errors.js";
+import type { DataPlaneMode } from "../../public/common.js";
 
 declare const __VERSION__: string | undefined;
 
@@ -28,6 +29,7 @@ export interface WandbSandboxEnvironment extends Readonly<Record<string, Environ
 export interface WandbSandboxClientOptions {
   readonly apiKey?: string;
   readonly baseUrl?: string;
+  readonly dataPlaneMode?: DataPlaneMode;
   readonly entity?: string;
   readonly env?: WandbSandboxEnvironment;
   readonly netrcPath?: string;

@@ -19,7 +19,7 @@ import type {
   ShellOptions,
   TerminalSession,
 } from "./public/commands.js";
-import type { RequestOptions } from "./public/common.js";
+import type { DataPlaneMode, RequestOptions } from "./public/common.js";
 import type { SandboxFiles } from "./public/files.js";
 import type { SandboxLogs } from "./public/logs.js";
 import type { ServiceUrl } from "./public/network.js";
@@ -54,6 +54,7 @@ const TERMINAL_STATUSES = new Set<SandboxStatus>(["completed", "failed", "termin
 const STOP_OPERATION = "Stop sandbox";
 
 interface SandboxOptions {
+  readonly dataPlaneMode: DataPlaneMode;
   readonly fileAdapter: FileAdapter;
   readonly metadata?: SandboxMetadata;
   readonly sandboxId: SandboxId;
@@ -80,8 +81,13 @@ export class Sandbox implements PublicSandbox {
       sandboxId: this.sandboxId,
       ...cloneServiceDerivedFields(options.metadata),
     };
-    const fileTransfer = new FileTransfer(this.sandboxId, options.fileAdapter);
+    const fileTransfer = new FileTransfer(
+      this.sandboxId,
+      options.fileAdapter,
+      options.dataPlaneMode,
+    );
     this.runtime = {
+      dataPlaneMode: options.dataPlaneMode,
       sandboxId: this.sandboxId,
       transport: options.transport,
       ...(options.scratchVolumeNames === undefined

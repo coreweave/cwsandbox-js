@@ -22,7 +22,7 @@ describe("FileTransfer", () => {
         writes.push(request.content);
       },
     });
-    const transfer = new FileTransfer("sbx", adapter);
+    const transfer = new FileTransfer("sbx", adapter, "auto");
 
     await transfer.writeSingle("/tmp/a.bin", new Uint8Array([1, 2, 3]), {});
 
@@ -36,7 +36,7 @@ describe("FileTransfer", () => {
         streamRequests.push(request);
       },
     });
-    const transfer = new FileTransfer("sbx", adapter);
+    const transfer = new FileTransfer("sbx", adapter, "auto");
     const bytes = new Uint8Array(DEFAULT_FILE_OPERATION_CAP_BYTES + 1);
 
     await transfer.writeSingle("/tmp/large.bin", bytes, {});
@@ -59,7 +59,7 @@ describe("FileTransfer", () => {
         streamRequests.push(request);
       },
     });
-    const transfer = new FileTransfer("sbx", adapter);
+    const transfer = new FileTransfer("sbx", adapter, "auto");
 
     await transfer.writeSingle("/tmp/a.bin", new Uint8Array(512), {});
 
@@ -74,7 +74,7 @@ describe("FileTransfer", () => {
         streamRequests.push(request);
       },
     });
-    const transfer = new FileTransfer("sbx", adapter);
+    const transfer = new FileTransfer("sbx", adapter, "auto");
 
     await transfer.writeStream("/tmp/a.bin", new Uint8Array([9]), {});
 
@@ -93,7 +93,7 @@ describe("FileTransfer", () => {
         }
       },
     });
-    const transfer = new FileTransfer("sbx", adapter);
+    const transfer = new FileTransfer("sbx", adapter, "auto");
 
     await expect(
       transfer.writeStream("/tmp/bad.bin", [123 as unknown as Uint8Array], {}),
@@ -117,7 +117,7 @@ describe("FileTransfer", () => {
         })();
       },
     });
-    const transfer = new FileTransfer("sbx", adapter);
+    const transfer = new FileTransfer("sbx", adapter, "auto");
 
     await transfer.readSingle("/tmp/a.bin", {});
     expect(captured?.expectedSize).toBe(10);
@@ -136,7 +136,7 @@ describe("FileTransfer", () => {
           yield new Uint8Array([1, 2, 3]);
         })(),
     });
-    const transfer = new FileTransfer("sbx", adapter);
+    const transfer = new FileTransfer("sbx", adapter, "auto");
 
     await expect(transfer.readSingle("/tmp/a.bin", {})).rejects.toBeInstanceOf(CWSandboxFileError);
   });

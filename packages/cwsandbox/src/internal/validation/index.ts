@@ -9,6 +9,7 @@ import type { LogReadOptions, LogStreamOptions } from "../../public/logs.js";
 import type {
   DeleteOptions,
   DeleteSnapshotOptions,
+  FromIdOptions,
   ListSandboxesOptions,
   ListSnapshotsOptions,
   SandboxRunFromTemplateOptions,
@@ -17,6 +18,7 @@ import type {
   WaitOptions,
 } from "../../public/sandbox.js";
 import { normalizeCommand } from "../commands.js";
+import { validateDataPlaneMode } from "../data-plane.js";
 import { validateMountedFiles } from "../mounted-files.js";
 import { validateNetworkOptions } from "../network.js";
 import { validateResources } from "../resources.js";
@@ -29,6 +31,11 @@ import { validateTags } from "./tags.js";
 
 export function validateRequestOptions(options: RequestOptions): void {
   validateNonNegativeFinite(options.timeoutMs, "timeoutMs");
+}
+
+export function validateFromIdOptions(options: FromIdOptions): void {
+  validateRequestOptions(options);
+  validateDataPlaneMode(options.dataPlaneMode);
 }
 
 export function validateExecOptions(options: ExecOptions): void {
@@ -69,6 +76,7 @@ export function validateSandboxRunOptions(options: SandboxRunOptions): void {
     rejectRemovedKeys(options.network, ["egressMode", "exposedPorts", "ingressMode"]);
   }
   validateRequestOptions(options);
+  validateDataPlaneMode(options.dataPlaneMode);
   validateAnnotations(options.annotations);
   validateNonNegativeFinite(options.maxLifetimeSeconds, "maxLifetimeSeconds");
   validateMountedFiles(options.mountedFiles);
@@ -112,6 +120,7 @@ export function validateSandboxRunFromTemplateOptions(
     rejectRemovedKeys(options.network, ["egressMode", "exposedPorts", "ingressMode"]);
   }
   validateRequestOptions(options);
+  validateDataPlaneMode(options.dataPlaneMode);
   if (options.containerImage === undefined) {
     for (const field of CONTAINER_OVERRIDE_FIELDS) {
       if (isContainerOverride(options, field)) {

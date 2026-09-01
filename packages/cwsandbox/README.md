@@ -156,6 +156,14 @@ pnpm example:tanstack:typecheck
 - `client.withSandbox(callback, options)` runs short-lived work in a ready sandbox with automatic cleanup.
 - `client.create(options)` starts a long-lived ready sandbox you manage explicitly.
 - `client.run(command, options)` starts a sandbox with a custom main process.
+- `dataPlaneMode` (`auto` | `direct` | `gateway`) selects how exec, logs, and
+  file RPCs reach the sandbox. The default is `auto`: try a one-second direct
+  mTLS setup, then the API gateway. `direct` requires mTLS and never falls
+  back. `gateway` is today's Bearer path. Create, inspect, stop, and snapshots
+  always use the gateway. Set the default on `createSandboxClient({ dataPlaneMode })`
+  and override per `create` / `run` / `fromId`. `fromId` / `listAll` use the
+  client default unless `fromId` is passed `dataPlaneMode`; create-time mode is
+  not remembered by id.
 - `sandbox.commands.run(...)` buffers command output.
 - `sandbox.commands.start(...)` streams command output and optionally accepts stdin.
 - `sandbox.files.*` reads and writes sandbox files (`readStream` / `writeStream` for incremental transfers).

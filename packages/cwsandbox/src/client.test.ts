@@ -4,6 +4,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
+import { SandboxClient } from "./client.js";
 import { MAX_LIST_ALL_PAGES } from "./defaults.js";
 import {
   CWSandboxFailedError,
@@ -20,8 +21,10 @@ import {
 import { Sandbox } from "./sandbox.js";
 import {
   createClient,
+  createFakeFileAdapter,
   createFakeSnapshot,
   createFakeTransport,
+  createProcessResult,
   createTrackingTransport,
 } from "./test/helpers.js";
 import type { SandboxTransport } from "./transport.js";
@@ -120,6 +123,7 @@ describe("SandboxClient", () => {
         command: ["echo", "hello"],
         tags: ["readiness-test"],
       });
+      expect(startRequest).not.toHaveProperty("dataPlaneMode");
     });
 
     it("reconnects to an existing sandbox by id", async () => {
@@ -145,6 +149,55 @@ describe("SandboxClient", () => {
         sandboxId: "sandbox-123",
         timeoutMs: 1234,
       });
+      expect(getRequest).not.toHaveProperty("dataPlaneMode");
+    });
+
+    it("applies fromId dataPlaneMode to later exec, not to get", async () => {
+      let getRequest: Parameters<SandboxTransport["get"]>[0] | undefined;
+      let execRequest: Parameters<SandboxTransport["exec"]>[0] | undefined;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async get(request) {
+          getRequest = request;
+          return {
+            sandboxId: request.sandboxId,
+            status: "running",
+          };
+        },
+        async exec(request) {
+          execRequest = request;
+          return createProcessResult(request.command);
+        },
+      };
+
+      const sandbox = await createClient(transport).fromId("sandbox-123", {
+        dataPlaneMode: "direct",
+      });
+      await sandbox.exec(["echo"]);
+
+      expect(getRequest).toEqual({ sandboxId: "sandbox-123" });
+      expect(execRequest?.dataPlaneMode).toBe("direct");
+    });
+
+    it("uses the client default dataPlaneMode for fromId when omitted", async () => {
+      let execRequest: Parameters<SandboxTransport["exec"]>[0] | undefined;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async exec(request) {
+          execRequest = request;
+          return createProcessResult(request.command);
+        },
+      };
+      const client = new SandboxClient({
+        dataPlaneMode: "gateway",
+        fileAdapter: createFakeFileAdapter(),
+        transport,
+      });
+
+      const sandbox = await client.fromId("sandbox-123");
+      await sandbox.exec(["echo"]);
+
+      expect(execRequest?.dataPlaneMode).toBe("gateway");
     });
 
     it("gets fresh sandbox metadata by id", async () => {
@@ -1158,6 +1211,19 @@ describe("SandboxClient", () => {
         CWSandboxValidationError,
       );
     });
+
+    it("accepts dataPlaneMode values and rejects unknown modes", async () => {
+      const client = createClient();
+      const invalidMode = { dataPlaneMode: "mtls" } as unknown as SandboxRunOptions;
+
+      await expect(client.create({ dataPlaneMode: "auto" })).resolves.toBeInstanceOf(Sandbox);
+      await expect(client.create({ dataPlaneMode: "direct" })).resolves.toBeInstanceOf(Sandbox);
+      await expect(client.create({ dataPlaneMode: "gateway" })).resolves.toBeInstanceOf(Sandbox);
+      await expect(client.create(invalidMode)).rejects.toThrow(/dataPlaneMode must be/);
+      await expect(client.fromId("sandbox-123", invalidMode)).rejects.toThrow(
+        /dataPlaneMode must be/,
+      );
+    });
   });
 
   describe("runFromTemplate", () => {
@@ -1187,6 +1253,7 @@ describe("SandboxClient", () => {
       expect(templateRequest).toMatchObject({ templateId });
       expect(templateRequest).not.toHaveProperty("waitUntilRunning");
       expect(templateRequest).not.toHaveProperty("command");
+      expect(templateRequest).not.toHaveProperty("dataPlaneMode");
     });
 
     it("normalizes command onto the template transport request", async () => {

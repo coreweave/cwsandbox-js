@@ -192,6 +192,7 @@ describe("sandbox.snapshot", () => {
       },
     };
     const runtime: SandboxRuntime = {
+      dataPlaneMode: "auto",
       sandboxId: "sandbox-for-echo",
       transport,
     };

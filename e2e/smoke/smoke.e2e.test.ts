@@ -45,6 +45,7 @@ import {
   DNS_EGRESS_WILD_HOST,
   dnsEgressSmokeTimeoutMs,
   httpsGetExitCode,
+  shouldSkipDirectDataPlane,
   shouldSkipDnsEgress,
   shouldSkipHttpsRequestTimeouts,
   startOptionsForDnsNameEgress,
@@ -1108,6 +1109,93 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
           expect(running).toEqual(sortedSandboxIds([currentSandbox().sandboxId]));
         } finally {
           await dedicated.delete({ missingOk: true });
+        }
+      },
+      testTimeoutMs,
+    );
+  });
+
+  describe("data plane modes", () => {
+    it(
+      "uses the gateway path for exec, files, and inspect",
+      async () => {
+        await withStartedSandbox(
+          client,
+          { dataPlaneMode: "gateway", tags: [uniqueSmokeTag()] },
+          async (sandbox) => {
+            const echo = await sandbox.exec(["echo", "gateway-data-plane"]);
+            expect(echo.exitCode).toBe(0);
+            expect(echo.stdout.trim()).toBe("gateway-data-plane");
+
+            await sandbox.files.write("/tmp/cwsandbox-js-gateway.txt", "gateway-ok");
+            expect(await sandbox.files.readText("/tmp/cwsandbox-js-gateway.txt")).toBe(
+              "gateway-ok",
+            );
+
+            const inspected = await sandbox.inspect();
+            expect(inspected.status).toBe("running");
+            expect(inspected.sandboxId).toBe(sandbox.sandboxId);
+          },
+        );
+      },
+      testTimeoutMs,
+    );
+
+    it(
+      "uses a dedicated direct path when the fleet can issue mTLS",
+      async (ctx) => {
+        try {
+          await withStartedSandbox(
+            client,
+            { dataPlaneMode: "direct", tags: [uniqueSmokeTag()] },
+            async (sandbox) => {
+              const [first, second] = await Promise.all([
+                sandbox.exec(["echo", "direct-a"]),
+                sandbox.exec(["echo", "direct-b"]),
+              ]);
+              expect(first.exitCode).toBe(0);
+              expect(second.exitCode).toBe(0);
+              expect(first.stdout.trim()).toBe("direct-a");
+              expect(second.stdout.trim()).toBe("direct-b");
+
+              const streamed = await sandbox.commands.start(["cat"], { stdin: true });
+              await streamed.stdin.write("stdin-direct\n");
+              await streamed.stdin.close();
+              const streamedResult = await streamed.wait();
+              expect(streamedResult.exitCode).toBe(0);
+              expect(streamedResult.stdout).toContain("stdin-direct");
+
+              const cancelled = await sandbox.commands.start(["sleep", "30"]);
+              await cancelled.cancel();
+              await cancelled.wait();
+              const afterCancel = await sandbox.exec(["echo", "after-cancel"]);
+              expect(afterCancel.exitCode).toBe(0);
+              expect(afterCancel.stdout.trim()).toBe("after-cancel");
+
+              await sandbox.files.write("/tmp/cwsandbox-js-direct.txt", "direct-ok");
+              expect(await sandbox.files.readText("/tmp/cwsandbox-js-direct.txt")).toBe(
+                "direct-ok",
+              );
+
+              const logs = await sandbox.logs.read({ tailLines: 20 });
+              expect(logs.length).toBeGreaterThan(0);
+
+              const reattached = await client.fromId(sandbox.sandboxId, {
+                dataPlaneMode: "direct",
+              });
+              const inspected = await reattached.inspect();
+              expect(inspected.sandboxId).toBe(sandbox.sandboxId);
+              const reexec = await reattached.exec(["echo", "from-id-direct"]);
+              expect(reexec.exitCode).toBe(0);
+              expect(reexec.stdout.trim()).toBe("from-id-direct");
+            },
+          );
+        } catch (error) {
+          if (shouldSkipDirectDataPlane(error)) {
+            ctx.skip(`fleet cannot issue direct data-plane credentials: ${String(error)}`);
+            return;
+          }
+          throw error;
         }
       },
       testTimeoutMs,

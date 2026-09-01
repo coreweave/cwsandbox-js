@@ -19,6 +19,7 @@ import {
   TRUNCATION_CHECK_MIN_BYTES,
 } from "../../internal/file-limits.js";
 import type { GrpcClients } from "./channel.js";
+import type { DataPlaneRpcClient, PrepareDataPlaneCall } from "./data-plane-rpc.js";
 import { createGrpcFileAdapter } from "./file-adapter.js";
 import type { SandboxServiceClient } from "./generated/coreweave/sandbox/v1/sandbox.client.js";
 import {
@@ -30,7 +31,7 @@ import {
 describe("createGrpcFileAdapter StreamExec paths", () => {
   it("cancels and settles when the readStream consumer stops early", async () => {
     const harness = createStreamingHarness();
-    const adapter = createGrpcFileAdapter(harness.clients);
+    const adapter = createGrpcFileAdapter(gatewayPrepare(harness.clients.client));
 
     harness.onCall(0, (duplex) => {
       // stat
@@ -66,7 +67,7 @@ describe("createGrpcFileAdapter StreamExec paths", () => {
 
   it("detects truncation when delivered bytes are below the stated size", async () => {
     const harness = createStreamingHarness();
-    const adapter = createGrpcFileAdapter(harness.clients);
+    const adapter = createGrpcFileAdapter(gatewayPrepare(harness.clients.client));
 
     harness.onCall(0, (duplex) => {
       duplex.push(stdoutFrame(String(TRUNCATION_CHECK_MIN_BYTES)));
@@ -95,7 +96,7 @@ describe("createGrpcFileAdapter StreamExec paths", () => {
 
   it("raises when the read stream ends without an exit status", async () => {
     const harness = createStreamingHarness();
-    const adapter = createGrpcFileAdapter(harness.clients);
+    const adapter = createGrpcFileAdapter(gatewayPrepare(harness.clients.client));
 
     harness.onCall(0, (duplex) => {
       duplex.push(stdoutFrame("10"));
@@ -120,7 +121,7 @@ describe("createGrpcFileAdapter StreamExec paths", () => {
 
   it("maps nonzero read exit codes to CWSandboxFileError", async () => {
     const harness = createStreamingHarness();
-    const adapter = createGrpcFileAdapter(harness.clients);
+    const adapter = createGrpcFileAdapter(gatewayPrepare(harness.clients.client));
 
     harness.onCall(0, (duplex) => {
       duplex.push(stdoutFrame("10"));
@@ -149,7 +150,7 @@ describe("createGrpcFileAdapter StreamExec paths", () => {
 
   it("selects direct vs atomic write scripts from mode", async () => {
     const harness = createStreamingHarness();
-    const adapter = createGrpcFileAdapter(harness.clients);
+    const adapter = createGrpcFileAdapter(gatewayPrepare(harness.clients.client));
 
     harness.onCall(0, (duplex) => {
       duplex.push(readyFrame("write-direct"));
@@ -185,7 +186,7 @@ describe("createGrpcFileAdapter StreamExec paths", () => {
 
   it("does not remask invalid writeStream chunks as CWSandboxFileError", async () => {
     const harness = createStreamingHarness();
-    const adapter = createGrpcFileAdapter(harness.clients);
+    const adapter = createGrpcFileAdapter(gatewayPrepare(harness.clients.client));
 
     harness.onCall(0, (duplex) => {
       duplex.push(readyFrame("write-1"));
@@ -216,7 +217,7 @@ describe("createGrpcFileAdapter readStream deadline", () => {
 
   it("caps stat at 10s and passes remaining time to cat", async () => {
     const harness = createStreamingHarness();
-    const adapter = createGrpcFileAdapter(harness.clients);
+    const adapter = createGrpcFileAdapter(gatewayPrepare(harness.clients.client));
     harness.onCall(0, () => undefined);
     harness.onCall(1, completeCat);
 
@@ -233,7 +234,7 @@ describe("createGrpcFileAdapter readStream deadline", () => {
 
   it("clamps stat to the caller budget when it is under 10s", async () => {
     const harness = createStreamingHarness();
-    const adapter = createGrpcFileAdapter(harness.clients);
+    const adapter = createGrpcFileAdapter(gatewayPrepare(harness.clients.client));
     harness.onCall(0, () => undefined);
     harness.onCall(1, completeCat);
 
@@ -250,7 +251,7 @@ describe("createGrpcFileAdapter readStream deadline", () => {
 
   it("still caps stat at 10s when timeoutMs is omitted", async () => {
     const harness = createStreamingHarness();
-    const adapter = createGrpcFileAdapter(harness.clients);
+    const adapter = createGrpcFileAdapter(gatewayPrepare(harness.clients.client));
     harness.onCall(0, completeStat);
     harness.onCall(1, completeCat);
 
@@ -261,7 +262,7 @@ describe("createGrpcFileAdapter readStream deadline", () => {
 
   it("starts unbounded cat after a hung best-effort stat when timeoutMs is omitted", async () => {
     const harness = createStreamingHarness();
-    const adapter = createGrpcFileAdapter(harness.clients);
+    const adapter = createGrpcFileAdapter(gatewayPrepare(harness.clients.client));
     harness.onCall(0, () => undefined);
     harness.onCall(1, completeCat);
 
@@ -279,7 +280,7 @@ describe("createGrpcFileAdapter readStream deadline", () => {
 
   it("throws CWSandboxTimeoutError without RPCs when timeoutMs is 0", async () => {
     const harness = createStreamingHarness();
-    const adapter = createGrpcFileAdapter(harness.clients);
+    const adapter = createGrpcFileAdapter(gatewayPrepare(harness.clients.client));
 
     await expect(
       drainReadStream(adapter.readStream({ path: "/tmp/a.bin", sandboxId: "sbx", timeoutMs: 0 })),
@@ -293,7 +294,7 @@ describe("createGrpcFileAdapter readStream deadline", () => {
 
   it("throws Read file timeout when skip-stat remaining hits 0 before cat", async () => {
     const harness = createStreamingHarness();
-    const adapter = createGrpcFileAdapter(harness.clients);
+    const adapter = createGrpcFileAdapter(gatewayPrepare(harness.clients.client));
     const t0 = Date.now();
     const now = vi.spyOn(Date, "now");
     now
@@ -324,7 +325,7 @@ describe("createGrpcFileAdapter readStream deadline", () => {
 
   it("times out a hung stat that consumes the full budget without starting cat", async () => {
     const harness = createStreamingHarness();
-    const adapter = createGrpcFileAdapter(harness.clients);
+    const adapter = createGrpcFileAdapter(gatewayPrepare(harness.clients.client));
     harness.onCall(0, () => undefined);
 
     const drain = drainReadStream(
@@ -345,7 +346,7 @@ describe("createGrpcFileAdapter readStream deadline", () => {
 
   it("surfaces abort during a hung stat and does not start cat", async () => {
     const harness = createStreamingHarness();
-    const adapter = createGrpcFileAdapter(harness.clients);
+    const adapter = createGrpcFileAdapter(gatewayPrepare(harness.clients.client));
     harness.onCall(0, () => undefined);
     const controller = new AbortController();
     const reason = new Error("stop-stat");
@@ -368,7 +369,7 @@ describe("createGrpcFileAdapter readStream deadline", () => {
 
   it("surfaces abort after cat starts with the caller's reason", async () => {
     const harness = createStreamingHarness();
-    const adapter = createGrpcFileAdapter(harness.clients);
+    const adapter = createGrpcFileAdapter(gatewayPrepare(harness.clients.client));
     harness.onCall(0, () => undefined);
     const controller = new AbortController();
     const reason = new Error("stop-cat");
@@ -392,7 +393,7 @@ describe("createGrpcFileAdapter readStream deadline", () => {
 
   it("does not start the deadline until iteration begins", async () => {
     const harness = createStreamingHarness();
-    const adapter = createGrpcFileAdapter(harness.clients);
+    const adapter = createGrpcFileAdapter(gatewayPrepare(harness.clients.client));
     harness.onCall(0, completeStat);
     harness.onCall(1, completeCat);
 
@@ -411,7 +412,7 @@ describe("createGrpcFileAdapter readStream deadline", () => {
 
   it("skips stat when expectedSize is provided", async () => {
     const harness = createStreamingHarness();
-    const adapter = createGrpcFileAdapter(harness.clients);
+    const adapter = createGrpcFileAdapter(gatewayPrepare(harness.clients.client));
     harness.onCall(0, completeCat);
 
     await expect(async () => {
@@ -434,7 +435,7 @@ describe("createGrpcFileAdapter readStream deadline", () => {
 
   it("remaps a cat RPC deadline to operation Read file", async () => {
     const harness = createStreamingHarness();
-    const adapter = createGrpcFileAdapter(harness.clients);
+    const adapter = createGrpcFileAdapter(gatewayPrepare(harness.clients.client));
     harness.onCall(0, () => undefined);
 
     const drain = drainReadStream(
@@ -460,7 +461,7 @@ describe("createGrpcFileAdapter readStream deadline", () => {
 
   it("remaps an init-frame deadline to operation Read file", async () => {
     const harness = createStreamingHarness();
-    const adapter = createGrpcFileAdapter(harness.clients);
+    const adapter = createGrpcFileAdapter(gatewayPrepare(harness.clients.client));
     harness.onCall(0, (duplex) => {
       duplex.rejectSend(new RpcError("deadline", "DEADLINE_EXCEEDED"));
     });
@@ -483,7 +484,7 @@ describe("createGrpcFileAdapter readStream deadline", () => {
 
   it("caps stderr bytes and drops a split UTF-8 tail", async () => {
     const harness = createStreamingHarness();
-    const adapter = createGrpcFileAdapter(harness.clients);
+    const adapter = createGrpcFileAdapter(gatewayPrepare(harness.clients.client));
     const euro = new Uint8Array([0xe2, 0x82, 0xac]);
     const euroTail = euro.subarray(1);
     harness.onCall(0, (duplex) => {
@@ -515,7 +516,7 @@ describe("createGrpcFileAdapter readStream deadline", () => {
 
   it("keeps typed missing-file mapping when stderr exceeds the cap", async () => {
     const harness = createStreamingHarness();
-    const adapter = createGrpcFileAdapter(harness.clients);
+    const adapter = createGrpcFileAdapter(gatewayPrepare(harness.clients.client));
     harness.onCall(0, (duplex) => {
       duplex.push(readyFrame());
       duplex.push(
@@ -541,7 +542,7 @@ describe("createGrpcFileAdapter readStream deadline", () => {
 
   it("keeps typed directory mapping when stderr exceeds the cap", async () => {
     const harness = createStreamingHarness();
-    const adapter = createGrpcFileAdapter(harness.clients);
+    const adapter = createGrpcFileAdapter(gatewayPrepare(harness.clients.client));
     harness.onCall(0, (duplex) => {
       duplex.push(readyFrame());
       duplex.push(
@@ -565,6 +566,19 @@ describe("createGrpcFileAdapter readStream deadline", () => {
     });
   });
 });
+
+function gatewayPrepare(client: DataPlaneRpcClient): PrepareDataPlaneCall {
+  return async () => ({
+    client,
+    release() {
+      return undefined;
+    },
+    releaseWhenDone() {
+      return undefined;
+    },
+    rpcOptions: {},
+  });
+}
 
 function initCommand(sent: readonly ExecStreamRequest[]): string[] {
   const init = sent.find((message) => message.message.oneofKind === "init");

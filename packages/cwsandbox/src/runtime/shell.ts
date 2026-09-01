@@ -21,6 +21,7 @@ export async function startShell(
       options.command === undefined ? DEFAULT_SHELL_COMMAND : normalizeCommand(options.command),
     ...(options.rows === undefined ? {} : { rows: options.rows }),
     ...(options.signal === undefined ? {} : { signal: options.signal }),
+    dataPlaneMode: runtime.dataPlaneMode,
     sandboxId: runtime.sandboxId,
     ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
   });

@@ -8,7 +8,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  CWSandboxNotImplementedError,
   CWSandboxTransportError,
+  CWSandboxUnavailableError,
   type CommandInput,
   type ExecOptions,
   type LogResumeCursor,
@@ -284,6 +286,17 @@ export function shouldSkipHttpsRequestTimeouts(error: unknown): boolean {
     error instanceof CWSandboxTransportError &&
     error.reason === "CWSANDBOX_HTTPS_REQUEST_TIMEOUTS_NOT_SUPPORTED"
   );
+}
+
+export function shouldSkipDirectDataPlane(error: unknown): boolean {
+  if (error instanceof CWSandboxUnavailableError || error instanceof CWSandboxNotImplementedError) {
+    return true;
+  }
+  if (!(error instanceof CWSandboxTransportError)) {
+    return false;
+  }
+  const code = String(error.transportCode ?? "").toUpperCase();
+  return code === "UNIMPLEMENTED" || code === "12";
 }
 
 export function uniqueSmokeTag(): SandboxTag {

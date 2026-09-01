@@ -12,8 +12,8 @@ import {
 import { STREAM_BACKPRESSURE, STREAM_TRUNCATED } from "../../internal/error-info.js";
 import type { Command } from "../../public/commands.js";
 import type { RequestOptions } from "../../public/common.js";
+import type { DataPlaneRpcClient } from "./data-plane-rpc.js";
 import { mapGrpcError } from "./errors.js";
-import type { SandboxServiceClient } from "./generated/coreweave/sandbox/v1/sandbox.client.js";
 import {
   ExecStreamOutput_Stream as ProtoExecStreamOutputStream,
   type ExecStreamRequest as ProtoExecStreamRequest,
@@ -61,7 +61,7 @@ export interface StartExecSessionOptions extends RequestOptions {
 }
 
 export async function startExecSession(
-  streamingClient: SandboxServiceClient,
+  streamingClient: DataPlaneRpcClient,
   options: StartExecSessionOptions,
 ): Promise<ExecSession> {
   const abortController = linkedAbortController(options.signal);

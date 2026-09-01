@@ -24,6 +24,7 @@
     "wandb-integration": "tsx wandb-integration.ts",
     "file-system-snapshots": "tsx file-system-snapshots.ts",
     "run-from-template": "tsx run-from-template.ts",
+    "data-plane-mode": "tsx data-plane-mode.ts",
     "typecheck": "tsc --noEmit --project tsconfig.json"
   },
   "dependencies": {

@@ -47,6 +47,7 @@ async function streamLogs(
 
   return (await runtime.transport.streamLogs({
     ...options,
+    dataPlaneMode: runtime.dataPlaneMode,
     mode: "lines",
     sandboxId: runtime.sandboxId,
   })) as LogStream;
@@ -60,6 +61,7 @@ async function streamLogEntries(
 
   return (await runtime.transport.streamLogs({
     ...options,
+    dataPlaneMode: runtime.dataPlaneMode,
     mode: "entries",
     sandboxId: runtime.sandboxId,
   })) as LogEntryStream;
@@ -73,6 +75,7 @@ async function streamRawLogs(
 
   return (await runtime.transport.streamLogs({
     ...options,
+    dataPlaneMode: runtime.dataPlaneMode,
     mode: "raw",
     sandboxId: runtime.sandboxId,
   })) as LogRawStream;
