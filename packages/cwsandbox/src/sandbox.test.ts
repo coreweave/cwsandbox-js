@@ -261,7 +261,7 @@ describe("Sandbox", () => {
       ...createFakeTransport(),
       async start(request) {
         return {
-          exposedPorts: [{ name: "http", port: 8000, protocol: "TCP" }],
+          exposedPorts: [{ name: "http", port: 8000, protocol: "tcp" }],
           resourceLimits: { cpu: "4", memory: "8Gi" },
           resourceRequests: { cpu: "1", memory: "1Gi" },
           runnerId: "runner-id",
@@ -281,7 +281,7 @@ describe("Sandbox", () => {
     expect(sandbox.serviceUrls).toEqual([
       { name: "http", port: 8000, url: "https://sandbox.example.com" },
     ]);
-    expect(sandbox.exposedPorts).toEqual([{ name: "http", port: 8000, protocol: "TCP" }]);
+    expect(sandbox.exposedPorts).toEqual([{ name: "http", port: 8000, protocol: "tcp" }]);
     expect(sandbox.resourceRequests).toEqual({ cpu: "1", memory: "1Gi" });
     expect(sandbox.resourceLimits).toEqual({ cpu: "4", memory: "8Gi" });
     expect(sandbox.dnsEgressNames).toBeUndefined();
@@ -322,7 +322,7 @@ describe("Sandbox", () => {
       ...createFakeTransport(),
       async start(request) {
         return {
-          exposedPorts: [{ name: "http", port: 8000, protocol: "TCP" }],
+          exposedPorts: [{ name: "http", port: 8000, protocol: "tcp" }],
           sandboxId: `sandbox-for-${request.command[0]}`,
           serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
           status: "running",
@@ -340,7 +340,7 @@ describe("Sandbox", () => {
     expect(sandbox.serviceUrls).toEqual([
       { name: "http", port: 8000, url: "https://sandbox.example.com" },
     ]);
-    expect(sandbox.exposedPorts).toEqual([{ name: "http", port: 8000, protocol: "TCP" }]);
+    expect(sandbox.exposedPorts).toEqual([{ name: "http", port: 8000, protocol: "tcp" }]);
 
     const info = await sandbox.inspect();
 
@@ -420,7 +420,7 @@ describe("Sandbox", () => {
       async get(request) {
         getRequest = request;
         return {
-          exposedPorts: [{ name: "http", port: 8000, protocol: "TCP" }],
+          exposedPorts: [{ name: "http", port: 8000, protocol: "tcp" }],
           runnerId: "runner-id",
           sandboxId: request.sandboxId,
           serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
@@ -434,7 +434,7 @@ describe("Sandbox", () => {
     const info = await sandbox.inspect({ signal, timeoutMs: 1234 });
 
     expect(info).toEqual({
-      exposedPorts: [{ name: "http", port: 8000, protocol: "TCP" }],
+      exposedPorts: [{ name: "http", port: 8000, protocol: "tcp" }],
       runnerId: "runner-id",
       sandboxId: "sandbox-for-echo",
       serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
@@ -450,7 +450,7 @@ describe("Sandbox", () => {
     expect(sandbox.serviceUrls).toEqual([
       { name: "http", port: 8000, url: "https://sandbox.example.com" },
     ]);
-    expect(sandbox.exposedPorts).toEqual([{ name: "http", port: 8000, protocol: "TCP" }]);
+    expect(sandbox.exposedPorts).toEqual([{ name: "http", port: 8000, protocol: "tcp" }]);
   });
 
   it("caches inspect exitCode including zero", async () => {

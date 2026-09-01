@@ -862,7 +862,7 @@ describe("node transport mappers", () => {
       );
 
       expect(result).toEqual({
-        exposedPorts: [{ name: "http", port: 8000, protocol: "TCP" }],
+        exposedPorts: [{ name: "http", port: 8000, protocol: "tcp" }],
         resourceLimits: { cpu: "4", memory: "8Gi" },
         resourceRequests: { cpu: "1", memory: "1Gi" },
         runnerId: "runner-id",
@@ -1117,7 +1117,7 @@ describe("node transport mappers", () => {
         nextPageToken: "next-page",
         sandboxes: [
           {
-            exposedPorts: [{ name: "http", port: 8000, protocol: "TCP" }],
+            exposedPorts: [{ name: "http", port: 8000, protocol: "tcp" }],
             runnerGroupId: "runner-group-id",
             runnerId: "runner-id",
             sandboxId: "sandbox-123",

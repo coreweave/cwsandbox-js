@@ -2,28 +2,26 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
+import { CWSandboxConfigurationError } from "@coreweave/cwsandbox";
 import { createSandboxClientFromEnv } from "@coreweave/cwsandbox/wandb";
 import { describe, expect, it } from "vitest";
 
-import { logProcessResult, smokeConfig, testTimeoutMs, uniqueSmokeTag } from "./helpers.js";
+import { smokeConfig, testTimeoutMs, uniqueSmokeTag } from "./helpers.js";
 
-const describeWithWandbCredentials = smokeConfig.hasWandbCredentials ? describe : describe.skip;
-const describeWithWandbSecrets = smokeConfig.hasWandbSecretsSmoke ? describe : describe.skip;
+const describeWithSecretsConfig = smokeConfig.hasWandbSecretsSmoke ? describe : describe.skip;
 
-describeWithWandbCredentials("live W&B sandbox auth smoke", { sequential: true }, () => {
+describe("live W&B sandbox auth smoke", { sequential: true }, () => {
   it(
     "starts a sandbox through W&B auth and runs a command",
-    async () => {
-      const client = createSandboxClientFromEnv();
+    async (ctx) => {
+      const client = wandbClientOrSkip(ctx);
+      if (client === undefined) {
+        return;
+      }
+
       const result = await client.withSandbox(
         async (sandbox) => {
-          const processResult = await sandbox.commands.run([
-            "python",
-            "-c",
-            "print('hello from wandb auth')",
-          ]);
-          logProcessResult("wandb auth", processResult);
-          return processResult;
+          return sandbox.commands.run(["python", "-c", "print('hello from wandb auth')"]);
         },
         {
           tags: [uniqueSmokeTag()],
@@ -38,27 +36,25 @@ describeWithWandbCredentials("live W&B sandbox auth smoke", { sequential: true }
   );
 });
 
-describeWithWandbSecrets("live W&B sandbox secrets smoke", { sequential: true }, () => {
+describeWithSecretsConfig("live W&B sandbox secrets smoke", { sequential: true }, () => {
   it(
     "injects a referenced W&B team secret as an environment variable",
-    async () => {
-      const secret = smokeConfig.wandbSecretsSmoke;
-      expect(secret).toBeDefined();
-      if (secret === undefined) {
+    async (ctx) => {
+      const client = wandbClientOrSkip(ctx);
+      if (client === undefined) {
         return;
       }
 
-      const client = createSandboxClientFromEnv();
+      const secret = smokeConfig.wandbSecretsSmoke;
+      if (secret === undefined) {
+        throw new Error(
+          "CWSANDBOX_SMOKE_SECRET_NAME and CWSANDBOX_SMOKE_SECRET_EXPECTED are required.",
+        );
+      }
+
       const result = await client.withSandbox(
         async (sandbox) => {
-          const processResult = await sandbox.commands.run(["printenv", secret.envVar]);
-          // Avoid echoing secret values into CI logs.
-          console.log(`wandb secrets exit code: ${processResult.exitCode}`);
-          console.log(
-            `wandb secrets stdout: ${JSON.stringify(processResult.ok ? "<redacted>" : processResult.stdout)}`,
-          );
-          console.log(`wandb secrets stderr: ${JSON.stringify(processResult.stderr)}`);
-          return processResult;
+          return sandbox.commands.run(["printenv", secret.envVar]);
         },
         {
           secrets: [
@@ -74,24 +70,54 @@ describeWithWandbSecrets("live W&B sandbox secrets smoke", { sequential: true },
 
       expect(result.exitCode).toBe(0);
       expect(result.stderr).toBe("");
-      // Compare without toBe/toEqual so a mismatch does not print secret values.
+      const matched = result.stdout.trim() === secret.expected;
       expect(
-        result.stdout.trim() === secret.expected,
+        matched,
         "injected secret env var did not match expected value (values redacted)",
       ).toBe(true);
     },
     testTimeoutMs,
   );
+
+  it(
+    "does not leak the secret to an uninjected sibling sandbox",
+    async (ctx) => {
+      const client = wandbClientOrSkip(ctx);
+      if (client === undefined) {
+        return;
+      }
+
+      const secret = smokeConfig.wandbSecretsSmoke;
+      if (secret === undefined) {
+        throw new Error(
+          "CWSANDBOX_SMOKE_SECRET_NAME and CWSANDBOX_SMOKE_SECRET_EXPECTED are required.",
+        );
+      }
+
+      const result = await client.withSandbox(
+        async (sandbox) => {
+          return sandbox.commands.run(["printenv", secret.envVar]);
+        },
+        {
+          tags: [uniqueSmokeTag()],
+        },
+      );
+
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stdout.length).toBe(0);
+    },
+    testTimeoutMs,
+  );
 });
 
-if (!smokeConfig.hasWandbCredentials) {
-  console.log(
-    "Skipping live W&B sandbox auth smoke: WANDB_API_KEY / W&B .netrc credential is not set.",
-  );
-}
-
-if (!smokeConfig.hasWandbSecretsSmoke) {
-  console.log(
-    "Skipping live W&B sandbox secrets smoke: set CWSANDBOX_SMOKE_SECRET_NAME and CWSANDBOX_SMOKE_SECRET_EXPECTED with W&B auth.",
-  );
+function wandbClientOrSkip(ctx: { skip: (reason?: string) => void }) {
+  try {
+    return createSandboxClientFromEnv();
+  } catch (error) {
+    if (error instanceof CWSandboxConfigurationError) {
+      ctx.skip(error.message);
+      return undefined;
+    }
+    throw error;
+  }
 }

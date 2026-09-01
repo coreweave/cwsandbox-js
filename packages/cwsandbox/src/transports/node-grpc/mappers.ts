@@ -11,7 +11,12 @@ import { normalizeDnsName } from "../../internal/network.js";
 import { isAdvancedResources } from "../../internal/resources.js";
 import { groupSecretsByStore, normalizeSecrets } from "../../internal/secrets.js";
 import type { Command, ProcessResult } from "../../public/commands.js";
-import type { NetworkOptions, Service, ServiceUrl } from "../../public/network.js";
+import type {
+  NetworkOptions,
+  Service,
+  ServiceProtocol as SdkServiceProtocol,
+  ServiceUrl,
+} from "../../public/network.js";
 import type { ResourceOptions, ResourceSpec } from "../../public/resources.js";
 import type {
   FileSystemSnapshotResult,
@@ -642,14 +647,14 @@ function toSdkExposedPorts(
   return ports.length === 0 ? undefined : ports;
 }
 
-function protocolName(protocol: ServiceProtocol): string | undefined {
+function protocolName(protocol: ServiceProtocol): SdkServiceProtocol | undefined {
   switch (protocol) {
     case ServiceProtocol.TCP:
-      return "TCP";
+      return "tcp";
     case ServiceProtocol.UDP:
-      return "UDP";
+      return "udp";
     case ServiceProtocol.SCTP:
-      return "SCTP";
+      return "sctp";
     default:
       return undefined;
   }

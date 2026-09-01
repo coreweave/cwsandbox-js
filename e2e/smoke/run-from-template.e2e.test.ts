@@ -56,7 +56,10 @@ describeWithTemplateSmoke("live runFromTemplate smoke", { sequential: true }, ()
       logTemplateSmoke("runFromTemplate", { templateId });
       let sandbox: Sandbox | undefined;
       try {
-        sandbox = await client.runFromTemplate(templateId, { tags: [uniqueSmokeTag()] });
+        sandbox = await client.runFromTemplate(templateId, {
+          environmentVariables: {},
+          tags: [uniqueSmokeTag()],
+        });
         logTemplateSmoke("sandbox started", {
           elapsedMs: Date.now() - startedAt,
           sandboxId: sandbox.sandboxId,
@@ -130,7 +133,7 @@ describeWithTemplateSmoke("live runFromTemplate smoke", { sequential: true }, ()
             logProcessResult("printenv TEMPLATE_SMOKE withSandboxFromTemplate", processResult);
             return processResult;
           },
-          { tags: [uniqueSmokeTag()] },
+          { environmentVariables: {}, tags: [uniqueSmokeTag()] },
         );
         expect(result.exitCode).toBe(0);
         expect(result.stdout.trimEnd()).toBe(TEMPLATE_SMOKE_VALUE);

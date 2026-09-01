@@ -8,6 +8,10 @@ SPDX-PackageName: cwsandbox
 
 ## Unreleased
 
+- Normalize inspect/`exposedPorts` protocols to lowercase `tcp` / `udp` /
+  `sctp` (`ServiceProtocol`) instead of uppercase proto names. Beta API
+  normalization: create and inspect now share the same protocol strings.
+
 ## 0.4.0-beta.0
 
 - Add `client.runFromTemplate(templateId, options?)` and

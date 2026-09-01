@@ -7,9 +7,21 @@ import { createSandboxClientFromEnv } from "@coreweave/cwsandbox/node";
 import { beforeAll, expect, it } from "vitest";
 
 import {
+  captureOp,
+  combineCleanupError,
+  createPatternedPayload,
+  expectBytesEqual,
+} from "../smoke/helpers.js";
+import {
+  LARGE_FILE_20_MIB,
+  LARGE_FILE_40_MIB,
   binaryPayload,
   describeStress,
   installStressSummary,
+  largeFileDeleteTimeoutMs,
+  largeFileJourneyTimeoutMs,
+  largeFileRequestOptions,
+  largeFileTestTimeoutMs,
   recordFiles,
   sha256,
   stressConfig,
@@ -137,6 +149,54 @@ describeStress("stress files and list", () => {
     },
     stressConfig.timeoutMs,
   );
+
+  it(
+    "round-trips a 20 MiB file (Python known-good size) at 256Mi",
+    async () => {
+      const payload = createPatternedPayload(LARGE_FILE_20_MIB);
+      const readBack = await roundTripLargeFile(payload);
+      expectBytesEqual(readBack, payload);
+      expect(readBack.byteLength).toBe(LARGE_FILE_20_MIB);
+    },
+    largeFileTestTimeoutMs,
+  );
+
+  it(
+    "round-trips a 40 MiB file via StreamExec fallback at 256Mi",
+    async () => {
+      const payload = createPatternedPayload(LARGE_FILE_40_MIB);
+      const readBack = await roundTripLargeFile(payload);
+      expectBytesEqual(readBack, payload);
+      expect(readBack.byteLength).toBe(LARGE_FILE_40_MIB);
+    },
+    largeFileTestTimeoutMs,
+  );
+
+  async function roundTripLargeFile(payload: Uint8Array): Promise<Uint8Array> {
+    const path = `/tmp/cwsandbox-js-large-write-${String(payload.byteLength)}.bin`;
+    const signal = AbortSignal.timeout(largeFileJourneyTimeoutMs);
+    const deadlineMs = Date.now() + largeFileJourneyTimeoutMs;
+    let sandbox: Sandbox | undefined;
+    let readBack: Uint8Array | undefined;
+
+    const primary = await captureOp(async () => {
+      sandbox = await currentClient().create({
+        resources: { cpu: "500m", memory: "256Mi" },
+        tags: [stressConfig.tag],
+        ...largeFileRequestOptions(signal, deadlineMs),
+      });
+      await sandbox.files.write(path, payload, largeFileRequestOptions(signal, deadlineMs));
+      readBack = await sandbox.files.read(path, largeFileRequestOptions(signal, deadlineMs));
+    });
+    const cleanup = await captureOp(async () => {
+      await sandbox?.delete({ missingOk: true, timeoutMs: largeFileDeleteTimeoutMs });
+    });
+    combineCleanupError(primary, cleanup);
+    if (readBack === undefined) {
+      throw new Error("large-file read did not complete");
+    }
+    return readBack;
+  }
 
   function currentClient(): SandboxClient {
     if (client === undefined) {
