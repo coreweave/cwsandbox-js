@@ -62,10 +62,10 @@ pnpm --dir examples/sdk typecheck
 
 ## Integrations
 
-| Package                   | Demonstrates                       | Run                     |
-| ------------------------- | ---------------------------------- | ----------------------- |
-| [`weave/`](./weave)       | Weave tracing of a sandbox command | `pnpm example:weave`    |
-| [`tanstack/`](./tanstack) | TanStack AI sandbox adapter        | `pnpm example:tanstack` |
+| Package                   | Demonstrates                       | Run                                  |
+| ------------------------- | ---------------------------------- | ------------------------------------ |
+| [`weave/`](./weave)       | Weave tracing of a sandbox command | `pnpm --dir examples/weave start`    |
+| [`tanstack/`](./tanstack) | TanStack AI sandbox adapter        | `pnpm --dir examples/tanstack start` |
 
 ## Not yet available
 
@@ -82,8 +82,6 @@ later issue-filing pass — do not add stub scripts until the SDK surface exists
 | App demos             | `swebench/`, `rl_training/`                                          | optional later, not core SDK surface |
 
 N/A for JS (already async): Python `async_patterns.py`.
-
-Related open issue (wait behavior): [#21](https://github.com/coreweave/cwsandbox-js/issues/21).
 
 ## License
 

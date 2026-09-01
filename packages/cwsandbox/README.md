@@ -8,9 +8,9 @@ SPDX-PackageName: cwsandbox
 
 TypeScript SDK for CoreWeave Sandbox.
 
-> **Beta:** public API may still change. Ecosystem adapters
-> (TanStack now, Vercel AI planned) version lockstep with this package; the first
-> npm cut is core only.
+> **Beta:** public API may still change. Ecosystem adapters are developed in this
+> monorepo and are intended to publish in lockstep after their initial releases.
+> TanStack and ComputeSDK publishing is currently deferred; Vercel AI is planned.
 >
 > This package speaks Sandbox **v1**. Use `services`, `network.denyEgress` /
 > `network.denyIngress`, `network.egress`, `runnerIds`, and `showTerminated`.
@@ -140,10 +140,10 @@ pnpm --dir examples/sdk typecheck
 Integration examples:
 
 ```bash
-pnpm example:weave
-pnpm example:tanstack
-pnpm example:weave:typecheck
-pnpm example:tanstack:typecheck
+pnpm --dir examples/weave start
+pnpm --dir examples/tanstack start
+pnpm --dir examples/weave typecheck
+pnpm --dir examples/tanstack typecheck
 ```
 
 ## API Map

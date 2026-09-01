@@ -16,15 +16,16 @@ For contribution guidelines and CLA requirements, see
 
 ## Packages
 
-| Package                                                              | Status                                              | Description                             |
-| -------------------------------------------------------------------- | --------------------------------------------------- | --------------------------------------- |
-| [`@coreweave/cwsandbox`](./packages/cwsandbox)                       | beta (published)                                    | Core TypeScript SDK (`/node`, `/wandb`) |
-| [`@coreweave/cwsandbox-tanstack`](./packages/cwsandbox-tanstack)     | same version, private until fast-follow publish     | TanStack AI sandbox adapter             |
-| [`@coreweave/cwsandbox-computesdk`](./packages/cwsandbox-computesdk) | same version, public package (npm publish deferred) | ComputeSDK sandbox provider             |
-| Vercel AI adapter                                                    | planned                                             | npm name deferred until scaffold        |
+| Package                                                              | Status                            | Description                             |
+| -------------------------------------------------------------------- | --------------------------------- | --------------------------------------- |
+| [`@coreweave/cwsandbox`](./packages/cwsandbox)                       | beta (published)                  | Core TypeScript SDK (`/node`, `/wandb`) |
+| [`@coreweave/cwsandbox-tanstack`](./packages/cwsandbox-tanstack)     | private; publish deferred         | TanStack AI sandbox adapter             |
+| [`@coreweave/cwsandbox-computesdk`](./packages/cwsandbox-computesdk) | public metadata; publish deferred | ComputeSDK sandbox provider             |
+| Vercel AI adapter                                                    | planned                           | npm name deferred until scaffold        |
 
-Versions are **lockstep**: core and adapters share the same version string when
-published. First npm cut is core only; adapters follow at the matching version.
+Published packages are intended to move in **lockstep**. The unpublished adapters
+remain on their initial workspace versions until they are ready for their first npm
+release; align them with core as part of that release.
 
 ## Develop
 
