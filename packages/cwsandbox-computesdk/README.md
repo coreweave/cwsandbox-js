@@ -12,7 +12,12 @@ This package adapts [`@coreweave/cwsandbox`](../cwsandbox) to ComputeSDK's
 `defineProvider` contract (`create` / `getById` / `list` / `destroy` /
 `runCommand` / filesystem helpers).
 
-## Install
+## Availability
+
+> npm publishing for this package is deferred. Until its first release, use it
+> from this monorepo workspace or from a locally packed tarball.
+
+After the initial release, install the provider and its peer dependency with:
 
 ```bash
 pnpm add @coreweave/cwsandbox @coreweave/cwsandbox-computesdk @computesdk/provider
@@ -20,9 +25,6 @@ pnpm add @coreweave/cwsandbox @coreweave/cwsandbox-computesdk @computesdk/provid
 
 `@computesdk/provider` is a peer dependency so applications can choose their
 ComputeSDK version.
-
-> npm publish for this package is deferred; until then, install from the monorepo
-> workspace or a packed tarball.
 
 ## Usage
 

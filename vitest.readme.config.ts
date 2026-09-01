@@ -6,7 +6,11 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    include: ["scripts/check-readme-examples.test.ts"],
+    include: [
+      "scripts/check-documentation-commands.test.ts",
+      "scripts/check-examples-index.test.ts",
+      "scripts/check-readme-examples.test.ts",
+    ],
     testTimeout: 30_000,
   },
 });
