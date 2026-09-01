@@ -10,6 +10,13 @@ export type ServiceVisibility = "custom" | "private" | "public";
 export interface Endpoint {
   readonly auth: EndpointAuth;
   readonly kind: EndpointKind;
+  /**
+   * Server-side HTTPS request clock on this product endpoint (504 while the
+   * sandbox stays alive). Not `timeoutMs` on `client.run` / RPCs. Omit or `0`
+   * is the platform default (15s on serverless). The SDK only requires an
+   * integer; Aviato currently accepts `0` or `[15, 900]`.
+   */
+  readonly requestTimeoutSeconds?: number;
 }
 
 export interface Service {

@@ -23,6 +23,7 @@ import {
   combineCleanupError,
   createPatternedPayload,
   dualHttpServerScript,
+  httpsTimeoutHandlerScript,
   expectBytesEqual,
   expectExposedPorts,
   expectRunning,
@@ -45,6 +46,7 @@ import {
   dnsEgressSmokeTimeoutMs,
   httpsGetExitCode,
   shouldSkipDnsEgress,
+  shouldSkipHttpsRequestTimeouts,
   startOptionsForDnsNameEgress,
   startOptionsForNoInternetNetwork,
   testTimeoutMs,
@@ -947,6 +949,78 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     );
 
     it(
+      "rejects out-of-range HTTPS requestTimeoutSeconds before the sandbox is running",
+      async (ctx) => {
+        for (const requestTimeoutSeconds of [14, 901]) {
+          try {
+            const error = await rejectAndNarrow(
+              () =>
+                client.create({
+                  services: [publicHttpsService(8080, "http-timeout", { requestTimeoutSeconds })],
+                  tags: [uniqueSmokeTag()],
+                  waitUntilRunning: false,
+                }),
+              isHttpsRequestTimeoutInvalid,
+            );
+            expect(String(error)).toMatch(/request_timeout_seconds/);
+          } catch (error) {
+            if (shouldSkipHttpsRequestTimeouts(error)) {
+              ctx.skip(`fleet does not support HTTPS request timeouts: ${String(error)}`);
+              return;
+            }
+            throw error;
+          }
+        }
+      },
+      testTimeoutMs,
+    );
+
+    it("returns HTTP 504 around the serverless default HTTPS request timeout", async (ctx) => {
+      if (process.env["CWSANDBOX_RUNNER_IDS"]?.trim()) {
+        ctx.skip("CKS default HTTPS request timeout may differ from serverless 15s");
+        return;
+      }
+
+      try {
+        await withStartedSandbox(
+          client,
+          {
+            command: ["node", "/workspace/https-timeout-handler.js"],
+            containerImage: "node:22",
+            maxLifetimeSeconds: 600,
+            mountedFiles: {
+              "/workspace/https-timeout-handler.js": httpsTimeoutHandlerScript,
+            },
+            services: [publicHttpsService(8080, "http-timeout")],
+            tags: [uniqueSmokeTag()],
+          },
+          async (sandbox) => {
+            const service = await waitForServiceUrl(sandbox, 8080);
+            const ready = await waitForHttpOk(`${service.url.replace(/\/$/, "")}/ready`);
+            expect(await ready.text()).toContain("product-https-timeout-ready");
+
+            const started = Date.now();
+            const response = await fetch(`${service.url.replace(/\/$/, "")}/default-slow`, {
+              signal: AbortSignal.timeout(40_000),
+            });
+            const elapsedSeconds = (Date.now() - started) / 1000;
+            const body = await response.text();
+            expect(response.status).toBe(504);
+            expect(body).not.toContain("product-https-timeout-default-slow");
+            expect(elapsedSeconds).toBeGreaterThan(10);
+            expect(elapsedSeconds).toBeLessThan(25);
+          },
+        );
+      } catch (error) {
+        if (shouldSkipHttpsRequestTimeouts(error)) {
+          ctx.skip(`fleet does not support HTTPS request timeouts: ${String(error)}`);
+          return;
+        }
+        throw error;
+      }
+    }, 180_000);
+
+    it(
       "starts a configured-options sandbox and uses it as the tag-negative control",
       async () => {
         const configuredTag = uniqueSmokeTag();
@@ -1358,6 +1432,14 @@ async function collectStream<T>(stream: AsyncIterable<T>): Promise<T[]> {
     chunks.push(chunk);
   }
   return chunks;
+}
+
+function isHttpsRequestTimeoutInvalid(error: unknown): error is CWSandboxTransportError {
+  return (
+    error instanceof CWSandboxTransportError &&
+    (error.reason === "CWSANDBOX_INVALID_REQUEST" ||
+      String(error).includes("request_timeout_seconds"))
+  );
 }
 
 function concatBytes(chunks: readonly Uint8Array[]): Uint8Array {

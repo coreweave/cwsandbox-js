@@ -51,6 +51,7 @@ const smokeDir = dirname(fileURLToPath(import.meta.url));
 
 export const mountedBinaryContent = new Uint8Array([0, 1, 2, 127, 128, 255]);
 export const dualHttpServerScript = readSmokeScript("dual-http-server.js");
+export const httpsTimeoutHandlerScript = readSmokeScript("https-timeout-handler.js");
 export const noInternetProbeScript = readSmokeScript("no-internet-probe.py");
 export const smokeConfig = createSmokeConfig();
 export const terminalStatuses = new Set<SandboxStatus>(["completed", "failed", "terminated"]);
@@ -278,13 +279,30 @@ export function shouldSkipDnsEgress(error: unknown): boolean {
   );
 }
 
+export function shouldSkipHttpsRequestTimeouts(error: unknown): boolean {
+  return (
+    error instanceof CWSandboxTransportError &&
+    error.reason === "CWSANDBOX_HTTPS_REQUEST_TIMEOUTS_NOT_SUPPORTED"
+  );
+}
+
 export function uniqueSmokeTag(): SandboxTag {
   return `cwsandbox-js-smoke-${Date.now()}-${Math.random().toString(36).slice(2, 10)}x`;
 }
 
-export function publicHttpsService(port: number, name?: string): Service {
+export function publicHttpsService(
+  port: number,
+  name?: string,
+  options: { readonly requestTimeoutSeconds?: number } = {},
+): Service {
   return {
-    endpoint: { auth: "open", kind: "https" },
+    endpoint: {
+      auth: "open",
+      kind: "https",
+      ...(options.requestTimeoutSeconds === undefined
+        ? {}
+        : { requestTimeoutSeconds: options.requestTimeoutSeconds }),
+    },
     ...(name === undefined ? {} : { name }),
     port,
     visibility: "public",

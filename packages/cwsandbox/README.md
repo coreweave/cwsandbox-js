@@ -767,7 +767,10 @@ console.log((await sandbox.inspect()).dnsEgressNames);
 ```
 
 Declare listen-only services, or request a public HTTPS assignment with
-`endpoint: { kind: "https", auth: "open" }` and `visibility: "public"`:
+`endpoint: { kind: "https", auth: "open" }` and `visibility: "public"`.
+Optional `requestTimeoutSeconds` is the server-side HTTPS request clock (504
+while the sandbox stays alive). Omit or `0` keeps the platform default (15s
+on serverless). This is not `timeoutMs` on `client.run` / RPCs:
 
 ```ts
 await client.run(["python", "-m", "http.server", "8000"], {
@@ -777,7 +780,7 @@ await client.run(["python", "-m", "http.server", "8000"], {
 const sandbox = await client.run(["python", "-m", "http.server", "8000"], {
   services: [
     {
-      endpoint: { auth: "open", kind: "https" },
+      endpoint: { auth: "open", kind: "https", requestTimeoutSeconds: 120 },
       name: "http",
       port: 8000,
       visibility: "public",
@@ -791,7 +794,7 @@ console.log(info.serviceUrls?.[0]?.url);
 
 A non-empty `serviceUrls` entry means the hostname was assigned. That is not
 the same as the application listening, and not the same as the edge being
-ready.
+ready. Applied timeout is not echoed on `serviceUrls`.
 
 Sandbox handles expose cached backend metadata. Use `inspect()` when you need a
 fresh one-shot metadata snapshot for traces, tool results, or logs:
