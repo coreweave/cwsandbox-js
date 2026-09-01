@@ -34,6 +34,7 @@ import type {
 } from "../../transport/file-adapter.js";
 import type { GrpcClients } from "./channel.js";
 import type { DirectDataPlane, DirectDataPlaneLease } from "./direct-data-plane.js";
+import { isGrpcUnavailable, isRunnerShardRetiringError } from "./errors.js";
 import { startExecSession } from "./exec-session.js";
 import type { SandboxServiceClient } from "./generated/coreweave/sandbox/v1/sandbox.client.js";
 import {
@@ -49,6 +50,10 @@ import { toRpcOptions, withGrpcErrorMapping } from "./rpc.js";
  */
 const WRITE_STREAM_DIRECT_SCRIPT = [
   "path=$1",
+  'if [ -d "$path" ]; then',
+  '  printf "%s\\n" "Path is a directory: $path" >&2',
+  "  exit 3",
+  "fi",
   'if ! cat > "$path"; then',
   '  printf "%s\\n" "Failed to write input stream to $path" >&2',
   "  exit 1",
@@ -63,6 +68,10 @@ const WRITE_STREAM_DIRECT_SCRIPT = [
 const WRITE_STREAM_ATOMIC_SCRIPT = [
   "path=$1",
   "expected=$2",
+  'if [ -d "$path" ]; then',
+  '  printf "%s\\n" "Path is a directory: $path" >&2',
+  "  exit 3",
+  "fi",
   'tmp="$path.tmp.$$"',
   "trap 'rm -f \"$tmp\"' EXIT",
   'if ! cat > "$tmp"; then',
@@ -121,12 +130,13 @@ async function selectedWriteFile(
   directDataPlane: DirectDataPlane | undefined,
   request: WriteFileRequest,
 ): Promise<void> {
-  const lease = await acquireFileLease(directDataPlane, request, SandboxDataPermission.WRITE_FILE);
-  try {
-    await grpcWriteFile(lease?.client ?? gatewayClient, request);
-  } finally {
-    await lease?.release();
-  }
+  await withRetiringFileRetry(
+    gatewayClient,
+    directDataPlane,
+    request,
+    SandboxDataPermission.WRITE_FILE,
+    (client) => grpcWriteFile(client, request),
+  );
 }
 
 async function selectedReadFile(
@@ -134,12 +144,13 @@ async function selectedReadFile(
   directDataPlane: DirectDataPlane | undefined,
   request: ReadFileRequest,
 ): Promise<ReadFileResult> {
-  const lease = await acquireFileLease(directDataPlane, request, SandboxDataPermission.READ_FILE);
-  try {
-    return await grpcReadFile(lease?.client ?? gatewayClient, request);
-  } finally {
-    await lease?.release();
-  }
+  return withRetiringFileRetry(
+    gatewayClient,
+    directDataPlane,
+    request,
+    SandboxDataPermission.READ_FILE,
+    (client) => grpcReadFile(client, request),
+  );
 }
 
 function selectedReadStream(
@@ -149,15 +160,37 @@ function selectedReadStream(
 ): AsyncIterable<Uint8Array> {
   return {
     async *[Symbol.asyncIterator]() {
-      const lease = await acquireFileLease(
-        directDataPlane,
-        request,
-        SandboxDataPermission.STREAM_EXEC,
-      );
-      try {
-        yield* grpcReadStream(lease?.client ?? gatewayClient, request);
-      } finally {
-        await lease?.release();
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const lease = await acquireFileLease(
+          directDataPlane,
+          request,
+          SandboxDataPermission.STREAM_EXEC,
+        );
+        let discard = false;
+        let delivered = false;
+        try {
+          for await (const chunk of grpcReadStream(lease?.client ?? gatewayClient, request)) {
+            delivered = true;
+            yield chunk;
+          }
+          return;
+        } catch (error) {
+          if (lease !== undefined && isGrpcUnavailable(error)) {
+            discard = true;
+            await lease.discard();
+          }
+          if (
+            lease !== undefined &&
+            !delivered &&
+            attempt === 0 &&
+            isRunnerShardRetiringError(error)
+          ) {
+            continue;
+          }
+          throw error;
+        } finally {
+          await lease?.release({ discard });
+        }
       }
     },
   };
@@ -169,11 +202,46 @@ async function selectedWriteStream(
   request: WriteStreamRequest,
 ): Promise<void> {
   const lease = await acquireFileLease(directDataPlane, request, SandboxDataPermission.STREAM_EXEC);
+  let discard = false;
   try {
     await grpcWriteStream(lease?.client ?? gatewayClient, request);
+  } catch (error) {
+    if (lease !== undefined && isGrpcUnavailable(error)) {
+      discard = true;
+      await lease.discard();
+    }
+    throw error;
   } finally {
-    await lease?.release();
+    await lease?.release({ discard });
   }
+}
+
+async function withRetiringFileRetry<TResult>(
+  gatewayClient: SandboxServiceClient,
+  directDataPlane: DirectDataPlane | undefined,
+  request: ReadFileRequest | WriteFileRequest,
+  permission: SandboxDataPermission,
+  run: (client: UnaryFileClient) => Promise<TResult>,
+): Promise<TResult> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const lease = await acquireFileLease(directDataPlane, request, permission);
+    let discard = false;
+    try {
+      return await run(lease?.client ?? gatewayClient);
+    } catch (error) {
+      if (lease !== undefined && isGrpcUnavailable(error)) {
+        discard = true;
+        await lease.discard();
+      }
+      if (lease !== undefined && attempt === 0 && isRunnerShardRetiringError(error)) {
+        continue;
+      }
+      throw error;
+    } finally {
+      await lease?.release({ discard });
+    }
+  }
+  throw new Error("unreachable");
 }
 
 function acquireFileLease(
@@ -434,6 +502,7 @@ async function grpcWriteStream(
 
     if (exitCode !== 0) {
       const detail = stderr.trim() || `write command exited with status ${exitCode ?? -1}`;
+      const reason = exitCode === 3 ? CWSANDBOX_FILE_IS_DIRECTORY : CWSANDBOX_FILE_IO_FAILED;
       const message =
         request.mode === "atomic"
           ? `Failed to write file '${request.path}' via exec-stream fallback: ${detail}. The destination was not replaced (temp write / rename failed).`
@@ -441,7 +510,7 @@ async function grpcWriteStream(
       throw new CWSandboxFileError(message, {
         filepath: request.path,
         operation: "Write file",
-        reason: CWSANDBOX_FILE_IO_FAILED,
+        reason,
         sandboxId: request.sandboxId,
       });
     }
@@ -527,13 +596,19 @@ async function* iterateFileChunks(
 
   if (isAsyncIterable(source)) {
     for await (const chunk of source) {
-      yield coerceChunk(chunk);
+      yield* splitFileChunk(coerceChunk(chunk));
     }
     return;
   }
 
   for (const chunk of source) {
-    yield coerceChunk(chunk);
+    yield* splitFileChunk(coerceChunk(chunk));
+  }
+}
+
+function* splitFileChunk(chunk: Uint8Array): Generator<Uint8Array> {
+  for (let offset = 0; offset < chunk.byteLength; offset += STREAMING_WRITE_CHUNK_SIZE) {
+    yield chunk.subarray(offset, Math.min(offset + STREAMING_WRITE_CHUNK_SIZE, chunk.byteLength));
   }
 }
 

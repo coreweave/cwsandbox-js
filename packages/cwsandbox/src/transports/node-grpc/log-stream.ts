@@ -20,7 +20,7 @@ import { linkedAbortController, toRpcOptions, withGrpcErrorMapping } from "./rpc
 export async function startGrpcLogStream(
   client: Pick<SandboxServiceClient, "streamLogs">,
   request: StreamLogsRequest,
-  onSettled: () => Promise<void> = async () => undefined,
+  onSettled: (error?: unknown) => Promise<void> = async () => undefined,
 ): Promise<LogEntryStream | LogRawStream | LogStream> {
   const abortController = linkedAbortController(request.signal);
   const callerAbort = { aborted: false };
@@ -54,9 +54,10 @@ async function collectLogStream(
   controller: LogStreamController<LogEntryStream | LogRawStream | LogStream>,
   request: StreamLogsRequest,
   callerAbort: { aborted: boolean },
-  onSettled: () => Promise<void>,
+  onSettled: (error?: unknown) => Promise<void>,
 ): Promise<void> {
   let terminal = false;
+  let settledError: unknown;
 
   try {
     for await (const entry of call.responses) {
@@ -65,13 +66,14 @@ async function collectLogStream(
         if (callerAbort.aborted) {
           return;
         }
+        settledError = new CWSandboxTransportError(entry.error.message || "Log stream failed.", {
+          operation: "Stream logs",
+          sandboxId: request.sandboxId,
+          transport: "grpc",
+          transportCode: entry.error.code,
+        });
         await controller.dispatch({
-          error: new CWSandboxTransportError(entry.error.message || "Log stream failed.", {
-            operation: "Stream logs",
-            sandboxId: request.sandboxId,
-            transport: "grpc",
-            transportCode: entry.error.code,
-          }),
+          error: settledError,
           type: "error",
         });
         return;
@@ -94,14 +96,15 @@ async function collectLogStream(
     if (callerAbort.aborted) {
       return;
     }
+    settledError = mapGrpcError(error, {
+      operation: "Stream logs",
+      sandboxId: request.sandboxId,
+    });
     await controller.dispatch({
-      error: mapGrpcError(error, {
-        operation: "Stream logs",
-        sandboxId: request.sandboxId,
-      }),
+      error: settledError,
       type: "error",
     });
   } finally {
-    await onSettled().catch(() => undefined);
+    await onSettled(settledError).catch(() => undefined);
   }
 }

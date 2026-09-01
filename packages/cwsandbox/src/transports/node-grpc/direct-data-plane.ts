@@ -61,11 +61,13 @@ interface DirectChannel {
 interface PoolEntry {
   activeLeases: number;
   readonly channel: DirectChannel;
+  closed: boolean;
   discardWhenIdle: boolean;
 }
 
 export interface DirectDataPlaneLease {
   readonly client: SandboxDataPlaneServiceClient;
+  discard(): Promise<void>;
   release(options?: { readonly discard?: boolean }): Promise<void>;
 }
 
@@ -112,6 +114,7 @@ export class DirectChannelPool {
       entry = {
         activeLeases: 0,
         channel,
+        closed: false,
         discardWhenIdle: false,
       };
       this.entries.set(bundle.cacheKey, entry);
@@ -126,7 +129,7 @@ export class DirectChannelPool {
         return;
       }
       released = true;
-      this.release(bundle.cacheKey, options.discard === true);
+      this.release(bundle.cacheKey, entry, options.discard === true);
     };
 
     try {
@@ -146,35 +149,53 @@ export class DirectChannelPool {
       });
     }
 
-    return { client: entry.channel.client, release };
+    return {
+      client: entry.channel.client,
+      discard: async () => this.discardEntry(bundle.cacheKey, entry),
+      release,
+    };
   }
 
   public discard(cacheKey: string): void {
     const entry = this.entries.get(cacheKey);
-    if (entry === undefined) {
-      return;
+    if (entry !== undefined) {
+      this.discardEntry(cacheKey, entry);
     }
-    if (entry.activeLeases > 0) {
-      entry.discardWhenIdle = true;
-      return;
-    }
-    this.entries.delete(cacheKey);
-    entry.channel.close();
   }
 
-  private release(cacheKey: string, discard: boolean): void {
-    const entry = this.entries.get(cacheKey);
-    if (entry === undefined) {
-      return;
+  private discardEntry(cacheKey: string, entry: PoolEntry): void {
+    entry.discardWhenIdle = true;
+    if (this.entries.get(cacheKey) === entry) {
+      this.entries.delete(cacheKey);
     }
+    if (entry.activeLeases === 0) {
+      this.close(entry);
+    }
+  }
+
+  private release(cacheKey: string, entry: PoolEntry, discard: boolean): void {
     entry.activeLeases = Math.max(0, entry.activeLeases - 1);
     entry.discardWhenIdle ||= discard;
-    this.touch(cacheKey, entry);
-    if (entry.activeLeases === 0 && entry.discardWhenIdle) {
+    if (discard && this.entries.get(cacheKey) === entry) {
       this.entries.delete(cacheKey);
-      entry.channel.close();
+    } else if (this.entries.get(cacheKey) === entry) {
+      this.touch(cacheKey, entry);
+    }
+    if (entry.activeLeases === 0 && entry.discardWhenIdle) {
+      if (this.entries.get(cacheKey) === entry) {
+        this.entries.delete(cacheKey);
+      }
+      this.close(entry);
     }
     this.evictIdle();
+  }
+
+  private close(entry: PoolEntry): void {
+    if (entry.closed) {
+      return;
+    }
+    entry.closed = true;
+    entry.channel.close();
   }
 
   private touch(cacheKey: string, entry: PoolEntry): void {
@@ -195,7 +216,7 @@ export class DirectChannelPool {
         continue;
       }
       this.entries.delete(cacheKey);
-      entry.channel.close();
+      this.close(entry);
       idleCount -= 1;
     }
   }
