@@ -43,6 +43,8 @@ import {
   DNS_EGRESS_WILD,
   DNS_EGRESS_WILD_HOST,
   dnsEgressSmokeTimeoutMs,
+  httpsEndpointSmokeTimeoutMs,
+  httpsEndpointWaitTimeoutMs,
   httpsGetExitCode,
   shouldSkipDnsEgress,
   shouldSkipHttpsRequestTimeouts,
@@ -895,6 +897,7 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
             },
             services: [publicHttpsService(8000, "http-a"), publicHttpsService(8001, "http-b")],
             tags: [uniqueSmokeTag()],
+            timeoutMs: httpsEndpointWaitTimeoutMs,
           },
           async (sandbox) => {
             const services = await waitForServiceUrls(sandbox, [8000, 8001]);
@@ -919,7 +922,7 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
           },
         );
       },
-      testTimeoutMs,
+      httpsEndpointSmokeTimeoutMs,
     );
 
     it(
@@ -935,6 +938,7 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
             },
             services: [publicHttpsService(8000, "ws")],
             tags: [uniqueSmokeTag()],
+            timeoutMs: httpsEndpointWaitTimeoutMs,
           },
           async (sandbox) => {
             const service = await waitForServiceUrl(sandbox, 8000);
@@ -944,31 +948,22 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
           },
         );
       },
-      testTimeoutMs,
+      httpsEndpointSmokeTimeoutMs,
     );
 
     it(
-      "rejects out-of-range HTTPS requestTimeoutSeconds before the sandbox is running",
-      async (ctx) => {
-        for (const requestTimeoutSeconds of [14, 901]) {
-          try {
-            const error = await rejectAndNarrow(
-              () =>
-                client.create({
-                  services: [publicHttpsService(8080, "http-timeout", { requestTimeoutSeconds })],
-                  tags: [uniqueSmokeTag()],
-                  waitUntilRunning: false,
-                }),
-              isHttpsRequestTimeoutInvalid,
-            );
-            expect(String(error)).toMatch(/request_timeout_seconds/);
-          } catch (error) {
-            if (shouldSkipHttpsRequestTimeouts(error)) {
-              ctx.skip(`fleet does not support HTTPS request timeouts: ${String(error)}`);
-              return;
-            }
-            throw error;
-          }
+      "rejects invalid HTTPS requestTimeoutSeconds before the sandbox is running",
+      async () => {
+        // Shape-invalid only. Do not pin Aviato's current [15, 900] edges
+        // (14 / 901 / 1000) — those can become legal if the fleet range moves.
+        for (const requestTimeoutSeconds of [-1, 1.5]) {
+          await expect(
+            client.create({
+              services: [publicHttpsService(8080, "http-timeout", { requestTimeoutSeconds })],
+              tags: [uniqueSmokeTag()],
+              waitUntilRunning: false,
+            }),
+          ).rejects.toThrow(/requestTimeoutSeconds must be a non-negative integer/);
         }
       },
       testTimeoutMs,
@@ -992,6 +987,7 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
             },
             services: [publicHttpsService(8080, "http-timeout")],
             tags: [uniqueSmokeTag()],
+            timeoutMs: httpsEndpointWaitTimeoutMs,
           },
           async (sandbox) => {
             const service = await waitForServiceUrl(sandbox, 8080);
@@ -1017,7 +1013,7 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
         }
         throw error;
       }
-    }, 180_000);
+    }, 240_000);
 
     it(
       "starts a configured-options sandbox and uses it as the tag-negative control",
@@ -1420,14 +1416,6 @@ async function collectStream<T>(stream: AsyncIterable<T>): Promise<T[]> {
     chunks.push(chunk);
   }
   return chunks;
-}
-
-function isHttpsRequestTimeoutInvalid(error: unknown): error is CWSandboxTransportError {
-  return (
-    error instanceof CWSandboxTransportError &&
-    (error.reason === "CWSANDBOX_INVALID_REQUEST" ||
-      String(error).includes("request_timeout_seconds"))
-  );
 }
 
 function concatBytes(chunks: readonly Uint8Array[]): Uint8Array {

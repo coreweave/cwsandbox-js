@@ -57,6 +57,9 @@ export const smokeConfig = createSmokeConfig();
 export const terminalStatuses = new Set<SandboxStatus>(["completed", "failed", "terminated"]);
 export const testTimeoutMs = 120_000;
 export const serviceUrlWaitTimeoutMs = 60_000;
+/** Public HTTPS assignment can sit in Envoy init past the SDK 60s wait default. */
+export const httpsEndpointWaitTimeoutMs = 150_000;
+export const httpsEndpointSmokeTimeoutMs = 180_000;
 export const websocketEchoScript = readSmokeScript("websocket-echo.js");
 
 /** Multi-chunk streaming smoke payload (not toy-sized). */
