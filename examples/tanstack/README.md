@@ -4,7 +4,7 @@ SPDX-License-Identifier: BSD-3-Clause
 SPDX-PackageName: cwsandbox
 -->
 
-# TanStack Sandbox Adapter Workspace Task
+# TanStack Sandbox Adapter Example
 
 Exercise the experimental `@coreweave/cwsandbox-tanstack` package with
 TanStack AI's sandbox definition API.
@@ -43,12 +43,6 @@ pnpm --dir examples/tanstack start
 
 ```bash
 pnpm --dir examples/tanstack typecheck
-```
-
-or from the repository root:
-
-```bash
-pnpm example:tanstack:typecheck
 ```
 
 ## Notes
