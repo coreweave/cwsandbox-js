@@ -76,6 +76,8 @@ type CoreWeaveCreateOptions = CreateSandboxOptions & {
   readonly network?: SandboxRunOptions["network"];
   readonly runnerIds?: readonly string[];
   readonly services?: SandboxRunOptions["services"];
+  /** Wait-until-running budget. Distinct from `timeout`, which is sandbox TTL. */
+  readonly waitUntilRunningTimeoutMs?: number;
 };
 
 export interface CoreWeaveSandbox {
@@ -255,6 +257,9 @@ function toCreateOptions(
     ...(runnerIds !== undefined && runnerIds.length > 0 ? { runnerIds } : {}),
     ...(options?.services !== undefined ? { services: options.services } : {}),
     ...(options?.network !== undefined ? { network: options.network } : {}),
+    ...(options?.waitUntilRunningTimeoutMs !== undefined
+      ? { timeoutMs: options.waitUntilRunningTimeoutMs }
+      : {}),
   };
 }
 
