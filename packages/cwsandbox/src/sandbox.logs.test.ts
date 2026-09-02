@@ -31,6 +31,7 @@ describe("Sandbox logs", () => {
 
     expect(streamRequests).toEqual([
       {
+        dataPlaneMode: "auto",
         follow: true,
         mode: "lines",
         resume: { offset: "12", sessionId: "session-1" },
@@ -38,6 +39,7 @@ describe("Sandbox logs", () => {
         timeoutMs: 1234,
       },
       {
+        dataPlaneMode: "auto",
         mode: "entries",
         sandboxId: "sandbox-for-echo",
         sinceTime,
@@ -45,6 +47,7 @@ describe("Sandbox logs", () => {
         timestamps: true,
       },
       {
+        dataPlaneMode: "auto",
         mode: "raw",
         sandboxId: "sandbox-for-echo",
       },

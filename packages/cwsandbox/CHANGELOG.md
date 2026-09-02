@@ -8,6 +8,9 @@ SPDX-PackageName: cwsandbox
 
 ## Unreleased
 
+- Add `dataPlaneMode` (`auto`, `direct`, or `gateway`) for sandbox exec, shell,
+  logs, and file operations. `auto` prefers operation-scoped direct mTLS with a
+  bounded gateway fallback; lifecycle and management calls remain on the API.
 - Add optional `requestTimeoutSeconds` on HTTPS `Endpoint`. Omit/`0` keeps
   the platform default (15s on serverless). The SDK only checks that the
   value is a non-negative integer; Aviato currently accepts `0` or

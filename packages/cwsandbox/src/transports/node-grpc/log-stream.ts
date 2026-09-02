@@ -18,8 +18,9 @@ import { toProtoStreamLogsRequest } from "./mappers.js";
 import { linkedAbortController, toRpcOptions, withGrpcErrorMapping } from "./rpc.js";
 
 export async function startGrpcLogStream(
-  client: SandboxServiceClient,
+  client: Pick<SandboxServiceClient, "streamLogs">,
   request: StreamLogsRequest,
+  onSettled: (error?: unknown) => Promise<void> = async () => undefined,
 ): Promise<LogEntryStream | LogRawStream | LogStream> {
   const abortController = linkedAbortController(request.signal);
   const callerAbort = { aborted: false };
@@ -44,7 +45,7 @@ export async function startGrpcLogStream(
 
   await withGrpcErrorMapping("Stream logs", async () => undefined, request.sandboxId);
 
-  void collectLogStream(call, controller, request, callerAbort);
+  void collectLogStream(call, controller, request, callerAbort, onSettled);
   return controller.stream;
 }
 
@@ -53,8 +54,10 @@ async function collectLogStream(
   controller: LogStreamController<LogEntryStream | LogRawStream | LogStream>,
   request: StreamLogsRequest,
   callerAbort: { aborted: boolean },
+  onSettled: (error?: unknown) => Promise<void>,
 ): Promise<void> {
   let terminal = false;
+  let settledError: unknown;
 
   try {
     for await (const entry of call.responses) {
@@ -63,13 +66,14 @@ async function collectLogStream(
         if (callerAbort.aborted) {
           return;
         }
+        settledError = new CWSandboxTransportError(entry.error.message || "Log stream failed.", {
+          operation: "Stream logs",
+          sandboxId: request.sandboxId,
+          transport: "grpc",
+          transportCode: entry.error.code,
+        });
         await controller.dispatch({
-          error: new CWSandboxTransportError(entry.error.message || "Log stream failed.", {
-            operation: "Stream logs",
-            sandboxId: request.sandboxId,
-            transport: "grpc",
-            transportCode: entry.error.code,
-          }),
+          error: settledError,
           type: "error",
         });
         return;
@@ -92,12 +96,15 @@ async function collectLogStream(
     if (callerAbort.aborted) {
       return;
     }
+    settledError = mapGrpcError(error, {
+      operation: "Stream logs",
+      sandboxId: request.sandboxId,
+    });
     await controller.dispatch({
-      error: mapGrpcError(error, {
-        operation: "Stream logs",
-        sandboxId: request.sandboxId,
-      }),
+      error: settledError,
       type: "error",
     });
+  } finally {
+    await onSettled(settledError).catch(() => undefined);
   }
 }

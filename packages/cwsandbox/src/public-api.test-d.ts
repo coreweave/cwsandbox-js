@@ -16,6 +16,7 @@ import {
   type CommandInput,
   type CommandProcessWithStdin,
   type CommandProcessStatus,
+  type DataPlaneMode,
   type FileReadResult,
   type FileTextReadResult,
   type FileWrite,
@@ -80,7 +81,8 @@ import {
   type WandbSandboxEnvironment,
 } from "./wandb/index.js";
 
-const nodeOptions: NodeSandboxClientOptions = { apiKey: "test-key" };
+const dataPlaneMode: DataPlaneMode = "direct";
+const nodeOptions: NodeSandboxClientOptions = { apiKey: "test-key", dataPlaneMode };
 const nodeEnv: CWSandboxEnvironment = { CWSANDBOX_API_KEY: "test-key" };
 const wandbOptions: WandbSandboxClientOptions = {
   apiKey: "wandb-key",
@@ -103,7 +105,8 @@ declare const client: SandboxClient;
 expectTypeOf(DEFAULT_KEEP_ALIVE_COMMAND).toExtend<CommandInput>();
 expectTypeOf(DEFAULT_GRACEFUL_SHUTDOWN_SECONDS).toEqualTypeOf<10>();
 expectTypeOf(DEFAULT_SNAPSHOT_TIMEOUT_MS).toEqualTypeOf<600_000>();
-const sandboxRunOptions: SandboxRunOptions = { waitUntilRunning: false };
+const sandboxRunOptions: SandboxRunOptions = { dataPlaneMode: "auto", waitUntilRunning: false };
+expectTypeOf(sandboxRunOptions.dataPlaneMode).toEqualTypeOf<DataPlaneMode | undefined>();
 expectTypeOf(sandboxRunOptions.waitUntilRunning).toEqualTypeOf<boolean | undefined>();
 expectTypeOf(client.create()).toEqualTypeOf<ReturnType<SandboxClient["create"]>>();
 expectTypeOf(client.create({ waitUntilRunning: false })).toEqualTypeOf<
@@ -158,6 +161,9 @@ expectTypeOf<SandboxMetadata>().not.toHaveProperty("sourceTemplateRevision");
 expectTypeOf<Sandbox>().not.toHaveProperty("sourceTemplateId");
 expectTypeOf<Sandbox>().not.toHaveProperty("sourceTemplateRevision");
 expectTypeOf(client.run(["echo"])).toEqualTypeOf<ReturnType<SandboxClient["run"]>>();
+expectTypeOf(client.fromId("sandbox-id", { dataPlaneMode: "gateway" })).toEqualTypeOf<
+  ReturnType<SandboxClient["fromId"]>
+>();
 expectTypeOf(
   client.run(["python", "/workspace/main.py"], {
     mountedFiles: {

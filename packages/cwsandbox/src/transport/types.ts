@@ -9,6 +9,7 @@ import type {
   StartCommandOptions,
 } from "../public/commands.js";
 import type { RequestOptions, Seconds } from "../public/common.js";
+import type { DataPlaneMode } from "../public/data-plane.js";
 import type { MountedFiles } from "../public/files.js";
 import type { LogStreamMode, LogStreamOptions } from "../public/logs.js";
 import type { NetworkOptions, Service } from "../public/network.js";
@@ -63,20 +64,24 @@ export interface GetSandboxRequest extends RequestOptions {
 
 export interface ExecRequest extends Omit<ExecOptions, "check"> {
   readonly command: Command;
+  readonly dataPlaneMode?: DataPlaneMode;
   readonly sandboxId: SandboxId;
 }
 
 export interface StartCommandRequest extends StartCommandOptions {
   readonly command: Command;
+  readonly dataPlaneMode?: DataPlaneMode;
   readonly sandboxId: SandboxId;
 }
 
 export interface StartShellRequest extends Omit<ShellOptions, "command"> {
   readonly command: Command;
+  readonly dataPlaneMode?: DataPlaneMode;
   readonly sandboxId: SandboxId;
 }
 
 export interface StreamLogsRequest extends LogStreamOptions {
+  readonly dataPlaneMode?: DataPlaneMode;
   readonly mode: LogStreamMode;
   readonly sandboxId: SandboxId;
 }

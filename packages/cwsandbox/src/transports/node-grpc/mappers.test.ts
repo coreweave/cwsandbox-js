@@ -113,6 +113,7 @@ describe("node transport mappers", () => {
         args: ["-m", "http.server", "8000"],
         command: "python",
         environmentVariables: { EXAMPLE: "1" },
+        primary: true,
         resourceRequirements: {
           limits: { cpu: "100m", memory: "128Mi" },
           requests: { cpu: "100m", memory: "128Mi" },
@@ -339,10 +340,12 @@ describe("node transport mappers", () => {
       expect(request.sandbox?.spec?.network?.egress).toMatchObject([
         {
           destination: { dnsName: "pypi.org", oneofKind: "dnsName" },
+          dnsNameExcept: [],
           ports: [],
         },
         {
           destination: { dnsName: "*.pypi.org", oneofKind: "dnsName" },
+          dnsNameExcept: [],
           ports: [],
         },
       ]);

@@ -35,11 +35,14 @@ import type {
 } from "../../transport/types.js";
 import { createGrpcClients, type GrpcClients, type GrpcMetadata } from "./channel.js";
 import { startGrpcCommand } from "./command-stream.js";
+import { DirectDataPlane, type DirectDataPlaneLease } from "./direct-data-plane.js";
+import { isGrpcUnavailable, isRunnerShardRetiringError } from "./errors.js";
 import {
   CreateFileSystemSnapshotRequest as ProtoCreateFileSystemSnapshotRequest,
   DeleteFileSystemSnapshotRequest as ProtoDeleteFileSystemSnapshotRequest,
   GetFileSystemSnapshotRequest as ProtoGetFileSystemSnapshotRequest,
   ListFileSystemSnapshotsRequest as ProtoListFileSystemSnapshotsRequest,
+  SandboxDataPermission,
 } from "./generated/coreweave/sandbox/v1/sandbox.js";
 import { startGrpcLogStream } from "./log-stream.js";
 import {
@@ -66,11 +69,13 @@ export interface GrpcSandboxTransportOptions {
 export class GrpcSandboxTransport implements SandboxTransport {
   /** Exposed so the factory can create a FileAdapter from the same channel. */
   public readonly clients: GrpcClients;
+  public readonly directDataPlane: DirectDataPlane;
   private readonly client: GrpcClients["client"];
 
   public constructor(options: GrpcSandboxTransportOptions) {
     this.clients = createGrpcClients(options);
     this.client = this.clients.client;
+    this.directDataPlane = new DirectDataPlane(this.client);
   }
 
   public async start(request: StartSandboxRequest): Promise<StartSandboxResult> {
@@ -132,6 +137,7 @@ export class GrpcSandboxTransport implements SandboxTransport {
         this.client.deleteSandbox(toProtoDeleteRequest(request), toRpcOptions(request)).response,
       request.sandboxId,
     );
+    this.directDataPlane.discardSandbox(request.sandboxId);
   }
 
   public async createFileSystemSnapshot(
@@ -208,13 +214,32 @@ export class GrpcSandboxTransport implements SandboxTransport {
   }
 
   public async exec(request: ExecRequest): Promise<ProcessResult> {
-    const response = await withGrpcErrorMapping(
-      "Exec command",
-      () => this.client.exec(toProtoExecRequest(request), toRpcOptions(request)).response,
-      request.sandboxId,
-    );
-
-    return toSdkProcessResult(request.command, response);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const lease = await this.acquireDirectLease(request, SandboxDataPermission.EXEC);
+      let discard = false;
+      try {
+        const response = await withGrpcErrorMapping(
+          "Exec command",
+          () =>
+            (lease?.client ?? this.client).exec(toProtoExecRequest(request), toRpcOptions(request))
+              .response,
+          request.sandboxId,
+        );
+        return toSdkProcessResult(request.command, response);
+      } catch (error) {
+        if (lease !== undefined && isGrpcUnavailable(error)) {
+          discard = true;
+          await lease.discard();
+        }
+        if (lease !== undefined && attempt === 0 && isRunnerShardRetiringError(error)) {
+          continue;
+        }
+        throw error;
+      } finally {
+        await lease?.release({ discard });
+      }
+    }
+    throw new Error("unreachable");
   }
 
   public async startCommand(
@@ -226,17 +251,65 @@ export class GrpcSandboxTransport implements SandboxTransport {
   public async startCommand(
     request: StartCommandRequest,
   ): Promise<CommandProcess | CommandProcessWithStdin> {
-    return startGrpcCommand(this.client, request);
+    const lease = await this.directDataPlane.acquire({
+      dataPlaneMode: request.dataPlaneMode ?? "auto",
+      permission: SandboxDataPermission.STREAM_EXEC,
+      sandboxId: request.sandboxId,
+      ...(request.signal === undefined ? {} : { signal: request.signal }),
+      ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+    });
+    try {
+      return await startGrpcCommand(
+        lease?.client ?? this.client,
+        request,
+        lease === undefined ? undefined : (error) => settleDirectLease(lease, error),
+      );
+    } catch (error) {
+      await settleDirectLease(lease, error);
+      throw error;
+    }
   }
 
   public async startShell(request: StartShellRequest): Promise<TerminalSession> {
-    return startGrpcShell(this.client, request);
+    const lease = await this.directDataPlane.acquire({
+      dataPlaneMode: request.dataPlaneMode ?? "auto",
+      permission: SandboxDataPermission.STREAM_EXEC,
+      sandboxId: request.sandboxId,
+      ...(request.signal === undefined ? {} : { signal: request.signal }),
+      ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+    });
+    try {
+      return await startGrpcShell(
+        lease?.client ?? this.client,
+        request,
+        lease === undefined ? undefined : (error) => settleDirectLease(lease, error),
+      );
+    } catch (error) {
+      await settleDirectLease(lease, error);
+      throw error;
+    }
   }
 
   public async streamLogs(
     request: StreamLogsRequest,
   ): Promise<LogEntryStream | LogRawStream | LogStream> {
-    return startGrpcLogStream(this.client, request);
+    const lease = await this.directDataPlane.acquire({
+      dataPlaneMode: request.dataPlaneMode ?? "auto",
+      permission: SandboxDataPermission.STREAM_LOGS,
+      sandboxId: request.sandboxId,
+      ...(request.signal === undefined ? {} : { signal: request.signal }),
+      ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+    });
+    try {
+      return await startGrpcLogStream(
+        lease?.client ?? this.client,
+        request,
+        lease === undefined ? undefined : (error) => settleDirectLease(lease, error),
+      );
+    } catch (error) {
+      await settleDirectLease(lease, error);
+      throw error;
+    }
   }
 
   public async stop(request: StopSandboxRequest): Promise<void> {
@@ -246,5 +319,33 @@ export class GrpcSandboxTransport implements SandboxTransport {
         this.client.deleteSandbox(toProtoDeleteRequest(request), toRpcOptions(request)).response,
       request.sandboxId,
     );
+    this.directDataPlane.discardSandbox(request.sandboxId);
   }
+
+  private acquireDirectLease(
+    request: ExecRequest,
+    permission: SandboxDataPermission,
+  ): Promise<DirectDataPlaneLease | undefined> {
+    return this.directDataPlane.acquire({
+      dataPlaneMode: request.dataPlaneMode ?? "auto",
+      permission,
+      sandboxId: request.sandboxId,
+      ...(request.signal === undefined ? {} : { signal: request.signal }),
+      ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+    });
+  }
+}
+
+async function settleDirectLease(
+  lease: DirectDataPlaneLease | undefined,
+  error?: unknown,
+): Promise<void> {
+  if (lease === undefined) {
+    return;
+  }
+  const discard = error !== undefined && isGrpcUnavailable(error);
+  if (discard) {
+    await lease.discard();
+  }
+  await lease.release({ discard });
 }
