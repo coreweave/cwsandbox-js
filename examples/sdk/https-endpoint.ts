@@ -24,11 +24,7 @@ async function main(): Promise<void> {
       console.log(`Assigned URL: ${url ?? "(none yet)"}`);
       console.log("Applied timeout is not echoed on serviceUrls.");
 
-      const result = await sandbox.commands.run([
-        "python",
-        "-c",
-        "print('Hello from sandbox!')",
-      ]);
+      const result = await sandbox.commands.run(["python", "-c", "print('Hello from sandbox!')"]);
       console.log(result.stdout.trimEnd());
     },
     {
