@@ -17,7 +17,7 @@ export { mapExecSessionError as mapExecStreamError };
 export async function startGrpcCommand(
   streamingClient: Pick<SandboxServiceClient, "streamExec">,
   request: StartCommandRequest,
-  onSettled: () => Promise<void> = async () => undefined,
+  onSettled: (error?: unknown) => Promise<void> = async () => undefined,
 ): Promise<CommandProcess | CommandProcessWithStdin> {
   const session = await startExecSession(streamingClient, {
     command: request.command,
@@ -62,8 +62,9 @@ export async function startGrpcCommand(
 async function dispatchSessionFrames(
   session: ExecSession,
   dispatch: (event: InternalCommandEvent) => Promise<void>,
-  onSettled: () => Promise<void>,
+  onSettled: (error?: unknown) => Promise<void>,
 ): Promise<void> {
+  let settledError: unknown;
   try {
     for await (const frame of session.frames) {
       switch (frame.type) {
@@ -80,11 +81,15 @@ async function dispatchSessionFrames(
           await dispatch({ exitCode: frame.exitCode, type: "exit" });
           return;
         case "error":
+          settledError = frame.error;
           await dispatch({ error: frame.error, type: "error" });
           return;
       }
     }
+  } catch (error) {
+    settledError = error;
+    throw error;
   } finally {
-    await onSettled().catch(() => undefined);
+    await onSettled(settledError).catch(() => undefined);
   }
 }

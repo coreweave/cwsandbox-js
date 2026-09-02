@@ -35,7 +35,8 @@ import type {
 } from "../../transport/types.js";
 import { createGrpcClients, type GrpcClients, type GrpcMetadata } from "./channel.js";
 import { startGrpcCommand } from "./command-stream.js";
-import { DirectDataPlane } from "./direct-data-plane.js";
+import { DirectDataPlane, type DirectDataPlaneLease } from "./direct-data-plane.js";
+import { isGrpcUnavailable, isRunnerShardRetiringError } from "./errors.js";
 import {
   CreateFileSystemSnapshotRequest as ProtoCreateFileSystemSnapshotRequest,
   DeleteFileSystemSnapshotRequest as ProtoDeleteFileSystemSnapshotRequest,
@@ -213,26 +214,32 @@ export class GrpcSandboxTransport implements SandboxTransport {
   }
 
   public async exec(request: ExecRequest): Promise<ProcessResult> {
-    const lease = await this.directDataPlane.acquire({
-      dataPlaneMode: request.dataPlaneMode ?? "auto",
-      permission: SandboxDataPermission.EXEC,
-      sandboxId: request.sandboxId,
-      ...(request.signal === undefined ? {} : { signal: request.signal }),
-      ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
-    });
-    const client = lease?.client ?? this.client;
-    let response;
-    try {
-      response = await withGrpcErrorMapping(
-        "Exec command",
-        () => client.exec(toProtoExecRequest(request), toRpcOptions(request)).response,
-        request.sandboxId,
-      );
-    } finally {
-      await lease?.release();
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const lease = await this.acquireDirectLease(request, SandboxDataPermission.EXEC);
+      let discard = false;
+      try {
+        const response = await withGrpcErrorMapping(
+          "Exec command",
+          () =>
+            (lease?.client ?? this.client).exec(toProtoExecRequest(request), toRpcOptions(request))
+              .response,
+          request.sandboxId,
+        );
+        return toSdkProcessResult(request.command, response);
+      } catch (error) {
+        if (lease !== undefined && isGrpcUnavailable(error)) {
+          discard = true;
+          await lease.discard();
+        }
+        if (lease !== undefined && attempt === 0 && isRunnerShardRetiringError(error)) {
+          continue;
+        }
+        throw error;
+      } finally {
+        await lease?.release({ discard });
+      }
     }
-
-    return toSdkProcessResult(request.command, response);
+    throw new Error("unreachable");
   }
 
   public async startCommand(
@@ -255,10 +262,10 @@ export class GrpcSandboxTransport implements SandboxTransport {
       return await startGrpcCommand(
         lease?.client ?? this.client,
         request,
-        lease === undefined ? undefined : () => lease.release(),
+        lease === undefined ? undefined : (error) => settleDirectLease(lease, error),
       );
     } catch (error) {
-      await lease?.release();
+      await settleDirectLease(lease, error);
       throw error;
     }
   }
@@ -275,10 +282,10 @@ export class GrpcSandboxTransport implements SandboxTransport {
       return await startGrpcShell(
         lease?.client ?? this.client,
         request,
-        lease === undefined ? undefined : () => lease.release(),
+        lease === undefined ? undefined : (error) => settleDirectLease(lease, error),
       );
     } catch (error) {
-      await lease?.release();
+      await settleDirectLease(lease, error);
       throw error;
     }
   }
@@ -297,10 +304,10 @@ export class GrpcSandboxTransport implements SandboxTransport {
       return await startGrpcLogStream(
         lease?.client ?? this.client,
         request,
-        lease === undefined ? undefined : () => lease.release(),
+        lease === undefined ? undefined : (error) => settleDirectLease(lease, error),
       );
     } catch (error) {
-      await lease?.release();
+      await settleDirectLease(lease, error);
       throw error;
     }
   }
@@ -314,4 +321,31 @@ export class GrpcSandboxTransport implements SandboxTransport {
     );
     this.directDataPlane.discardSandbox(request.sandboxId);
   }
+
+  private acquireDirectLease(
+    request: ExecRequest,
+    permission: SandboxDataPermission,
+  ): Promise<DirectDataPlaneLease | undefined> {
+    return this.directDataPlane.acquire({
+      dataPlaneMode: request.dataPlaneMode ?? "auto",
+      permission,
+      sandboxId: request.sandboxId,
+      ...(request.signal === undefined ? {} : { signal: request.signal }),
+      ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+    });
+  }
+}
+
+async function settleDirectLease(
+  lease: DirectDataPlaneLease | undefined,
+  error?: unknown,
+): Promise<void> {
+  if (lease === undefined) {
+    return;
+  }
+  const discard = error !== undefined && isGrpcUnavailable(error);
+  if (discard) {
+    await lease.discard();
+  }
+  await lease.release({ discard });
 }

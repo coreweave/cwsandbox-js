@@ -11,14 +11,17 @@ import {
   CWSANDBOX_FILE_IS_DIRECTORY,
   CWSANDBOX_FILE_NOT_FOUND,
   CWSANDBOX_FILE_TRUNCATED,
+  CWSANDBOX_RUNNER_SHARD_RETIRING,
 } from "../../internal/error-info.js";
 import {
   STAT_INTEGRITY_TIMEOUT_MS,
   STREAMING_OUTPUT_QUEUE_SIZE,
   STREAMING_READ_STDERR_CAP_BYTES,
+  STREAMING_WRITE_CHUNK_SIZE,
   TRUNCATION_CHECK_MIN_BYTES,
 } from "../../internal/file-limits.js";
 import type { GrpcClients } from "./channel.js";
+import type { DirectDataPlane } from "./direct-data-plane.js";
 import { createGrpcFileAdapter } from "./file-adapter.js";
 import type { SandboxServiceClient } from "./generated/coreweave/sandbox/v1/sandbox.client.js";
 import {
@@ -26,6 +29,53 @@ import {
   type ExecStreamRequest,
   type ExecStreamResponse,
 } from "./generated/coreweave/sandbox/v1/sandbox.js";
+import { statusDetailsMeta } from "./test/status-details.js";
+
+describe("createGrpcFileAdapter direct rollover", () => {
+  it("discards and retries one structured retiring rejection", async () => {
+    const retiring = new RpcError(
+      "retiring",
+      "UNAVAILABLE",
+      statusDetailsMeta({ errorInfos: [{ reason: CWSANDBOX_RUNNER_SHARD_RETIRING }] }),
+    );
+    const first = directFileLease({ readError: retiring });
+    const second = directFileLease({ content: new Uint8Array([1, 2, 3]) });
+    const acquire = vi
+      .fn<(options: unknown) => Promise<unknown>>()
+      .mockResolvedValueOnce(first)
+      .mockResolvedValueOnce(second);
+    const direct = { acquire } as unknown as DirectDataPlane;
+    const gateway = {} as SandboxServiceClient;
+    const adapter = createGrpcFileAdapter({ client: gateway }, direct);
+
+    await expect(
+      adapter.read({ dataPlaneMode: "direct", path: "/tmp/file", sandboxId: "sbx" }),
+    ).resolves.toEqual({ content: new Uint8Array([1, 2, 3]) });
+    expect(acquire).toHaveBeenCalledTimes(2);
+    expect(first.discard).toHaveBeenCalledTimes(1);
+    expect(first.release).toHaveBeenCalledWith({ discard: true });
+    expect(second.release).toHaveBeenCalledWith({ discard: false });
+  });
+
+  it("discards but does not replay ambiguous unavailable writes", async () => {
+    const first = directFileLease({ writeError: new RpcError("lost", "UNAVAILABLE") });
+    const acquire = vi.fn<(options: unknown) => Promise<unknown>>().mockResolvedValue(first);
+    const direct = { acquire } as unknown as DirectDataPlane;
+    const adapter = createGrpcFileAdapter({ client: {} as SandboxServiceClient }, direct);
+
+    await expect(
+      adapter.write({
+        content: new Uint8Array([1]),
+        dataPlaneMode: "direct",
+        path: "/tmp/file",
+        sandboxId: "sbx",
+      }),
+    ).rejects.toMatchObject({ name: "CWSandboxUnavailableError" });
+    expect(acquire).toHaveBeenCalledTimes(1);
+    expect(first.discard).toHaveBeenCalledTimes(1);
+    expect(first.release).toHaveBeenCalledWith({ discard: true });
+  });
+});
 
 describe("createGrpcFileAdapter StreamExec paths", () => {
   it("cancels and settles when the readStream consumer stops early", async () => {
@@ -201,6 +251,60 @@ describe("createGrpcFileAdapter StreamExec paths", () => {
         source: [123 as unknown as Uint8Array],
       }),
     ).rejects.toBeInstanceOf(CWSandboxValidationError);
+  });
+
+  it("rechunks oversized async iterable writes", async () => {
+    const harness = createStreamingHarness();
+    const adapter = createGrpcFileAdapter(harness.clients);
+    const payload = new Uint8Array(STREAMING_WRITE_CHUNK_SIZE + 7);
+
+    harness.onCall(0, (duplex) => {
+      duplex.push(readyFrame("write-1"));
+      duplex.push(exitFrame(0));
+      duplex.end();
+    });
+
+    async function* source(): AsyncGenerator<Uint8Array> {
+      yield payload;
+    }
+
+    await adapter.writeStream({
+      mode: "direct",
+      path: "/tmp/chunked.bin",
+      sandboxId: "sbx",
+      source: source(),
+    });
+
+    const chunks = (harness.calls[0]?.sent ?? []).flatMap((message) =>
+      message.message.oneofKind === "stdin" ? [message.message.stdin] : [],
+    );
+    expect(chunks.map((chunk) => chunk.byteLength)).toEqual([STREAMING_WRITE_CHUNK_SIZE, 7]);
+  });
+
+  it("maps an atomic directory target to the typed directory reason", async () => {
+    const harness = createStreamingHarness();
+    const adapter = createGrpcFileAdapter(harness.clients);
+
+    harness.onCall(0, (duplex) => {
+      duplex.push(readyFrame("write-1"));
+      duplex.push(stderrFrame("Path is a directory: /tmp/dir"));
+      duplex.push(exitFrame(3));
+      duplex.end();
+    });
+
+    await expect(
+      adapter.writeStream({
+        expectedBytes: 1,
+        mode: "atomic",
+        path: "/tmp/dir",
+        sandboxId: "sbx",
+        source: new Uint8Array([1]),
+      }),
+    ).rejects.toMatchObject({
+      name: "CWSandboxFileError",
+      reason: CWSANDBOX_FILE_IS_DIRECTORY,
+    });
+    expect(initCommand(harness.calls[0]?.sent ?? [])[2]).toContain('if [ -d "$path" ]');
   });
 });
 
@@ -572,6 +676,38 @@ function initCommand(sent: readonly ExecStreamRequest[]): string[] {
     return [];
   }
   return [...init.message.init.command];
+}
+
+function directFileLease(options: {
+  readonly content?: Uint8Array;
+  readonly readError?: Error;
+  readonly writeError?: Error;
+}) {
+  const client = {
+    readFile() {
+      return {
+        response:
+          options.readError === undefined
+            ? Promise.resolve({ content: options.content ?? new Uint8Array() })
+            : Promise.reject(options.readError),
+      };
+    },
+    writeFile() {
+      return {
+        response:
+          options.writeError === undefined
+            ? Promise.resolve({})
+            : Promise.reject(options.writeError),
+      };
+    },
+  };
+  return {
+    client,
+    discard: vi.fn<() => Promise<void>>(async () => undefined),
+    release: vi.fn<(options?: { readonly discard?: boolean }) => Promise<void>>(
+      async () => undefined,
+    ),
+  };
 }
 
 function readyFrame(_sessionId?: string): ExecStreamResponse {

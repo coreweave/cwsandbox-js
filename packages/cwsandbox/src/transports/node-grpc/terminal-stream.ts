@@ -35,7 +35,7 @@ import {
 export async function startGrpcShell(
   streamingClient: Pick<SandboxServiceClient, "streamExec">,
   request: StartShellRequest,
-  onSettled: () => Promise<void> = async () => undefined,
+  onSettled: (error?: unknown) => Promise<void> = async () => undefined,
 ): Promise<TerminalSession> {
   const abortController = linkedAbortController(request.signal);
   const call = streamingClient.streamExec(
@@ -69,9 +69,9 @@ export async function startGrpcShell(
     request.sandboxId,
   );
 
-  const settle = async (): Promise<void> => {
+  const settle = async (error?: unknown): Promise<void> => {
     await completeRequests().catch(() => undefined);
-    await onSettled().catch(() => undefined);
+    await onSettled(error).catch(() => undefined);
   };
   void collectTerminalSession(call, controller, request, settle, stdinReady);
   return controller.session;
@@ -81,10 +81,11 @@ async function collectTerminalSession(
   call: DuplexStreamingCall<ProtoExecStreamRequest, ProtoExecStreamResponse>,
   controller: TerminalSessionController,
   request: StartShellRequest,
-  onTerminal: () => Promise<void> = async () => undefined,
+  onTerminal: (error?: unknown) => Promise<void> = async () => undefined,
   stdinReady?: StdinReadyGate,
 ): Promise<void> {
   let terminal = false;
+  let settledError: unknown;
 
   try {
     for await (const response of call.responses) {
@@ -115,7 +116,6 @@ async function collectTerminalSession(
             exitCode: response.message.exit.exitCode,
             type: "exit",
           });
-          await onTerminal().catch(() => undefined);
           break;
         case "error": {
           terminal = true;
@@ -128,12 +128,12 @@ async function collectTerminalSession(
               transportCode: response.message.error.code,
             },
           );
+          settledError = error;
           stdinReady?.signalFailed(error);
           await controller.dispatch({
             error,
             type: "error",
           });
-          await onTerminal().catch(() => undefined);
           break;
         }
         case undefined:
@@ -159,13 +159,14 @@ async function collectTerminalSession(
       operation: "Terminal session",
       sandboxId: request.sandboxId,
     });
+    settledError = mapped;
     stdinReady?.signalFailed(mapped);
     await controller.dispatch({
       error: mapped,
       type: "error",
     });
   } finally {
-    await onTerminal().catch(() => undefined);
+    await onTerminal(settledError).catch(() => undefined);
   }
 }
 

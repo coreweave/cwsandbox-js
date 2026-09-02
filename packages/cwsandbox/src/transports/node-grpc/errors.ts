@@ -27,6 +27,7 @@ import {
   CWSANDBOX_FSS_NOT_SUPPORTED,
   CWSANDBOX_FSS_QUOTA_EXCEEDED,
   CWSANDBOX_FSS_SIZE_EXCEEDED,
+  CWSANDBOX_RUNNER_SHARD_RETIRING,
   CWSANDBOX_SANDBOX_NOT_FOUND,
   FILE_ERROR_REASONS,
   UNAVAILABLE_REASONS,
@@ -103,6 +104,33 @@ export function mapGrpcError(error: unknown, context: GrpcErrorContext): CWSandb
     metadata: {},
     transport: "grpc",
   });
+}
+
+export function isGrpcUnavailable(error: unknown): boolean {
+  if (error instanceof RpcError) {
+    return error.code === "UNAVAILABLE";
+  }
+  if (error instanceof CWSandboxTransportError && error.transportCode === "UNAVAILABLE") {
+    return true;
+  }
+  return error instanceof Error && error.cause !== error && isGrpcUnavailable(error.cause);
+}
+
+export function isRunnerShardRetiringError(error: unknown): boolean {
+  if (error instanceof RpcError) {
+    const parsed = parseStatusDetailsFromMetadata(error.meta);
+    return (
+      parsed?.domain === CWSANDBOX_ERROR_DOMAIN && parsed.reason === CWSANDBOX_RUNNER_SHARD_RETIRING
+    );
+  }
+  if (
+    error instanceof CWSandboxTransportError &&
+    error.domain === CWSANDBOX_ERROR_DOMAIN &&
+    error.reason === CWSANDBOX_RUNNER_SHARD_RETIRING
+  ) {
+    return true;
+  }
+  return error instanceof Error && error.cause !== error && isRunnerShardRetiringError(error.cause);
 }
 
 function grpcErrorOptions(

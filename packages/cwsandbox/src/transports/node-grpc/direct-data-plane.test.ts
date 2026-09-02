@@ -181,6 +181,45 @@ describe("DirectChannelPool", () => {
     await leaseA.release();
     expect(closed).toContain("c");
   });
+
+  it("can discard a channel after its lease was released", async () => {
+    const closed: string[] = [];
+    const pool = new DirectChannelPool(64, (credential) => ({
+      client: directClient,
+      close: () => closed.push(credential.cacheKey),
+      ready: Promise.resolve(),
+    }));
+    const lease = await pool.acquire(bundle("retiring"), 100);
+
+    await lease.release();
+    await lease.discard();
+
+    expect(closed).toEqual(["retiring"]);
+  });
+
+  it("does not reuse a discarded channel while an old lease drains", async () => {
+    const created: string[] = [];
+    const closed: string[] = [];
+    const pool = new DirectChannelPool(64, (credential) => {
+      const generation = `${credential.cacheKey}-${created.length}`;
+      created.push(generation);
+      return {
+        client: directClient,
+        close: () => closed.push(generation),
+        ready: Promise.resolve(),
+      };
+    });
+    const stale = await pool.acquire(bundle("retiring"), 100);
+
+    await stale.discard();
+    const replacement = await pool.acquire(bundle("retiring"), 100);
+
+    expect(created).toEqual(["retiring-0", "retiring-1"]);
+    expect(closed).toEqual([]);
+    await replacement.release();
+    await stale.release();
+    expect(closed).toEqual(["retiring-0"]);
+  });
 });
 
 function createDirect(connectSandbox: ReturnType<typeof vi.fn<ConnectSandbox>>): DirectDataPlane {
