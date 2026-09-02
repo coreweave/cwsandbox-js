@@ -307,21 +307,6 @@ export function expectExposedPorts(
   }
 }
 
-export function normalizedListenPorts(ports: readonly SandboxExposedPort[] | undefined): readonly {
-  readonly name: string | undefined;
-  readonly port: number;
-  readonly protocol: string | undefined;
-}[] {
-  return [...(ports ?? [])]
-    .map((port) => ({ name: port.name, port: port.port, protocol: port.protocol }))
-    .sort((left, right) => {
-      if (left.port !== right.port) {
-        return left.port - right.port;
-      }
-      return (left.name ?? "").localeCompare(right.name ?? "");
-    });
-}
-
 export async function waitForServiceUrl(
   sandbox: Sandbox,
   port: number,

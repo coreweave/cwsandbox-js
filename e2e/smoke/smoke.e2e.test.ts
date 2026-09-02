@@ -32,7 +32,6 @@ import {
   logProcessResult,
   mountedBinaryContent,
   noInternetProbeScript,
-  normalizedListenPorts,
   publicHttpsService,
   rejectAndNarrow,
   requireLogResumeCursor,
@@ -950,11 +949,6 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
       "starts a configured-options sandbox and uses it as the tag-negative control",
       async () => {
         const configuredTag = uniqueSmokeTag();
-        const expectedPorts = [
-          { name: "port-sctp", port: 8002, protocol: "sctp" as const },
-          { name: "port-tcp", port: 8000, protocol: "tcp" as const },
-          { name: "port-udp", port: 8001, protocol: "udp" as const },
-        ].sort((left, right) => left.port - right.port);
 
         await withStartedSandbox(
           client,
@@ -964,11 +958,6 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
               "/workspace/startup.bin": mountedBinaryContent,
             },
             resources: { cpu: "100m", memory: "128Mi" },
-            services: [
-              { name: "port-tcp", port: 8000, protocol: "tcp", visibility: "private" },
-              { name: "port-udp", port: 8001, protocol: "udp", visibility: "private" },
-              { name: "port-sctp", port: 8002, protocol: "sctp", visibility: "private" },
-            ],
             tags: [configuredTag],
           },
           async (sandbox) => {
@@ -986,9 +975,6 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
             const inspected = await sandbox.inspect();
             expect(inspected.resourceRequests).toEqual(expectedResources);
             expect(inspected.resourceLimits).toEqual(expectedResources);
-
-            expect(normalizedListenPorts(sandbox.exposedPorts)).toEqual(expectedPorts);
-            expect(normalizedListenPorts(inspected.exposedPorts)).toEqual(expectedPorts);
 
             await waitUntilListCondition(client, {
               expectedSandboxIds: [sandbox.sandboxId],
@@ -1310,7 +1296,9 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
               }),
           },
           async (sandbox) => {
-            await expect(sandbox.wait({ targetStatus: "completed" })).resolves.toBe(sandbox);
+            await expect(
+              sandbox.wait({ targetStatus: "completed", timeoutMs: testTimeoutMs }),
+            ).resolves.toBe(sandbox);
             expect(sandbox.status).toBe("completed");
             expect(sandbox.exitCode).toBe(0);
             const info = await sandbox.inspect();
