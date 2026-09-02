@@ -1051,6 +1051,17 @@ describe("SandboxClient", () => {
           ],
         }),
       ).rejects.toThrow(/Service.visibility must be public/);
+      await expect(
+        client.run(["python"], {
+          services: [
+            {
+              endpoint: { auth: "open", kind: "https", requestTimeoutSeconds: 1.5 },
+              port: 8000,
+              visibility: "public",
+            },
+          ],
+        }),
+      ).rejects.toThrow(/requestTimeoutSeconds must be a non-negative integer/);
     });
 
     it("throws a typed validation error for invalid run timeouts", async () => {
@@ -1502,6 +1513,11 @@ describe("SandboxClient", () => {
       { services: [{ port: 80, endpoint: null }] },
       { services: [{ port: 80, endpoint: { kind: 1, auth: "open" } }] },
       { services: [{ port: 80, endpoint: { kind: "https", auth: 1 } }] },
+      {
+        services: [
+          { port: 80, endpoint: { kind: "https", auth: "open", requestTimeoutSeconds: "x" } },
+        ],
+      },
       { secrets: [{ store: "s", name: "n", field: 1 }] },
       { network: new Date() },
     ])("rejects malformed template option %j before the transport", async (options) => {

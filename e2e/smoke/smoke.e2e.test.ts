@@ -23,6 +23,7 @@ import {
   combineCleanupError,
   createPatternedPayload,
   dualHttpServerScript,
+  httpsTimeoutHandlerScript,
   expectBytesEqual,
   expectExposedPorts,
   expectRunning,
@@ -42,8 +43,11 @@ import {
   DNS_EGRESS_WILD,
   DNS_EGRESS_WILD_HOST,
   dnsEgressSmokeTimeoutMs,
+  httpsEndpointSmokeTimeoutMs,
+  httpsEndpointWaitTimeoutMs,
   httpsGetExitCode,
   shouldSkipDnsEgress,
+  shouldSkipHttpsRequestTimeouts,
   startOptionsForDnsNameEgress,
   startOptionsForNoInternetNetwork,
   testTimeoutMs,
@@ -893,6 +897,7 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
             },
             services: [publicHttpsService(8000, "http-a"), publicHttpsService(8001, "http-b")],
             tags: [uniqueSmokeTag()],
+            timeoutMs: httpsEndpointWaitTimeoutMs,
           },
           async (sandbox) => {
             const services = await waitForServiceUrls(sandbox, [8000, 8001]);
@@ -917,7 +922,7 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
           },
         );
       },
-      testTimeoutMs,
+      httpsEndpointSmokeTimeoutMs,
     );
 
     it(
@@ -933,6 +938,7 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
             },
             services: [publicHttpsService(8000, "ws")],
             tags: [uniqueSmokeTag()],
+            timeoutMs: httpsEndpointWaitTimeoutMs,
           },
           async (sandbox) => {
             const service = await waitForServiceUrl(sandbox, 8000);
@@ -942,8 +948,72 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
           },
         );
       },
+      httpsEndpointSmokeTimeoutMs,
+    );
+
+    it(
+      "rejects invalid HTTPS requestTimeoutSeconds before the sandbox is running",
+      async () => {
+        // Shape-invalid only. Do not pin Aviato's current [15, 900] edges
+        // (14 / 901 / 1000) — those can become legal if the fleet range moves.
+        for (const requestTimeoutSeconds of [-1, 1.5]) {
+          await expect(
+            client.create({
+              services: [publicHttpsService(8080, "http-timeout", { requestTimeoutSeconds })],
+              tags: [uniqueSmokeTag()],
+              waitUntilRunning: false,
+            }),
+          ).rejects.toThrow(/requestTimeoutSeconds must be a non-negative integer/);
+        }
+      },
       testTimeoutMs,
     );
+
+    it("returns HTTP 504 around the serverless default HTTPS request timeout", async (ctx) => {
+      if (process.env["CWSANDBOX_RUNNER_IDS"]?.trim()) {
+        ctx.skip("CKS default HTTPS request timeout may differ from serverless 15s");
+        return;
+      }
+
+      try {
+        await withStartedSandbox(
+          client,
+          {
+            command: ["node", "/workspace/https-timeout-handler.js"],
+            containerImage: "node:22",
+            maxLifetimeSeconds: 600,
+            mountedFiles: {
+              "/workspace/https-timeout-handler.js": httpsTimeoutHandlerScript,
+            },
+            services: [publicHttpsService(8080, "http-timeout")],
+            tags: [uniqueSmokeTag()],
+            timeoutMs: httpsEndpointWaitTimeoutMs,
+          },
+          async (sandbox) => {
+            const service = await waitForServiceUrl(sandbox, 8080);
+            const ready = await waitForHttpOk(`${service.url.replace(/\/$/, "")}/ready`);
+            expect(await ready.text()).toContain("product-https-timeout-ready");
+
+            const started = Date.now();
+            const response = await fetch(`${service.url.replace(/\/$/, "")}/default-slow`, {
+              signal: AbortSignal.timeout(40_000),
+            });
+            const elapsedSeconds = (Date.now() - started) / 1000;
+            const body = await response.text();
+            expect(response.status).toBe(504);
+            expect(body).not.toContain("product-https-timeout-default-slow");
+            expect(elapsedSeconds).toBeGreaterThan(10);
+            expect(elapsedSeconds).toBeLessThan(25);
+          },
+        );
+      } catch (error) {
+        if (shouldSkipHttpsRequestTimeouts(error)) {
+          ctx.skip(`fleet does not support HTTPS request timeouts: ${String(error)}`);
+          return;
+        }
+        throw error;
+      }
+    }, 240_000);
 
     it(
       "starts a configured-options sandbox and uses it as the tag-negative control",

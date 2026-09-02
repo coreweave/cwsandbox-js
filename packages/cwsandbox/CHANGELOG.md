@@ -8,6 +8,14 @@ SPDX-PackageName: cwsandbox
 
 ## Unreleased
 
+- Add optional `requestTimeoutSeconds` on HTTPS `Endpoint`. Omit/`0` keeps
+  the platform default (15s on serverless). The SDK only checks that the
+  value is a non-negative integer; Aviato currently accepts `0` or
+  `[15, 900]`. This is the server-side product HTTPS clock, not `timeoutMs`.
+  Vendored v1 stubs are refreshed from BSR `ab2502c2…`
+  (`SandboxSpec.primary_container` is reserved; the SDK sets
+  `Container.primary` on the lone `main` container and on template
+  container overlays).
 - Normalize inspect/`exposedPorts` protocols to lowercase `tcp` / `udp` /
   `sctp` (`ServiceProtocol`) instead of uppercase proto names. Beta API
   normalization: create and inspect now share the same protocol strings.

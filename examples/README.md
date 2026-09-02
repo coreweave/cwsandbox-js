@@ -53,6 +53,7 @@ One workspace package with self-contained scripts (same deps). Typecheck is part
 | `interactive-streaming.ts`  | `run` + log follow                            | `pnpm --dir examples/sdk interactive-streaming`              |
 | `wandb-integration.ts`      | `@coreweave/cwsandbox/wandb` auth             | `pnpm --dir examples/sdk wandb-integration`                  |
 | `file-system-snapshots.ts`  | scratch-mount snapshot / restore              | `pnpm --dir examples/sdk file-system-snapshots`              |
+| `https-endpoint.ts`         | public HTTPS + request timeout                | `pnpm --dir examples/sdk https-endpoint`                     |
 
 Typecheck (also covered by root `pnpm check`):
 

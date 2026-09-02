@@ -157,6 +157,18 @@ function validateEndpoint(
       "Service.protocol must be unset or tcp when endpoint is set",
     );
   }
+  validateRequestTimeoutSeconds(endpoint.requestTimeoutSeconds);
+}
+
+function validateRequestTimeoutSeconds(value: number | undefined): void {
+  if (value === undefined) {
+    return;
+  }
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw new CWSandboxValidationError(
+      "Service.endpoint.requestTimeoutSeconds must be a non-negative integer",
+    );
+  }
 }
 
 function validatePortNumber(port: number, fieldName: string): void {
