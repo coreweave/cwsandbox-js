@@ -114,11 +114,10 @@ async function readTextFile(
 
   validateReadPaths(pathOrPaths);
   return readTextEntries(
-    await mapWithConcurrency(
-      pathOrPaths,
-      MAX_CONCURRENT_FILE_REQUESTS_PER_BATCH,
-      async (path) => [path, textDecoder.decode(await fileTransfer.readSingle(path, options))],
-    ),
+    await mapWithConcurrency(pathOrPaths, MAX_CONCURRENT_FILE_REQUESTS_PER_BATCH, async (path) => [
+      path,
+      textDecoder.decode(await fileTransfer.readSingle(path, options)),
+    ]),
   );
 }
 
