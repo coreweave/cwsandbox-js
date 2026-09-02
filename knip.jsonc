@@ -10,7 +10,12 @@
   },
   "workspaces": {
     ".": {
-      "entry": ["scripts/*.{ts,js}", "e2e/scripts/*.{js,py}", "vitest.*.config.ts"],
+      "entry": [
+        "scripts/*.{ts,js}",
+        "e2e/scripts/*.{js,py}",
+        "e2e/**/*.e2e.test.ts",
+        "vitest.*.config.ts",
+      ],
     },
     "packages/cwsandbox": {
       "entry": ["src/**/*.test-d.ts"],

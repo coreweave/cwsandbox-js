@@ -41,6 +41,8 @@ const sandbox = defineSandbox({
 By default, the provider reads `CWSANDBOX_API_KEY` and optional
 `CWSANDBOX_BASE_URL` through `@coreweave/cwsandbox/node`.
 
+Live adapter smoke is `pnpm smoke` from the repo root (requires `CWSANDBOX_API_KEY`).
+
 ## Current Capability Mapping
 
 Supported in this first adapter:
