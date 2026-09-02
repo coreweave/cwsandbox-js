@@ -7,8 +7,7 @@ SPDX-PackageName: cwsandbox
 # Release Policy
 
 This document defines how CWSandbox JS releases are selected, approved, published,
-and recovered. It is intentionally separate from the publishing workflow: automation
-must implement this policy, not define it implicitly.
+and recovered. The workflow in `.github/workflows/release.yml` implements this policy.
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT, and MAY are used as described in
 [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
@@ -61,19 +60,20 @@ beta version is legacy registry state rather than the intended release channel.
 
 The automated release flow SHOULD be:
 
-1. Changes eligible for release merge to `main` with changelog input.
+1. Changes eligible for release merge to `main` with a Changesets file created by
+   `pnpm changeset`.
 2. Automation opens or updates a release pull request containing the exact version and
    changelog changes.
 3. A maintainer reviews and merges the release pull request.
-4. The publishing job runs from that merge commit and waits for approval in a protected
-   GitHub `npm` environment.
-5. After approval, the job verifies, packs, and publishes the allowlisted packages.
-6. Automation creates the Git tag and GitHub Release for the published commit.
+4. The publishing job verifies, packs, and publishes the allowlisted packages from
+   that merge commit.
+5. Automation creates the Git tag and GitHub Release for the published commit.
 
 Merging an ordinary feature or fix pull request MUST NOT publish directly. During beta,
-both release pull-request approval and protected-environment approval are required.
-The workflow MAY support manual retry of a failed publishing job, but a manual run MUST
-publish only a version already approved in a merged release pull request.
+merging the release pull request is the human approval gate; a second environment
+approval is not required. The workflow supports manual retry of a failed publishing
+job, but a manual run MUST publish only a version already approved in a merged release
+pull request.
 
 ## Required release checks
 
@@ -94,6 +94,17 @@ service credential requires a separately documented environment and cleanup poli
 After automated publishing is enabled, maintainers SHOULD NOT publish from local
 workstations. An emergency manual publish requires agreement from an npm package owner
 and must still use an approved version and the release commit.
+
+## One-time setup
+
+Before the first automated publish, a repository administrator MUST enable **Allow
+GitHub Actions to create and approve pull requests** under Actions settings. An npm
+package owner MUST also configure `@coreweave/cwsandbox` trusted publishing for the
+`coreweave/cwsandbox-js` repository and `.github/workflows/release.yml` workflow.
+
+No npm token is stored in GitHub. If branch protection later requires checks that do
+not run for pull requests created with the repository token, replace the version job's
+token with a narrowly scoped GitHub App token.
 
 ## Changelog, tags, and GitHub Releases
 

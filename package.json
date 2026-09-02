@@ -26,9 +26,16 @@
     "smoke:stress": "tsx scripts/stress-smoke.ts",
     "knip": "knip",
     "proto:update": "turbo run proto:update --filter=@coreweave/cwsandbox",
-    "check": "turbo run //#lint //#format //#knip build typecheck test test:types //#test:readme //#test:package //#test:pack"
+    "check": "turbo run //#lint //#format //#knip build typecheck test test:types //#test:readme //#test:package //#test:pack",
+    "changeset": "changeset",
+    "release:check": "tsx scripts/check-release.ts",
+    "release:notes": "tsx scripts/release-notes.ts",
+    "release:publish": "tsx scripts/publish-package.ts",
+    "release:version": "tsx scripts/version-packages.ts"
   },
   "devDependencies": {
+    "@changesets/changelog-github": "1.0.0",
+    "@changesets/cli": "3.0.1",
     "@coreweave/cwsandbox": "workspace:*",
     "@types/node": "^22.20.1",
     "knip": "^6.32.3",
