@@ -3,6 +3,8 @@
 // SPDX-PackageName: cwsandbox
 
 import { CWSandboxValidationError } from "../errors.js";
+import { MAX_CONCURRENT_FILE_REQUESTS_PER_BATCH } from "../internal/file-limits.js";
+import { mapWithConcurrency } from "../internal/map-concurrency.js";
 import {
   normalizeFileContent,
   normalizeFileWrites,
@@ -78,8 +80,10 @@ async function readFile(
   if (typeof pathOrPaths !== "string") {
     validateReadPaths(pathOrPaths);
     return readEntries(
-      await Promise.all(
-        pathOrPaths.map(async (path) => [path, await fileTransfer.readSingle(path, options)]),
+      await mapWithConcurrency(
+        pathOrPaths,
+        MAX_CONCURRENT_FILE_REQUESTS_PER_BATCH,
+        async (path) => [path, await fileTransfer.readSingle(path, options)],
       ),
     );
   }
@@ -110,11 +114,10 @@ async function readTextFile(
 
   validateReadPaths(pathOrPaths);
   return readTextEntries(
-    await Promise.all(
-      pathOrPaths.map(async (path) => [
-        path,
-        textDecoder.decode(await fileTransfer.readSingle(path, options)),
-      ]),
+    await mapWithConcurrency(
+      pathOrPaths,
+      MAX_CONCURRENT_FILE_REQUESTS_PER_BATCH,
+      async (path) => [path, textDecoder.decode(await fileTransfer.readSingle(path, options))],
     ),
   );
 }
@@ -140,10 +143,16 @@ async function writeFile(
     const options = contentOrOptions as RequestOptions | undefined;
     validateRequestOptions(options ?? {});
     validateFileWrites(pathOrFiles);
-    await Promise.all(
-      normalizeFileWrites(pathOrFiles).map((file) =>
-        fileTransfer.writeSingle(file.path, normalizeFileContent(file.content), options ?? {}),
-      ),
+    await mapWithConcurrency(
+      normalizeFileWrites(pathOrFiles),
+      MAX_CONCURRENT_FILE_REQUESTS_PER_BATCH,
+      async (file) => {
+        await fileTransfer.writeSingle(
+          file.path,
+          normalizeFileContent(file.content),
+          options ?? {},
+        );
+      },
     );
     return;
   }

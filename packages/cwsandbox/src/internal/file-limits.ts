@@ -6,6 +6,14 @@
 export const DEFAULT_GRPC_MAX_MESSAGE_LENGTH_BYTES = 100 * 1024 * 1024;
 
 /**
+ * One batch `files.read` / `files.write` stays at most 2 unary file RPCs so
+ * it does not trip `CWSANDBOX_RUNNER_OVERLOADED`. Aviato
+ * `runnerDataPlaneMaxConcurrentFilePerSandbox` is why the number is 2, not
+ * the layer of this limiter.
+ */
+export const MAX_CONCURRENT_FILE_REQUESTS_PER_BATCH = 2;
+
+/**
  * Server-enforced per-file cap for unary file write/read RPCs. Used as the
  * proactive client check before any unary RPC fires.
  */
