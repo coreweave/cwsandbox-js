@@ -82,6 +82,16 @@ describe("coreweave ComputeSDK provider", () => {
     expect(tracking.createOptions[0]?.timeoutMs).toBeUndefined();
   });
 
+  it("forwards waitUntilRunningTimeoutMs as the wait-until-running budget", async () => {
+    const tracking = createTrackingClient();
+    const provider = coreweave({ client: tracking.client, ownerTag: "t1" });
+
+    await provider.sandbox.create({ waitUntilRunningTimeoutMs: 90_000 });
+
+    expect(tracking.createOptions[0]?.timeoutMs).toBe(90_000);
+    expect(tracking.createOptions[0]?.maxLifetimeSeconds).toBe(3600);
+  });
+
   it("runs commands with /usr/bin/env, /bin/sh -c, and native cwd", async () => {
     const tracking = createTrackingClient();
     const provider = coreweave({ client: tracking.client, ownerTag: "t1" });

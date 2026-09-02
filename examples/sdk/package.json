@@ -25,6 +25,7 @@
     "wandb-integration": "tsx wandb-integration.ts",
     "file-system-snapshots": "tsx file-system-snapshots.ts",
     "run-from-template": "tsx run-from-template.ts",
+    "https-endpoint": "tsx https-endpoint.ts",
     "typecheck": "tsc --noEmit --project tsconfig.json"
   },
   "dependencies": {

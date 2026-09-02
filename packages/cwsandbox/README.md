@@ -8,9 +8,9 @@ SPDX-PackageName: cwsandbox
 
 TypeScript SDK for CoreWeave Sandbox.
 
-> **Beta:** public API may still change. Ecosystem adapters
-> (TanStack now, Vercel AI planned) version lockstep with this package; the first
-> npm cut is core only.
+> **Beta:** public API may still change. Ecosystem adapters are developed in this
+> monorepo and are intended to publish in lockstep after their initial releases.
+> TanStack and ComputeSDK publishing is currently deferred; Vercel AI is planned.
 >
 > This package speaks Sandbox **v1**. Use `services`, `network.denyEgress` /
 > `network.denyIngress`, `network.egress`, `runnerIds`, and `showTerminated`.
@@ -140,10 +140,10 @@ pnpm --dir examples/sdk typecheck
 Integration examples:
 
 ```bash
-pnpm example:weave
-pnpm example:tanstack
-pnpm example:weave:typecheck
-pnpm example:tanstack:typecheck
+pnpm --dir examples/weave start
+pnpm --dir examples/tanstack start
+pnpm --dir examples/weave typecheck
+pnpm --dir examples/tanstack typecheck
 ```
 
 ## API Map
@@ -801,7 +801,10 @@ console.log((await sandbox.inspect()).dnsEgressNames);
 ```
 
 Declare listen-only services, or request a public HTTPS assignment with
-`endpoint: { kind: "https", auth: "open" }` and `visibility: "public"`:
+`endpoint: { kind: "https", auth: "open" }` and `visibility: "public"`.
+Optional `requestTimeoutSeconds` is the server-side HTTPS request clock (504
+while the sandbox stays alive). Omit or `0` keeps the platform default (15s
+on serverless). This is not `timeoutMs` on `client.run` / RPCs:
 
 ```ts
 await client.run(["python", "-m", "http.server", "8000"], {
@@ -811,7 +814,7 @@ await client.run(["python", "-m", "http.server", "8000"], {
 const sandbox = await client.run(["python", "-m", "http.server", "8000"], {
   services: [
     {
-      endpoint: { auth: "open", kind: "https" },
+      endpoint: { auth: "open", kind: "https", requestTimeoutSeconds: 120 },
       name: "http",
       port: 8000,
       visibility: "public",
@@ -825,7 +828,7 @@ console.log(info.serviceUrls?.[0]?.url);
 
 A non-empty `serviceUrls` entry means the hostname was assigned. That is not
 the same as the application listening, and not the same as the edge being
-ready.
+ready. Applied timeout is not echoed on `serviceUrls`.
 
 Sandbox handles expose cached backend metadata. Use `inspect()` when you need a
 fresh one-shot metadata snapshot for traces, tool results, or logs:

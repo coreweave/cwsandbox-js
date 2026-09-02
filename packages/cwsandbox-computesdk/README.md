@@ -12,7 +12,12 @@ This package adapts [`@coreweave/cwsandbox`](../cwsandbox) to ComputeSDK's
 `defineProvider` contract (`create` / `getById` / `list` / `destroy` /
 `runCommand` / filesystem helpers).
 
-## Install
+## Availability
+
+> npm publishing for this package is deferred. Until its first release, use it
+> from this monorepo workspace or from a locally packed tarball.
+
+After the initial release, install the provider and its peer dependency with:
 
 ```bash
 pnpm add @coreweave/cwsandbox @coreweave/cwsandbox-computesdk @computesdk/provider
@@ -20,9 +25,6 @@ pnpm add @coreweave/cwsandbox @coreweave/cwsandbox-computesdk @computesdk/provid
 
 `@computesdk/provider` is a peer dependency so applications can choose their
 ComputeSDK version.
-
-> npm publish for this package is deferred; until then, install from the monorepo
-> workspace or a packed tarball.
 
 ## Usage
 
@@ -68,7 +70,8 @@ await sandbox.destroy();
 Create options of note:
 
 - `name` → sandbox annotation `name` (not a tag)
-- `timeout` (ms) → `maxLifetimeSeconds` only (not create `timeoutMs`)
+- `timeout` (ms) → `maxLifetimeSeconds` only (sandbox TTL)
+- `waitUntilRunningTimeoutMs` → create wait-until-running budget (core default 60s)
 - `services` / `network` forwarded to the core SDK (requested at create; URL may appear after running)
 - Tags always include `computesdk` + `ownerTag`
 
@@ -98,19 +101,14 @@ Explicitly unsupported for now:
 
 ```bash
 pnpm --filter @coreweave/cwsandbox-computesdk test
-CWSANDBOX_API_KEY=... pnpm --filter @coreweave/cwsandbox-computesdk smoke
 ```
 
-Live smoke (billable, not part of `pnpm check`) covers:
+Live adapter smoke is `pnpm smoke` from the repo root (requires `CWSANDBOX_API_KEY`).
+Targeted run:
 
-- create with resource knobs + name annotation
-- short unary `runCommand`
-- `cwd` / `env`
-- long-timeout streamed exec (`timeout > 240s` → SDK `commands.start`)
-- nested filesystem write/read + `readdir` (parent mkdir via adapter)
-- `getInfo` status `running`
-- `getUrl({ port })` after public HTTPS create (waits up to 60s for assignment)
-- destroy
+```bash
+pnpm exec vitest run --config vitest.e2e.config.ts e2e/smoke/computesdk.e2e.test.ts
+```
 
 ## License
 

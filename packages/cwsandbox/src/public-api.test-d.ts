@@ -221,7 +221,7 @@ expectTypeOf(
   client.run(["python", "-m", "http.server", "8000"], {
     services: [
       {
-        endpoint: { auth: "open", kind: "https" },
+        endpoint: { auth: "open", kind: "https", requestTimeoutSeconds: 120 },
         name: "http",
         port: 8000,
         protocol: "tcp",
@@ -324,6 +324,8 @@ const commandInput: CommandInput = command;
 expectTypeOf(command).toExtend<CommandInput>();
 
 const endpoint: Endpoint = { auth: "open", kind: "https" };
+const timedEndpoint: Endpoint = { auth: "open", kind: "https", requestTimeoutSeconds: 120 };
+void timedEndpoint;
 // @ts-expect-error TOKEN is not a supported EndpointAuth
 const tokenEndpoint: Endpoint = { auth: "token", kind: "https" };
 const stringAuth: string = "open";

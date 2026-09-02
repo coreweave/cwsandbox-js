@@ -396,6 +396,9 @@ function toProtoServices(
             endpoint: {
               auth: EndpointAuth.OPEN,
               kind: EndpointKind.HTTPS,
+              ...(service.endpoint.requestTimeoutSeconds
+                ? { requestTimeoutSeconds: service.endpoint.requestTimeoutSeconds }
+                : {}),
             },
           }),
     }),

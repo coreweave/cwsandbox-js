@@ -11,6 +11,15 @@ importers:
       '@coreweave/cwsandbox':
         specifier: workspace:*
         version: link:packages/cwsandbox
+      '@coreweave/cwsandbox-computesdk':
+        specifier: workspace:*
+        version: link:packages/cwsandbox-computesdk
+      '@coreweave/cwsandbox-tanstack':
+        specifier: workspace:*
+        version: link:packages/cwsandbox-tanstack
+      '@tanstack/ai-sandbox':
+        specifier: ^0.5.1
+        version: 0.5.1(@tanstack/ai@0.49.1(@opentelemetry/api@1.9.1)(zod@4.4.3))(vitest@4.1.11(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.0.14(@types/node@22.20.1)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0)))(zod@4.4.3)
       '@types/node':
         specifier: ^22.20.1
         version: 22.20.1
@@ -136,9 +145,6 @@ importers:
       '@types/node':
         specifier: ^22.20.1
         version: 22.20.1
-      tsx:
-        specifier: ^4.23.12
-        version: 4.23.12
       typescript:
         specifier: ^7.0.2
         version: 7.0.2

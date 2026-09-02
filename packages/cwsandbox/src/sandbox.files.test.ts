@@ -131,6 +131,44 @@ describe("Sandbox files", () => {
     ]);
   });
 
+  it("caps batch file writes at two in-flight adapter calls", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const releases: Array<() => void> = [];
+    const fileAdapter = createFakeFileAdapter({
+      write() {
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        return new Promise<void>((resolve) => {
+          releases.push(() => {
+            inFlight -= 1;
+            resolve();
+          });
+        });
+      },
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
+
+    const write = sandbox.files.write([
+      { content: "a", path: "/tmp/a.txt" },
+      { content: "b", path: "/tmp/b.txt" },
+      { content: "c", path: "/tmp/c.txt" },
+    ]);
+
+    await vi.waitFor(() => expect(releases).toHaveLength(2));
+    expect(peak).toBe(2);
+    expect(inFlight).toBe(2);
+
+    releases.shift()?.();
+    await vi.waitFor(() => expect(releases).toHaveLength(2));
+    expect(peak).toBe(2);
+
+    while (releases.length > 0) {
+      releases.shift()?.();
+    }
+    await write;
+  });
+
   it("throws typed validation errors for invalid file writes", async () => {
     const sandbox = await createClient().run(["echo", "hello"]);
 
