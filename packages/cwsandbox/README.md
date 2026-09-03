@@ -167,6 +167,40 @@ pnpm --dir examples/tanstack typecheck
   Snapshots outlive sandbox stop/delete; `client.deleteSnapshot(id, { missingOk: true })`
   removes them.
 
+## Direct sandbox connections
+
+Exec, shell, log, and file operations prefer a sandbox-scoped direct mTLS
+connection to the runner by default. Sandbox creation, inspection, snapshots,
+stop, and delete always use the CoreWeave Sandbox API.
+
+```ts
+import { createSandboxClientFromEnv } from "@coreweave/cwsandbox/node";
+
+const client = createSandboxClientFromEnv();
+const sandbox = await client.create({ dataPlaneMode: "auto" });
+
+try {
+  const result = await sandbox.commands.run(["python", "-c", "print('direct when available')"]);
+  console.log(result.stdout);
+} finally {
+  await sandbox.stop();
+}
+```
+
+`dataPlaneMode` supports:
+
+- `"auto"` (default): try direct for up to one second, then use the gateway.
+- `"direct"`: require direct mTLS and return an unavailable error if it cannot
+  be established.
+- `"gateway"`: route all data operations through the gateway.
+
+Set a client-wide default with
+`createSandboxClient({ apiKey, dataPlaneMode: "gateway" })`, or set the mode on
+`create`, `run`, `runFromTemplate`, `fromId`, or `listSandboxes`. Per-sandbox
+options override the client default. Direct credentials are requested lazily,
+kept in memory, scoped to one sandbox and operation, and expire with the
+server-issued certificate. Direct calls do not send the API bearer token.
+
 ## Quickstart
 
 Prefer `withSandbox()` for short-lived work. It starts a sandbox, passes it to your callback, and stops it when the callback finishes.
@@ -767,7 +801,10 @@ console.log((await sandbox.inspect()).dnsEgressNames);
 ```
 
 Declare listen-only services, or request a public HTTPS assignment with
-`endpoint: { kind: "https", auth: "open" }` and `visibility: "public"`:
+`endpoint: { kind: "https", auth: "open" }` and `visibility: "public"`.
+Optional `requestTimeoutSeconds` is the server-side HTTPS request clock (504
+while the sandbox stays alive). Omit or `0` keeps the platform default (15s
+on serverless). This is not `timeoutMs` on `client.run` / RPCs:
 
 ```ts
 await client.run(["python", "-m", "http.server", "8000"], {
@@ -777,7 +814,7 @@ await client.run(["python", "-m", "http.server", "8000"], {
 const sandbox = await client.run(["python", "-m", "http.server", "8000"], {
   services: [
     {
-      endpoint: { auth: "open", kind: "https" },
+      endpoint: { auth: "open", kind: "https", requestTimeoutSeconds: 120 },
       name: "http",
       port: 8000,
       visibility: "public",
@@ -791,7 +828,7 @@ console.log(info.serviceUrls?.[0]?.url);
 
 A non-empty `serviceUrls` entry means the hostname was assigned. That is not
 the same as the application listening, and not the same as the edge being
-ready.
+ready. Applied timeout is not echoed on `serviceUrls`.
 
 Sandbox handles expose cached backend metadata. Use `inspect()` when you need a
 fresh one-shot metadata snapshot for traces, tool results, or logs:

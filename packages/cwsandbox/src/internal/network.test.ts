@@ -69,3 +69,36 @@ describe("validateNetworkOptions egress", () => {
     ).toThrow(/sequence of \{ dnsName: string \}/);
   });
 });
+
+describe("validateNetworkOptions endpoint requestTimeoutSeconds", () => {
+  const publicHttps = {
+    endpoint: { auth: "open" as const, kind: "https" as const },
+    port: 8080,
+    visibility: "public" as const,
+  };
+
+  it.each([undefined, 0, 14, 120, 901])("accepts %s", (requestTimeoutSeconds) => {
+    expect(() =>
+      validateNetworkOptions(
+        [
+          {
+            ...publicHttps,
+            ...(requestTimeoutSeconds === undefined
+              ? {}
+              : { endpoint: { ...publicHttps.endpoint, requestTimeoutSeconds } }),
+          },
+        ],
+        undefined,
+      ),
+    ).not.toThrow();
+  });
+
+  it.each([1.5, Number.NaN, -1])("rejects %s", (requestTimeoutSeconds) => {
+    expect(() =>
+      validateNetworkOptions(
+        [{ ...publicHttps, endpoint: { ...publicHttps.endpoint, requestTimeoutSeconds } }],
+        undefined,
+      ),
+    ).toThrow(/requestTimeoutSeconds must be a non-negative integer/);
+  });
+});

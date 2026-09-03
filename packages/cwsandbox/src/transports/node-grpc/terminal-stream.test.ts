@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { SandboxServiceClient } from "./generated/coreweave/sandbox/v1/sandbox.client.js";
 import type {
@@ -14,12 +14,17 @@ import { startGrpcShell } from "./terminal-stream.js";
 describe("startGrpcShell stdin ready gate", () => {
   it("does not send stdin, close, or resize until StreamExec ready", async () => {
     const duplex = createMockDuplex();
-    const session = await startGrpcShell(duplex.client, {
-      cols: 80,
-      command: ["/bin/sh"],
-      rows: 24,
-      sandboxId: "sandbox-tty",
-    });
+    const onSettled = vi.fn<() => Promise<void>>(async () => undefined);
+    const session = await startGrpcShell(
+      duplex.client,
+      {
+        cols: 80,
+        command: ["/bin/sh"],
+        rows: 24,
+        sandboxId: "sandbox-tty",
+      },
+      onSettled,
+    );
 
     expect(requestKinds(duplex.sent)).toEqual(["init"]);
 
@@ -54,6 +59,7 @@ describe("startGrpcShell stdin ready gate", () => {
       command: ["/bin/sh"],
       exitCode: 0,
     });
+    await vi.waitFor(() => expect(onSettled).toHaveBeenCalledTimes(1));
   });
 });
 

@@ -22,12 +22,38 @@ import {
   createClient,
   createFakeSnapshot,
   createFakeTransport,
+  createProcessResult,
   createTrackingTransport,
 } from "./test/helpers.js";
 import type { SandboxTransport } from "./transport.js";
 
 describe("SandboxClient", () => {
   describe("lifecycle", () => {
+    it("applies a per-sandbox data-plane mode without sending it on create", async () => {
+      let startRequest: Parameters<SandboxTransport["start"]>[0] | undefined;
+      let execRequest: Parameters<SandboxTransport["exec"]>[0] | undefined;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async exec(request) {
+          execRequest = request;
+          return createProcessResult(request.command);
+        },
+        async start(request) {
+          startRequest = request;
+          return { sandboxId: "sandbox-direct", status: "running" };
+        },
+      };
+
+      const sandbox = await createClient(transport).run(["sleep", "infinity"], {
+        dataPlaneMode: "direct",
+        waitUntilRunning: false,
+      });
+      await sandbox.exec(["true"]);
+
+      expect(startRequest).not.toHaveProperty("dataPlaneMode");
+      expect(execRequest?.dataPlaneMode).toBe("direct");
+    });
+
     it("starts a sandbox through the configured transport", async () => {
       const client = createClient();
       const command: string[] = ["echo", "hello"];
@@ -145,6 +171,24 @@ describe("SandboxClient", () => {
         sandboxId: "sandbox-123",
         timeoutMs: 1234,
       });
+    });
+
+    it("applies a data-plane mode when reconnecting", async () => {
+      let execRequest: Parameters<SandboxTransport["exec"]>[0] | undefined;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async exec(request) {
+          execRequest = request;
+          return createProcessResult(request.command);
+        },
+      };
+      const sandbox = await createClient(transport).fromId("sandbox-123", {
+        dataPlaneMode: "gateway",
+      });
+
+      await sandbox.exec(["true"]);
+
+      expect(execRequest?.dataPlaneMode).toBe("gateway");
     });
 
     it("gets fresh sandbox metadata by id", async () => {
@@ -1051,6 +1095,17 @@ describe("SandboxClient", () => {
           ],
         }),
       ).rejects.toThrow(/Service.visibility must be public/);
+      await expect(
+        client.run(["python"], {
+          services: [
+            {
+              endpoint: { auth: "open", kind: "https", requestTimeoutSeconds: 1.5 },
+              port: 8000,
+              visibility: "public",
+            },
+          ],
+        }),
+      ).rejects.toThrow(/requestTimeoutSeconds must be a non-negative integer/);
     });
 
     it("throws a typed validation error for invalid run timeouts", async () => {
@@ -1502,6 +1557,11 @@ describe("SandboxClient", () => {
       { services: [{ port: 80, endpoint: null }] },
       { services: [{ port: 80, endpoint: { kind: 1, auth: "open" } }] },
       { services: [{ port: 80, endpoint: { kind: "https", auth: 1 } }] },
+      {
+        services: [
+          { port: 80, endpoint: { kind: "https", auth: "open", requestTimeoutSeconds: "x" } },
+        ],
+      },
       { secrets: [{ store: "s", name: "n", field: 1 }] },
       { network: new Date() },
     ])("rejects malformed template option %j before the transport", async (options) => {

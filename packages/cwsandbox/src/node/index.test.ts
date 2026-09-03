@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import { SandboxClient } from "../client.js";
-import { CWSandboxConfigurationError } from "../errors.js";
+import { CWSandboxConfigurationError, CWSandboxValidationError } from "../errors.js";
 import {
   DEFAULT_BASE_URL,
   DEFAULT_CONTAINER_IMAGE,
@@ -22,6 +22,21 @@ describe("createSandboxClient", () => {
     });
 
     expect(client).toBeInstanceOf(SandboxClient);
+  });
+
+  it("accepts a default data-plane mode", () => {
+    const client = createSandboxClient({ apiKey: "test-key", dataPlaneMode: "gateway" });
+
+    expect(client).toBeInstanceOf(SandboxClient);
+  });
+
+  it("rejects an invalid data-plane mode at runtime", () => {
+    expect(() =>
+      createSandboxClient({
+        apiKey: "test-key",
+        dataPlaneMode: "invalid" as "auto",
+      }),
+    ).toThrow(CWSandboxValidationError);
   });
 
   it("throws a typed configuration error when the API key is blank", () => {

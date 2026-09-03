@@ -75,8 +75,9 @@ describe("node transport mappers", () => {
         environmentVariables: { EXAMPLE: "1" },
         image: DEFAULT_CONTAINER_IMAGE,
         name: "main",
+        primary: true,
       });
-      expect(request.sandbox?.spec?.primaryContainer).toBe("main");
+      expect(request.sandbox?.spec).not.toHaveProperty("primaryContainer");
     });
 
     it("maps supported create options onto spec and the primary container", () => {
@@ -98,7 +99,6 @@ describe("node transport mappers", () => {
         maxLifetimeSeconds: 60,
         mode: SandboxMode.CKS,
         network: { denyEgress: true },
-        primaryContainer: "main",
         runnerIds: ["runner-id"],
         tags: ["project-demo"],
       });
@@ -113,6 +113,7 @@ describe("node transport mappers", () => {
         args: ["-m", "http.server", "8000"],
         command: "python",
         environmentVariables: { EXAMPLE: "1" },
+        primary: true,
         resourceRequirements: {
           limits: { cpu: "100m", memory: "128Mi" },
           requests: { cpu: "100m", memory: "128Mi" },
@@ -268,6 +269,44 @@ describe("node transport mappers", () => {
           visibility: Visibility.PUBLIC,
         },
       ]);
+      expect(request.sandbox?.spec?.services[0]?.endpoint?.requestTimeoutSeconds).toBe(0);
+    });
+
+    it("copies a nonzero HTTPS request timeout onto proto EndpointSpec", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        timeoutMs: 45_000,
+        services: [
+          {
+            endpoint: { auth: "open", kind: "https", requestTimeoutSeconds: 120 },
+            name: "http-timeout",
+            port: 8080,
+            visibility: "public",
+          },
+        ],
+      });
+
+      expect(request.sandbox?.spec?.services[0]?.endpoint).toMatchObject({
+        auth: EndpointAuth.OPEN,
+        kind: EndpointKind.HTTPS,
+        requestTimeoutSeconds: 120,
+      });
+    });
+
+    it("omits proto requestTimeoutSeconds when the endpoint timeout is 0", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        services: [
+          {
+            endpoint: { auth: "open", kind: "https", requestTimeoutSeconds: 0 },
+            name: "http",
+            port: 8000,
+            visibility: "public",
+          },
+        ],
+      });
+
+      expect(request.sandbox?.spec?.services[0]?.endpoint?.requestTimeoutSeconds).toBe(0);
     });
 
     it("omits network when deny flags are unset", () => {
@@ -298,13 +337,15 @@ describe("node transport mappers", () => {
 
       expect(request.sandbox?.spec?.network?.denyEgress).toBeUndefined();
       expect(request.sandbox?.spec?.network?.denyIngress).toBeUndefined();
-      expect(request.sandbox?.spec?.network?.egress).toEqual([
+      expect(request.sandbox?.spec?.network?.egress).toMatchObject([
         {
           destination: { dnsName: "pypi.org", oneofKind: "dnsName" },
+          dnsNameExcept: [],
           ports: [],
         },
         {
           destination: { dnsName: "*.pypi.org", oneofKind: "dnsName" },
+          dnsNameExcept: [],
           ports: [],
         },
       ]);
@@ -634,6 +675,28 @@ describe("node transport mappers", () => {
           visibility: Visibility.PUBLIC,
         },
       ]);
+      expect(request.overrides?.services[0]?.endpoint?.requestTimeoutSeconds).toBe(0);
+    });
+
+    it("copies a nonzero HTTPS request timeout onto template service overrides", () => {
+      const request = toProtoCreateFromTemplateRequest({
+        templateId,
+        timeoutMs: 45_000,
+        services: [
+          {
+            endpoint: { auth: "open", kind: "https", requestTimeoutSeconds: 120 },
+            name: "http-timeout",
+            port: 8080,
+            visibility: "public",
+          },
+        ],
+      });
+
+      expect(request.overrides?.services[0]?.endpoint).toMatchObject({
+        auth: EndpointAuth.OPEN,
+        kind: EndpointKind.HTTPS,
+        requestTimeoutSeconds: 120,
+      });
     });
 
     it("does not serialize an empty containers override when containerImage is omitted", () => {
@@ -708,11 +771,13 @@ describe("node transport mappers", () => {
         files: [],
         image: "python:3.12",
         name: "main",
+        primary: true,
         secretStores: [],
       });
       expect(container).not.toHaveProperty("imagePullCredentials");
-      expect(request.overrides?.primaryContainer).toBe("main");
-      expect(overrideFieldNumbers(request)).toEqual(expect.arrayContaining([1, 2]));
+      expect(request.overrides).not.toHaveProperty("primaryContainer");
+      expect(overrideFieldNumbers(request)).toContain(1);
+      expect(overrideFieldNumbers(request)).not.toContain(2);
       expect(overrideFieldNumbers(request)).not.toContain(3);
       expect(
         PartialSandboxSpec.toBinary(request.overrides ?? PartialSandboxSpec.create()).length,

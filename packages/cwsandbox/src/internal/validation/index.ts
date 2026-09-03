@@ -5,6 +5,7 @@
 import { CWSandboxValidationError } from "../../errors.js";
 import type { ExecOptions, ShellOptions, StartCommandOptions } from "../../public/commands.js";
 import type { RequestOptions } from "../../public/common.js";
+import type { DataPlaneMode } from "../../public/data-plane.js";
 import type { LogReadOptions, LogStreamOptions } from "../../public/logs.js";
 import type {
   DeleteOptions,
@@ -80,6 +81,7 @@ export function validateSandboxRunOptions(options: SandboxRunOptions): void {
   validateUniqueStringList(options.runnerIds, "runnerIds");
   validateTags(options.tags);
   validateOptionalBoolean(options.waitUntilRunning, "waitUntilRunning");
+  validateDataPlaneMode(options.dataPlaneMode);
 }
 
 const CONTAINER_OVERRIDE_FIELDS = [
@@ -134,6 +136,13 @@ export function validateSandboxRunFromTemplateOptions(
   validateUniqueStringList(options.runnerIds, "runnerIds");
   validateTags(options.tags);
   validateOptionalBoolean(options.waitUntilRunning, "waitUntilRunning");
+  validateDataPlaneMode(options.dataPlaneMode);
+}
+
+export function validateDataPlaneMode(mode: DataPlaneMode | undefined): void {
+  if (mode !== undefined && mode !== "auto" && mode !== "direct" && mode !== "gateway") {
+    throw new CWSandboxValidationError("dataPlaneMode must be 'auto', 'direct', or 'gateway'.");
+  }
 }
 
 export function validateWaitOptions(options: WaitOptions): void {
@@ -351,6 +360,12 @@ function requireStringIfPresent(value: unknown, name: string): void {
   }
 }
 
+function requireNumberIfPresent(value: unknown, name: string): void {
+  if (value !== undefined && typeof value !== "number") {
+    throw new CWSandboxValidationError(`${name} must be a number`);
+  }
+}
+
 function validateSecretsShape(secrets: unknown): void {
   if (secrets === undefined) {
     return;
@@ -377,6 +392,10 @@ function validateServicesShape(services: unknown): void {
     requirePlainRecord(service["endpoint"], `services[${index}].endpoint`);
     requireStringIfPresent(service["endpoint"]["kind"], `services[${index}].endpoint.kind`);
     requireStringIfPresent(service["endpoint"]["auth"], `services[${index}].endpoint.auth`);
+    requireNumberIfPresent(
+      service["endpoint"]["requestTimeoutSeconds"],
+      `services[${index}].endpoint.requestTimeoutSeconds`,
+    );
   }
 }
 

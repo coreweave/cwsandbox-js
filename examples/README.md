@@ -45,6 +45,7 @@ One workspace package with self-contained scripts (same deps). Typecheck is part
 | `error-handling.ts`         | execution / not-found errors                  | `pnpm --dir examples/sdk error-handling`                     |
 | `reconnect-to-sandbox.ts`   | `create` + `fromId`                           | `pnpm --dir examples/sdk reconnect-to-sandbox -- --create`   |
 | `delete-sandboxes.ts`       | `delete` / `missingOk` / `stop`               | `pnpm --dir examples/sdk delete-sandboxes`                   |
+| `direct-data-plane.ts`      | direct mTLS + gateway fallback                | `pnpm --dir examples/sdk direct-data-plane`                  |
 | `cleanup-by-tag.ts`         | `listAll` + tag cleanup                       | `pnpm --dir examples/sdk cleanup-by-tag -- --create`         |
 | `cleanup-old-sandboxes.ts`  | age filter on `startedAt`                     | `pnpm --dir examples/sdk cleanup-old-sandboxes -- --dry-run` |
 | `list-stopped-sandboxes.ts` | `showTerminated`                              | `pnpm --dir examples/sdk list-stopped-sandboxes -- --create` |
@@ -53,6 +54,7 @@ One workspace package with self-contained scripts (same deps). Typecheck is part
 | `interactive-streaming.ts`  | `run` + log follow                            | `pnpm --dir examples/sdk interactive-streaming`              |
 | `wandb-integration.ts`      | `@coreweave/cwsandbox/wandb` auth             | `pnpm --dir examples/sdk wandb-integration`                  |
 | `file-system-snapshots.ts`  | scratch-mount snapshot / restore              | `pnpm --dir examples/sdk file-system-snapshots`              |
+| `https-endpoint.ts`         | public HTTPS + request timeout                | `pnpm --dir examples/sdk https-endpoint`                     |
 
 Typecheck (also covered by root `pnpm check`):
 

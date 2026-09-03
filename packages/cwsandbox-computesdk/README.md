@@ -70,7 +70,8 @@ await sandbox.destroy();
 Create options of note:
 
 - `name` → sandbox annotation `name` (not a tag)
-- `timeout` (ms) → `maxLifetimeSeconds` only (not create `timeoutMs`)
+- `timeout` (ms) → `maxLifetimeSeconds` only (sandbox TTL)
+- `waitUntilRunningTimeoutMs` → create wait-until-running budget (core default 60s)
 - `services` / `network` forwarded to the core SDK (requested at create; URL may appear after running)
 - Tags always include `computesdk` + `ownerTag`
 
@@ -100,19 +101,14 @@ Explicitly unsupported for now:
 
 ```bash
 pnpm --filter @coreweave/cwsandbox-computesdk test
-CWSANDBOX_API_KEY=... pnpm --filter @coreweave/cwsandbox-computesdk smoke
 ```
 
-Live smoke (billable, not part of `pnpm check`) covers:
+Live adapter smoke is `pnpm smoke` from the repo root (requires `CWSANDBOX_API_KEY`).
+Targeted run:
 
-- create with resource knobs + name annotation
-- short unary `runCommand`
-- `cwd` / `env`
-- long-timeout streamed exec (`timeout > 240s` → SDK `commands.start`)
-- nested filesystem write/read + `readdir` (parent mkdir via adapter)
-- `getInfo` status `running`
-- `getUrl({ port })` after public HTTPS create (waits up to 60s for assignment)
-- destroy
+```bash
+pnpm exec vitest run --config vitest.e2e.config.ts e2e/smoke/computesdk.e2e.test.ts
+```
 
 ## License
 

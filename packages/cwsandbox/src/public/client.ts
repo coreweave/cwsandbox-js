@@ -28,7 +28,7 @@ export type WithSandboxCallback<TResult> = (sandbox: Sandbox) => Promise<TResult
 export interface SandboxClient {
   create(options?: SandboxRunOptions): Promise<Sandbox>;
   run(command: CommandInput, options?: SandboxRunOptions): Promise<Sandbox>;
-  get(sandboxId: SandboxId, options?: FromIdOptions): Promise<GetSandboxResult>;
+  get(sandboxId: SandboxId, options?: RequestOptions): Promise<GetSandboxResult>;
   fromId(sandboxId: SandboxId, options?: FromIdOptions): Promise<Sandbox>;
   list(options?: ListSandboxesOptions): Promise<ListSandboxesResult>;
   listSandboxes(options?: SandboxListOptions): SandboxList;

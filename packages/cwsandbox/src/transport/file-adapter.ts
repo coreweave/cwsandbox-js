@@ -3,12 +3,14 @@
 // SPDX-PackageName: cwsandbox
 
 import type { RequestOptions } from "../public/common.js";
+import type { DataPlaneMode } from "../public/data-plane.js";
 import type { FileChunkSource } from "../public/files.js";
 import type { SandboxId } from "../public/sandbox.js";
 
 export type { FileChunkSource };
 
 export interface ReadFileRequest extends RequestOptions {
+  readonly dataPlaneMode?: DataPlaneMode;
   readonly path: string;
   readonly sandboxId: SandboxId;
 }
@@ -19,11 +21,13 @@ export interface ReadFileResult {
 
 export interface WriteFileRequest extends RequestOptions {
   readonly content: Uint8Array;
+  readonly dataPlaneMode?: DataPlaneMode;
   readonly path: string;
   readonly sandboxId: SandboxId;
 }
 
 export interface ReadStreamRequest extends RequestOptions {
+  readonly dataPlaneMode?: DataPlaneMode;
   readonly path: string;
   readonly sandboxId: SandboxId;
   /**
@@ -34,6 +38,7 @@ export interface ReadStreamRequest extends RequestOptions {
 }
 
 export interface WriteStreamRequest extends RequestOptions {
+  readonly dataPlaneMode?: DataPlaneMode;
   /**
    * `'direct'` for `files.writeStream` — a mid-stream error may leave a partial
    * file.  `'atomic'` for the buffered `files.write` StreamExec fallback —
