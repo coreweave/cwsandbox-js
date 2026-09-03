@@ -84,9 +84,11 @@ jobs:
     needs: select-mode
     if: github.ref == 'refs/heads/main' && needs.select-mode.outputs.mode == 'publish'
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: write
       id-token: write
+      pull-requests: read
 
     steps:
       - name: Checkout
@@ -113,6 +115,8 @@ jobs:
 
       - name: Check approved version
         id: release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: pnpm release:check
 
       - name: Pack and publish core package

@@ -7,7 +7,11 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     exclude: ["dist/**", "node_modules/**"],
-    include: ["scripts/check-package-consumers.test.ts", "scripts/version-packages.test.ts"],
+    include: [
+      "scripts/check-package-consumers.test.ts",
+      "scripts/release-provenance.test.ts",
+      "scripts/version-packages.test.ts",
+    ],
     testTimeout: 30_000,
   },
 });

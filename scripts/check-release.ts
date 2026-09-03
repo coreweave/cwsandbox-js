@@ -5,9 +5,13 @@
 import { spawnSync } from "node:child_process";
 import { appendFileSync, readFileSync, readdirSync } from "node:fs";
 
+import { verifyReleasePullRequest } from "./release-provenance.js";
+
 const manifestPath = "packages/cwsandbox/package.json";
 const changelogPath = "packages/cwsandbox/CHANGELOG.md";
 const expectedName = "@coreweave/cwsandbox";
+
+const releasePullRequest = await verifyReleasePullRequest();
 
 interface PackageManifest {
   readonly name: string;
@@ -74,4 +78,6 @@ if (githubOutput !== undefined) {
   appendFileSync(githubOutput, `version=${manifest.version}\ntag=v${manifest.version}\n`);
 }
 
-console.log(`${packageVersion} is ready for its first publish attempt`);
+console.log(
+  `${packageVersion} from approved release PR #${releasePullRequest.number} is ready for its first publish attempt`,
+);

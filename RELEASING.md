@@ -65,15 +65,17 @@ The automated release flow SHOULD be:
 2. Automation opens or updates a release pull request containing the exact version and
    changelog changes.
 3. A maintainer reviews and merges the release pull request.
-4. The publishing job verifies, packs, and publishes the allowlisted packages from
-   that merge commit.
+4. The publishing job verifies that the commit came from the merged Changesets release
+   pull request, then packs and publishes the allowlisted packages from that commit.
 5. Automation creates the Git tag and GitHub Release for the published commit.
 
 Merging an ordinary feature or fix pull request MUST NOT publish directly. During beta,
-merging the release pull request is the human approval gate; a second environment
-approval is not required. The workflow supports manual retry of a failed publishing
-job, but a manual run MUST publish only a version already approved in a merged release
-pull request.
+merging the release pull request is the human approval gate. The publish job MUST use
+the `release` GitHub Environment, restricted to the `main` branch, so npm can enforce
+the same branch boundary through its trusted-publisher identity. Required environment
+reviewers are not enabled, so the environment does not add a second human approval.
+The workflow supports manual retry of a failed publishing job, but a manual run MUST
+publish only a version already approved in a merged release pull request.
 
 ## Required release checks
 
@@ -83,6 +85,8 @@ Before publishing, automation MUST:
 - run `pnpm check` from a clean checkout of the release commit;
 - pack each allowlisted package and validate its contents;
 - verify that internal workspace dependencies resolve to publishable versions;
+- verify through GitHub that the commit is associated with the merged
+  `changeset-release/main` release pull request;
 - verify that the proposed version does not already exist in npm; and
 - publish from a GitHub-hosted runner using npm trusted publishing with OpenID Connect,
   without a long-lived npm write token.
@@ -97,10 +101,20 @@ and must still use an approved version and the release commit.
 
 ## One-time setup
 
-Before the first automated publish, a repository administrator MUST enable **Allow
-GitHub Actions to create and approve pull requests** under Actions settings. An npm
-package owner MUST also configure `@coreweave/cwsandbox` trusted publishing for the
-`coreweave/cwsandbox-js` repository and `.github/workflows/release.yml` workflow.
+Before the first automated publish, a repository administrator MUST:
+
+1. Enable **Allow GitHub Actions to create and approve pull requests** under Actions
+   settings.
+2. Create a GitHub Environment named `release`. Under **Deployment branches and
+   tags**, choose **Selected branches and tags** and allow only the `main` branch. No
+   required reviewer is needed.
+
+An npm package owner MUST configure `@coreweave/cwsandbox` trusted publishing with:
+
+- repository: `coreweave/cwsandbox-js`;
+- workflow filename: `release.yml` (the filename only, not its full path);
+- environment name: `release`; and
+- allowed action: `npm publish`.
 
 No npm token is stored in GitHub. If branch protection later requires checks that do
 not run for pull requests created with the repository token, replace the version job's
