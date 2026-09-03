@@ -309,6 +309,59 @@ describe("node transport mappers", () => {
       expect(request.sandbox?.spec?.services[0]?.endpoint?.requestTimeoutSeconds).toBe(0);
     });
 
+    it("maps TLS passthrough public services onto proto services", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        services: [
+          {
+            endpoint: { kind: "tls_passthrough" },
+            name: "tls",
+            port: 8443,
+            visibility: "public",
+          },
+        ],
+      });
+
+      expect(request.sandbox?.spec?.services).toMatchObject([
+        {
+          endpoint: {
+            kind: EndpointKind.TLS_PASSTHROUGH,
+          },
+          name: "tls",
+          port: 8443,
+          visibility: Visibility.PUBLIC,
+        },
+      ]);
+      expect(request.sandbox?.spec?.services[0]?.endpoint?.auth).toBe(EndpointAuth.UNSPECIFIED);
+      expect(request.sandbox?.spec?.services[0]?.endpoint?.requestTimeoutSeconds).toBe(0);
+    });
+
+    it("maps mixed HTTPS and TLS services onto proto services", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        services: [
+          {
+            endpoint: { auth: "open", kind: "https" },
+            name: "web",
+            port: 8080,
+            visibility: "public",
+          },
+          {
+            endpoint: { kind: "tls_passthrough" },
+            name: "tls",
+            port: 8443,
+            visibility: "public",
+          },
+        ],
+      });
+
+      const services = request.sandbox?.spec?.services ?? [];
+      expect(services[0]?.endpoint?.kind).toBe(EndpointKind.HTTPS);
+      expect(services[0]?.endpoint?.auth).toBe(EndpointAuth.OPEN);
+      expect(services[1]?.endpoint?.kind).toBe(EndpointKind.TLS_PASSTHROUGH);
+      expect(services[1]?.endpoint?.auth).toBe(EndpointAuth.UNSPECIFIED);
+    });
+
     it("omits network when deny flags are unset", () => {
       const request = toProtoCreateRequest({
         command: ["python"],
@@ -699,6 +752,26 @@ describe("node transport mappers", () => {
       });
     });
 
+    it("maps TLS passthrough public services onto template overrides", () => {
+      const request = toProtoCreateFromTemplateRequest({
+        templateId,
+        services: [
+          {
+            endpoint: { kind: "tls_passthrough" },
+            name: "tls",
+            port: 8443,
+            visibility: "public",
+          },
+        ],
+      });
+
+      expect(request.overrides?.services[0]?.endpoint).toMatchObject({
+        kind: EndpointKind.TLS_PASSTHROUGH,
+      });
+      expect(request.overrides?.services[0]?.endpoint?.auth).toBe(EndpointAuth.UNSPECIFIED);
+      expect(request.overrides?.services[0]?.endpoint?.requestTimeoutSeconds).toBe(0);
+    });
+
     it("does not serialize an empty containers override when containerImage is omitted", () => {
       const request = toProtoCreateFromTemplateRequest({
         templateId,
@@ -1066,6 +1139,107 @@ describe("node transport mappers", () => {
       });
     });
 
+    it("maps TLS passthrough addresses and keeps decoy URLs off serviceUrls", () => {
+      const result = toSdkStartSandboxResult(
+        ProtoSandbox.create({
+          sandboxId: "tls-id",
+          status: {
+            services: [
+              {
+                endpoint: {
+                  address: "8443-tls-id.example:443",
+                  kind: EndpointKind.TLS_PASSTHROUGH,
+                  url: "https://tls-endpoint-url.example",
+                },
+                name: "tls",
+                port: 8443,
+                url: "https://should-not-appear.example",
+                visibility: Visibility.PUBLIC,
+              },
+            ],
+            state: State.CREATING,
+          },
+        }),
+      );
+
+      expect(result.serviceAddresses).toEqual([
+        {
+          address: "8443-tls-id.example:443",
+          kind: "tls_passthrough",
+          name: "tls",
+          port: 8443,
+        },
+      ]);
+      expect(result.serviceUrls).toBeUndefined();
+    });
+
+    it("maps mixed HTTPS URLs and TLS addresses from status services", () => {
+      const result = toSdkGetSandboxResult(
+        ProtoSandbox.create({
+          sandboxId: "mixed-id",
+          status: {
+            services: [
+              {
+                endpoint: {
+                  auth: EndpointAuth.OPEN,
+                  kind: EndpointKind.HTTPS,
+                  url: "https://assigned.example.com",
+                },
+                name: "web",
+                port: 8080,
+                visibility: Visibility.PUBLIC,
+              },
+              {
+                endpoint: {
+                  address: "8443-mixed-id.example:443",
+                  kind: EndpointKind.TLS_PASSTHROUGH,
+                },
+                name: "tls",
+                port: 8443,
+                visibility: Visibility.PUBLIC,
+              },
+            ],
+            state: State.RUNNING,
+          },
+        }),
+      );
+
+      expect(result.serviceUrls).toEqual([
+        { name: "web", port: 8080, url: "https://assigned.example.com" },
+      ]);
+      expect(result.serviceAddresses).toEqual([
+        {
+          address: "8443-mixed-id.example:443",
+          kind: "tls_passthrough",
+          name: "tls",
+          port: 8443,
+        },
+      ]);
+    });
+
+    it("omits TLS rows with an empty address from serviceAddresses", () => {
+      const result = toSdkSandboxInfo(
+        ProtoSandbox.create({
+          sandboxId: "tls-id",
+          status: {
+            services: [
+              {
+                endpoint: {
+                  kind: EndpointKind.TLS_PASSTHROUGH,
+                },
+                name: "tls",
+                port: 8443,
+                visibility: Visibility.PUBLIC,
+              },
+            ],
+            state: State.RUNNING,
+          },
+        }),
+      );
+
+      expect(result.serviceAddresses).toBeUndefined();
+    });
+
     it("prefers endpoint.url when service.url is empty", () => {
       const result = toSdkStartSandboxResult(
         ProtoSandbox.create({
@@ -1228,6 +1402,7 @@ describe("node transport mappers", () => {
   describe("status, result, and timeout helpers", () => {
     it("maps protobuf status enums to SDK status strings", () => {
       expect(toSdkSandboxStatus(State.RUNNING)).toBe("running");
+      expect(toSdkSandboxStatus(State.PREPARING)).toBe("creating");
       expect(toSdkSandboxStatus(State.TERMINATING)).toBe("terminating");
       expect(toSdkSandboxStatus(State.UNSPECIFIED)).toBe("unspecified");
     });

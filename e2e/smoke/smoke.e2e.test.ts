@@ -34,6 +34,7 @@ import {
   mountedBinaryContent,
   noInternetProbeScript,
   publicHttpsService,
+  publicTlsPassthroughService,
   rejectAndNarrow,
   requireLogResumeCursor,
   runPython,
@@ -48,13 +49,17 @@ import {
   httpsGetExitCode,
   shouldSkipDnsEgress,
   shouldSkipHttpsRequestTimeouts,
+  shouldSkipTlsPassthrough,
   startOptionsForDnsNameEgress,
   startOptionsForNoInternetNetwork,
   testTimeoutMs,
+  tlsPassthroughServerScript,
   uniqueSmokeTag,
   waitForHttpOk,
+  waitForServiceAddresses,
   waitForServiceUrl,
   waitForServiceUrls,
+  waitForTlsOk,
   waitForWebSocketEcho,
   sortedSandboxIds,
   waitUntilFromIdTerminal,
@@ -947,6 +952,70 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
             expect(echo).toBe("ping-from-smoke");
           },
         );
+      },
+      httpsEndpointSmokeTimeoutMs,
+    );
+
+    it(
+      "creates a TLS passthrough address, echoes it on fromId and list, and serves via SNI",
+      async (ctx) => {
+        const tag = uniqueSmokeTag();
+
+        try {
+          await withStartedSandbox(
+            client,
+            {
+              command: ["node", "/workspace/tls-passthrough-server.js"],
+              containerImage: "node:22",
+              maxLifetimeSeconds: 300,
+              mountedFiles: {
+                "/workspace/tls-passthrough-server.js": tlsPassthroughServerScript,
+              },
+              services: [publicTlsPassthroughService(8443, "tls")],
+              tags: [tag],
+              timeoutMs: httpsEndpointWaitTimeoutMs,
+            },
+            async (sandbox) => {
+              const created = sandbox.serviceAddresses?.[0];
+              expect(created).toBeDefined();
+              if (created === undefined) {
+                throw new Error("Create must fill serviceAddresses");
+              }
+              expect(created.port).toBe(8443);
+              expect(created.name).toBe("tls");
+              expect(created.kind).toBe("tls_passthrough");
+              expect(created.address).toContain(":");
+              expect((sandbox.serviceUrls ?? []).some((service) => service.port === 8443)).toBe(
+                false,
+              );
+
+              const [retained] = await waitForServiceAddresses(sandbox, [8443], {
+                timeoutMs: httpsEndpointWaitTimeoutMs,
+              });
+              expect(retained).toEqual(created);
+
+              const fetched = await client.fromId(sandbox.sandboxId);
+              expect(fetched.serviceAddresses).toEqual([created]);
+
+              const listed = await client.list({ tags: [tag] });
+              const match = listed.sandboxes.find((item) => item.sandboxId === sandbox.sandboxId);
+              expect(match).toBeDefined();
+              expect(match?.serviceAddresses).toEqual([created]);
+
+              const body = await waitForTlsOk(created.address, {
+                expectedBody: "product-tls-ok",
+                timeoutMs: 60_000,
+              });
+              expect(body).toBe("product-tls-ok");
+            },
+          );
+        } catch (error) {
+          if (shouldSkipTlsPassthrough(error)) {
+            ctx.skip(`fleet does not support TLS passthrough: ${String(error)}`);
+            return;
+          }
+          throw error;
+        }
       },
       httpsEndpointSmokeTimeoutMs,
     );

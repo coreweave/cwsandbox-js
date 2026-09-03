@@ -6,7 +6,7 @@ import { CWSandboxValidationError } from "../errors.js";
 import type { EgressRule, Endpoint, NetworkOptions, Service } from "../public/network.js";
 
 const ENDPOINT_AUTHS = new Set(["open"]);
-const ENDPOINT_KINDS = new Set(["https"]);
+const ENDPOINT_KINDS = new Set(["https", "tls_passthrough"]);
 const SERVICE_PROTOCOLS = new Set(["sctp", "tcp", "udp", "unspecified"]);
 const SERVICE_VISIBILITIES = new Set(["custom", "private", "public", "unspecified"]);
 
@@ -142,12 +142,8 @@ function validateEndpoint(
   protocol: string | undefined,
 ): void {
   const kind = normalizeEnum(endpoint.kind);
-  const auth = normalizeEnum(endpoint.auth);
   if (kind === undefined || !ENDPOINT_KINDS.has(kind)) {
-    throw new CWSandboxValidationError("Service.endpoint.kind must be https");
-  }
-  if (auth === undefined || !ENDPOINT_AUTHS.has(auth)) {
-    throw new CWSandboxValidationError("Service.endpoint.auth must be open");
+    throw new CWSandboxValidationError("Service.endpoint.kind must be https or tls_passthrough");
   }
   if (visibility !== "public") {
     throw new CWSandboxValidationError("Service.visibility must be public when endpoint is set");
@@ -157,7 +153,35 @@ function validateEndpoint(
       "Service.protocol must be unset or tcp when endpoint is set",
     );
   }
-  validateRequestTimeoutSeconds(endpoint.requestTimeoutSeconds);
+  if (kind === "tls_passthrough") {
+    validateTlsPassthroughEndpoint(endpoint);
+    return;
+  }
+  validateHttpsEndpoint(endpoint);
+}
+
+function validateHttpsEndpoint(endpoint: Endpoint): void {
+  const auth = normalizeEnum("auth" in endpoint ? endpoint.auth : undefined);
+  if (auth === undefined || !ENDPOINT_AUTHS.has(auth)) {
+    throw new CWSandboxValidationError("Service.endpoint.auth must be open");
+  }
+  validateRequestTimeoutSeconds(
+    "requestTimeoutSeconds" in endpoint ? endpoint.requestTimeoutSeconds : undefined,
+  );
+}
+
+function validateTlsPassthroughEndpoint(endpoint: Endpoint): void {
+  const auth = "auth" in endpoint ? endpoint.auth : undefined;
+  if (auth !== undefined) {
+    throw new CWSandboxValidationError(
+      "Service.endpoint.auth must be unset when kind is tls_passthrough",
+    );
+  }
+  if ("requestTimeoutSeconds" in endpoint && endpoint.requestTimeoutSeconds !== undefined) {
+    throw new CWSandboxValidationError(
+      "Service.endpoint.requestTimeoutSeconds must be unset when kind is tls_passthrough",
+    );
+  }
 }
 
 function validateRequestTimeoutSeconds(value: number | undefined): void {

@@ -32,6 +32,7 @@ import type { DeleteSandboxRequest } from "./sandbox.js";
 import type { ListSandboxesResponse } from "./sandbox.js";
 import type { ListSandboxesRequest } from "./sandbox.js";
 import type { GetSandboxRequest } from "./sandbox.js";
+import type { CreateSandboxFromFileRequest } from "./sandbox.js";
 import type { CreateSandboxFromTemplateRequest } from "./sandbox.js";
 import { stackIntercept } from "@protobuf-ts/runtime-rpc";
 import type { Sandbox } from "./sandbox.js";
@@ -60,6 +61,18 @@ export interface ISandboxServiceClient {
      * @generated from protobuf rpc: CreateSandboxFromTemplate
      */
     createSandboxFromTemplate(input: CreateSandboxFromTemplateRequest, options?: RpcOptions): UnaryCall<CreateSandboxFromTemplateRequest, Sandbox>;
+    /**
+     * CreateSandboxFromFile launches a sandbox from an uploaded file (AIP-136
+     * custom method). Unspecified type is INVALID_ARGUMENT
+     * (CWSANDBOX_INVALID_REQUEST) on type. Compose (SANDBOX_FILE_TYPE_COMPOSE)
+     * is accepted when every service already has a pullable image (`image:` or
+     * image_overrides). A service that still needs a build is UNIMPLEMENTED
+     * (CWSANDBOX_NOT_IMPLEMENTED) on that service's build. Other declared
+     * types are UNIMPLEMENTED (CWSANDBOX_NOT_IMPLEMENTED) on type.
+     *
+     * @generated from protobuf rpc: CreateSandboxFromFile
+     */
+    createSandboxFromFile(input: CreateSandboxFromFileRequest, options?: RpcOptions): UnaryCall<CreateSandboxFromFileRequest, Sandbox>;
     /**
      * GetSandbox returns the current state of a sandbox.
      *
@@ -199,12 +212,27 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
         return stackIntercept<CreateSandboxFromTemplateRequest, Sandbox>("unary", this._transport, method, opt, input);
     }
     /**
+     * CreateSandboxFromFile launches a sandbox from an uploaded file (AIP-136
+     * custom method). Unspecified type is INVALID_ARGUMENT
+     * (CWSANDBOX_INVALID_REQUEST) on type. Compose (SANDBOX_FILE_TYPE_COMPOSE)
+     * is accepted when every service already has a pullable image (`image:` or
+     * image_overrides). A service that still needs a build is UNIMPLEMENTED
+     * (CWSANDBOX_NOT_IMPLEMENTED) on that service's build. Other declared
+     * types are UNIMPLEMENTED (CWSANDBOX_NOT_IMPLEMENTED) on type.
+     *
+     * @generated from protobuf rpc: CreateSandboxFromFile
+     */
+    createSandboxFromFile(input: CreateSandboxFromFileRequest, options?: RpcOptions): UnaryCall<CreateSandboxFromFileRequest, Sandbox> {
+        const method = this.methods[2], opt = this._transport.mergeOptions(options);
+        return stackIntercept<CreateSandboxFromFileRequest, Sandbox>("unary", this._transport, method, opt, input);
+    }
+    /**
      * GetSandbox returns the current state of a sandbox.
      *
      * @generated from protobuf rpc: GetSandbox
      */
     getSandbox(input: GetSandboxRequest, options?: RpcOptions): UnaryCall<GetSandboxRequest, Sandbox> {
-        const method = this.methods[2], opt = this._transport.mergeOptions(options);
+        const method = this.methods[3], opt = this._transport.mergeOptions(options);
         return stackIntercept<GetSandboxRequest, Sandbox>("unary", this._transport, method, opt, input);
     }
     /**
@@ -213,7 +241,7 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
      * @generated from protobuf rpc: ListSandboxes
      */
     listSandboxes(input: ListSandboxesRequest, options?: RpcOptions): UnaryCall<ListSandboxesRequest, ListSandboxesResponse> {
-        const method = this.methods[3], opt = this._transport.mergeOptions(options);
+        const method = this.methods[4], opt = this._transport.mergeOptions(options);
         return stackIntercept<ListSandboxesRequest, ListSandboxesResponse>("unary", this._transport, method, opt, input);
     }
     /**
@@ -223,7 +251,7 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
      * @generated from protobuf rpc: DeleteSandbox
      */
     deleteSandbox(input: DeleteSandboxRequest, options?: RpcOptions): UnaryCall<DeleteSandboxRequest, DeleteSandboxResponse> {
-        const method = this.methods[4], opt = this._transport.mergeOptions(options);
+        const method = this.methods[5], opt = this._transport.mergeOptions(options);
         return stackIntercept<DeleteSandboxRequest, DeleteSandboxResponse>("unary", this._transport, method, opt, input);
     }
     /**
@@ -243,7 +271,7 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
      * @generated from protobuf rpc: PurgeSandboxes
      */
     purgeSandboxes(input: PurgeSandboxesRequest, options?: RpcOptions): UnaryCall<PurgeSandboxesRequest, PurgeSandboxesResponse> {
-        const method = this.methods[5], opt = this._transport.mergeOptions(options);
+        const method = this.methods[6], opt = this._transport.mergeOptions(options);
         return stackIntercept<PurgeSandboxesRequest, PurgeSandboxesResponse>("unary", this._transport, method, opt, input);
     }
     /**
@@ -254,7 +282,7 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
      * @generated from protobuf rpc: ConnectSandbox
      */
     connectSandbox(input: ConnectSandboxRequest, options?: RpcOptions): UnaryCall<ConnectSandboxRequest, SandboxConnection> {
-        const method = this.methods[6], opt = this._transport.mergeOptions(options);
+        const method = this.methods[7], opt = this._transport.mergeOptions(options);
         return stackIntercept<ConnectSandboxRequest, SandboxConnection>("unary", this._transport, method, opt, input);
     }
     /**
@@ -264,7 +292,7 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
      * @generated from protobuf rpc: Exec
      */
     exec(input: ExecRequest, options?: RpcOptions): UnaryCall<ExecRequest, ExecResponse> {
-        const method = this.methods[7], opt = this._transport.mergeOptions(options);
+        const method = this.methods[8], opt = this._transport.mergeOptions(options);
         return stackIntercept<ExecRequest, ExecResponse>("unary", this._transport, method, opt, input);
     }
     /**
@@ -274,7 +302,7 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
      * @generated from protobuf rpc: StreamExec
      */
     streamExec(options?: RpcOptions): DuplexStreamingCall<ExecStreamRequest, ExecStreamResponse> {
-        const method = this.methods[8], opt = this._transport.mergeOptions(options);
+        const method = this.methods[9], opt = this._transport.mergeOptions(options);
         return stackIntercept<ExecStreamRequest, ExecStreamResponse>("duplex", this._transport, method, opt);
     }
     /**
@@ -285,7 +313,7 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
      * @generated from protobuf rpc: StreamLogs
      */
     streamLogs(input: StreamLogsRequest, options?: RpcOptions): ServerStreamingCall<StreamLogsRequest, LogEntry> {
-        const method = this.methods[9], opt = this._transport.mergeOptions(options);
+        const method = this.methods[10], opt = this._transport.mergeOptions(options);
         return stackIntercept<StreamLogsRequest, LogEntry>("serverStreaming", this._transport, method, opt, input);
     }
     /**
@@ -294,7 +322,7 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
      * @generated from protobuf rpc: WriteFile
      */
     writeFile(input: WriteFileRequest, options?: RpcOptions): UnaryCall<WriteFileRequest, WriteFileResponse> {
-        const method = this.methods[10], opt = this._transport.mergeOptions(options);
+        const method = this.methods[11], opt = this._transport.mergeOptions(options);
         return stackIntercept<WriteFileRequest, WriteFileResponse>("unary", this._transport, method, opt, input);
     }
     /**
@@ -303,7 +331,7 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
      * @generated from protobuf rpc: ReadFile
      */
     readFile(input: ReadFileRequest, options?: RpcOptions): UnaryCall<ReadFileRequest, ReadFileResponse> {
-        const method = this.methods[11], opt = this._transport.mergeOptions(options);
+        const method = this.methods[12], opt = this._transport.mergeOptions(options);
         return stackIntercept<ReadFileRequest, ReadFileResponse>("unary", this._transport, method, opt, input);
     }
     /**
@@ -313,7 +341,7 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
      * @generated from protobuf rpc: CreateFileSystemSnapshot
      */
     createFileSystemSnapshot(input: CreateFileSystemSnapshotRequest, options?: RpcOptions): UnaryCall<CreateFileSystemSnapshotRequest, FileSystemSnapshot> {
-        const method = this.methods[12], opt = this._transport.mergeOptions(options);
+        const method = this.methods[13], opt = this._transport.mergeOptions(options);
         return stackIntercept<CreateFileSystemSnapshotRequest, FileSystemSnapshot>("unary", this._transport, method, opt, input);
     }
     /**
@@ -322,7 +350,7 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
      * @generated from protobuf rpc: GetFileSystemSnapshot
      */
     getFileSystemSnapshot(input: GetFileSystemSnapshotRequest, options?: RpcOptions): UnaryCall<GetFileSystemSnapshotRequest, FileSystemSnapshot> {
-        const method = this.methods[13], opt = this._transport.mergeOptions(options);
+        const method = this.methods[14], opt = this._transport.mergeOptions(options);
         return stackIntercept<GetFileSystemSnapshotRequest, FileSystemSnapshot>("unary", this._transport, method, opt, input);
     }
     /**
@@ -331,7 +359,7 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
      * @generated from protobuf rpc: ListFileSystemSnapshots
      */
     listFileSystemSnapshots(input: ListFileSystemSnapshotsRequest, options?: RpcOptions): UnaryCall<ListFileSystemSnapshotsRequest, ListFileSystemSnapshotsResponse> {
-        const method = this.methods[14], opt = this._transport.mergeOptions(options);
+        const method = this.methods[15], opt = this._transport.mergeOptions(options);
         return stackIntercept<ListFileSystemSnapshotsRequest, ListFileSystemSnapshotsResponse>("unary", this._transport, method, opt, input);
     }
     /**
@@ -341,7 +369,7 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
      * @generated from protobuf rpc: DeleteFileSystemSnapshot
      */
     deleteFileSystemSnapshot(input: DeleteFileSystemSnapshotRequest, options?: RpcOptions): UnaryCall<DeleteFileSystemSnapshotRequest, FileSystemSnapshot> {
-        const method = this.methods[15], opt = this._transport.mergeOptions(options);
+        const method = this.methods[16], opt = this._transport.mergeOptions(options);
         return stackIntercept<DeleteFileSystemSnapshotRequest, FileSystemSnapshot>("unary", this._transport, method, opt, input);
     }
 }

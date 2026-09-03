@@ -205,6 +205,7 @@ function createTrackingClient(): TrackingClient {
       runnerGroupId: undefined,
       runnerId: undefined,
       sandboxId,
+      serviceAddresses: undefined,
       serviceUrls: undefined,
       shell: async () => {
         throw new Error("Shell not used");

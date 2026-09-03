@@ -830,6 +830,34 @@ A non-empty `serviceUrls` entry means the hostname was assigned. That is not
 the same as the application listening, and not the same as the edge being
 ready. Applied timeout is not echoed on `serviceUrls`.
 
+Request TLS passthrough with `endpoint: { kind: "tls_passthrough" }` on a
+PUBLIC service. Omit `auth` and `requestTimeoutSeconds`. The assigned target
+is `host:port` on `serviceAddresses`. Use the host as TLS SNI. The workload
+owns certs. TLS addresses stay off `serviceUrls`:
+
+```ts
+const sandbox = await client.run(["node"], {
+  containerImage: "node:22",
+  services: [
+    {
+      endpoint: { kind: "tls_passthrough" },
+      name: "tls",
+      port: 8443,
+      visibility: "public",
+    },
+  ],
+});
+
+console.log(sandbox.serviceAddresses?.[0]?.address);
+```
+
+A non-empty `serviceAddresses` entry means the target was assigned, not that
+the application or edge is ready. On a live handle, a later CREATING/RUNNING
+Get keeps a cached address per `(port, name)` when that service is still
+present and Get omits the endpoint or address. `fromId` and list have no
+Create cache. Any other status, including `paused` and `unspecified`, clears
+it.
+
 Sandbox handles expose cached backend metadata. Use `inspect()` when you need a
 fresh one-shot metadata snapshot for traces, tool results, or logs:
 
@@ -842,6 +870,7 @@ const sandboxTrace = {
   exitCode: info.exitCode, // PID-1 / primary-container code, not a command result
   startedAt: info.startedAt?.toISOString(),
   serviceUrls: info.serviceUrls,
+  serviceAddresses: info.serviceAddresses,
   runnerId: info.runnerId,
   statusReason: info.statusReason,
 };
