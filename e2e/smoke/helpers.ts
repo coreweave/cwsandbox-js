@@ -4,6 +4,7 @@
 
 import { Buffer } from "node:buffer";
 import { readFileSync } from "node:fs";
+import https from "node:https";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -23,6 +24,7 @@ import {
   type SandboxTag,
   type Service,
   type ServiceUrl,
+  type TlsPassthroughEndpointStatus,
 } from "@coreweave/cwsandbox";
 import { expect } from "vitest";
 
@@ -52,6 +54,7 @@ const smokeDir = dirname(fileURLToPath(import.meta.url));
 export const mountedBinaryContent = new Uint8Array([0, 1, 2, 127, 128, 255]);
 export const dualHttpServerScript = readSmokeScript("dual-http-server.js");
 export const httpsTimeoutHandlerScript = readSmokeScript("https-timeout-handler.js");
+export const tlsPassthroughServerScript = readSmokeScript("tls-passthrough-server.js");
 export const noInternetProbeScript = readSmokeScript("no-internet-probe.py");
 export const smokeConfig = createSmokeConfig();
 export const terminalStatuses = new Set<SandboxStatus>(["completed", "failed", "terminated"]);
@@ -289,8 +292,24 @@ export function shouldSkipHttpsRequestTimeouts(error: unknown): boolean {
   );
 }
 
+export function shouldSkipTlsPassthrough(error: unknown): boolean {
+  return (
+    error instanceof CWSandboxTransportError &&
+    error.reason === "CWSANDBOX_TLS_PASSTHROUGH_ENDPOINTS_NOT_SUPPORTED"
+  );
+}
+
 export function uniqueSmokeTag(): SandboxTag {
   return `cwsandbox-js-smoke-${Date.now()}-${Math.random().toString(36).slice(2, 10)}x`;
+}
+
+export function publicTlsPassthroughService(port: number, name?: string): Service {
+  return {
+    endpoint: { kind: "tls_passthrough" },
+    ...(name === undefined ? {} : { name }),
+    port,
+    visibility: "public",
+  };
 }
 
 export function publicHttpsService(
@@ -369,6 +388,103 @@ export async function waitForServiceUrls(
   throw new Error(
     `sandbox '${sandbox.sandboxId}' had no assigned HTTPS URL for ports ${ports.join(", ")} after ${timeoutMs}ms`,
   );
+}
+
+export async function waitForServiceAddresses(
+  sandbox: Sandbox,
+  ports: readonly number[],
+  options: { readonly timeoutMs?: number } = {},
+): Promise<readonly TlsPassthroughEndpointStatus[]> {
+  const timeoutMs = options.timeoutMs ?? serviceUrlWaitTimeoutMs;
+  const deadline = Date.now() + timeoutMs;
+  const wanted = new Set(ports);
+
+  while (Date.now() < deadline) {
+    const info = await sandbox.inspect();
+    const found = (info.serviceAddresses ?? []).filter(
+      (service) => wanted.has(service.port) && service.address.includes(":"),
+    );
+    if (found.length === wanted.size) {
+      return ports.map((port) => {
+        const service = found.find((entry) => entry.port === port);
+        if (service === undefined) {
+          throw new Error(`sandbox '${sandbox.sandboxId}' missing TLS address for port ${port}`);
+        }
+        return service;
+      });
+    }
+    await sleep(500);
+  }
+
+  throw new Error(
+    `sandbox '${sandbox.sandboxId}' had no assigned TLS address for ports ${ports.join(", ")} after ${timeoutMs}ms`,
+  );
+}
+
+export async function waitForTlsOk(
+  address: string,
+  options: { readonly expectedBody?: string; readonly timeoutMs?: number } = {},
+): Promise<string> {
+  const timeoutMs = options.timeoutMs ?? serviceUrlWaitTimeoutMs;
+  const expectedBody = options.expectedBody;
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown;
+  const [host, portText] = splitHostPort(address);
+  const port = Number(portText);
+
+  while (Date.now() < deadline) {
+    try {
+      const body = await tlsGetOnce(host, port);
+      if (expectedBody === undefined || body === expectedBody) {
+        return body;
+      }
+      lastError = new Error(`unexpected TLS body ${JSON.stringify(body)}`);
+    } catch (error) {
+      lastError = error;
+    }
+    await sleep(500);
+  }
+
+  throw new Error(`Timed out waiting for TLS 200 from ${address}: ${String(lastError)}`);
+}
+
+function splitHostPort(address: string): readonly [string, string] {
+  const separator = address.lastIndexOf(":");
+  if (separator <= 0 || separator === address.length - 1) {
+    throw new Error(`TLS address must be host:port, got ${JSON.stringify(address)}`);
+  }
+  return [address.slice(0, separator), address.slice(separator + 1)];
+}
+
+function tlsGetOnce(host: string, port: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const request = https.get(
+      {
+        hostname: host,
+        port,
+        rejectUnauthorized: false,
+        servername: host,
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on("data", (chunk: Buffer) => {
+          chunks.push(chunk);
+        });
+        response.on("end", () => {
+          const body = Buffer.concat(chunks).toString("utf8");
+          if (response.statusCode === 200) {
+            resolve(body);
+            return;
+          }
+          reject(new Error(`HTTP ${String(response.statusCode)} from ${host}:${String(port)}`));
+        });
+      },
+    );
+    request.on("error", reject);
+    request.setTimeout(10_000, () => {
+      request.destroy(new Error(`TLS GET timed out for ${host}:${String(port)}`));
+    });
+  });
 }
 
 export async function waitForHttpOk(

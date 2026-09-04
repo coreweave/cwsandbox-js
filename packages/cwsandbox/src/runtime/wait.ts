@@ -124,6 +124,10 @@ export async function waitForSandbox(
       continue;
     }
 
+    const polled =
+      result.status === "unspecified" ? { ...result, status: "completed" as const } : result;
+    result = polled;
+
     onStatus?.(result);
     const reachedTarget = isWaitTargetReached(result.status, targetStatus);
     const completedDuringRunningWait = targetStatus === "running" && result.status === "completed";
@@ -264,11 +268,15 @@ async function graceRepollForExitCode(
       if (remainingMs <= 0) {
         return current;
       }
-      const bonus = await runtime.transport.get({
+      const bonusRaw = await runtime.transport.get({
         sandboxId: runtime.sandboxId,
         timeoutMs: Math.min(EXIT_CODE_GRACE_RPC_TIMEOUT_MS, remainingMs),
         ...(options.signal === undefined ? {} : { signal: options.signal }),
       });
+      const bonus =
+        bonusRaw.status === "unspecified"
+          ? { ...bonusRaw, status: "completed" as const }
+          : bonusRaw;
       if (bonus.status === "completed") {
         current = bonus;
         onStatus?.(current);

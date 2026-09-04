@@ -23,7 +23,11 @@ import type { RequestOptions } from "./public/common.js";
 import type { DataPlaneMode } from "./public/data-plane.js";
 import type { SandboxFiles } from "./public/files.js";
 import type { SandboxLogs } from "./public/logs.js";
-import type { ServiceUrl } from "./public/network.js";
+import type {
+  HttpsEndpointStatus,
+  ServiceUrl,
+  TlsPassthroughEndpointStatus,
+} from "./public/network.js";
 import type {
   DeleteOptions,
   FileSystemSnapshotResult,
@@ -52,6 +56,7 @@ import type { SandboxTransport } from "./transport.js";
 import type { FileAdapter } from "./transport/file-adapter.js";
 
 const TERMINAL_STATUSES = new Set<SandboxStatus>(["completed", "failed", "terminated"]);
+const ADDRESS_RETAIN_STATUSES = new Set<SandboxStatus>(["creating", "running"]);
 const STOP_OPERATION = "Stop sandbox";
 
 interface SandboxOptions {
@@ -127,6 +132,14 @@ export class Sandbox implements PublicSandbox {
     return this.metadata.runnerId;
   }
 
+  public get serviceAddresses(): readonly TlsPassthroughEndpointStatus[] | undefined {
+    return this.metadata.serviceAddresses?.map((service) => ({ ...service }));
+  }
+
+  public get serviceEndpoints(): readonly HttpsEndpointStatus[] | undefined {
+    return this.metadata.serviceEndpoints?.map((service) => ({ ...service }));
+  }
+
   public get serviceUrls(): readonly ServiceUrl[] | undefined {
     return this.metadata.serviceUrls?.map((service) => ({ ...service }));
   }
@@ -156,7 +169,10 @@ export class Sandbox implements PublicSandbox {
     });
 
     this.updateMetadata(result);
-    return result;
+    return {
+      ...result,
+      ...cloneServiceDerivedFields(this.metadata),
+    };
   }
 
   public async getStatus(options: RequestOptions = {}): Promise<SandboxStatus> {
@@ -257,11 +273,23 @@ export class Sandbox implements PublicSandbox {
   }
 
   private updateMetadata(metadata: SandboxMetadata): void {
+    const serviceAddresses = mergeServiceAddresses(this.metadata, metadata);
+    const exposedPorts = mergeExposedPorts(this.metadata.exposedPorts, metadata.exposedPorts);
+    const { serviceAddresses: _ignored, ...metadataWithoutAddresses } = metadata;
+    const previousClone = cloneMetadata(this.metadata);
+    const incomingClone = cloneMetadata(metadata);
+    const { dnsEgressNames: _previousDns, ...previousWithoutDns } = previousClone;
+    const { dnsEgressNames: incomingDns, ...incomingWithoutDns } = incomingClone;
     this.metadata = {
-      ...cloneMetadata(this.metadata),
-      ...cloneMetadata(metadata),
+      ...previousWithoutDns,
+      ...incomingWithoutDns,
       sandboxId: this.sandboxId,
-      ...cloneServiceDerivedFields(metadata),
+      ...cloneServiceDerivedFields(metadataWithoutAddresses),
+      ...(exposedPorts === undefined ? {} : { exposedPorts }),
+      ...(serviceAddresses === undefined ? {} : { serviceAddresses }),
+      ...(incomingDns !== undefined && incomingDns.length > 0
+        ? { dnsEgressNames: [...incomingDns] }
+        : {}),
     };
   }
 }
@@ -352,15 +380,95 @@ function cloneServiceUrls(
   return urls === undefined ? undefined : urls.map((service) => ({ ...service }));
 }
 
+function cloneServiceEndpoints(
+  endpoints: readonly HttpsEndpointStatus[] | undefined,
+): readonly HttpsEndpointStatus[] | undefined {
+  return endpoints === undefined ? undefined : endpoints.map((service) => ({ ...service }));
+}
+
+function mergeExposedPorts(
+  previous: readonly SandboxExposedPort[] | undefined,
+  incoming: readonly SandboxExposedPort[] | undefined,
+): readonly SandboxExposedPort[] | undefined {
+  if (incoming !== undefined && incoming.length > 0) {
+    return cloneExposedPorts(incoming);
+  }
+  return cloneExposedPorts(previous);
+}
+
+function cloneServiceAddresses(
+  addresses: readonly TlsPassthroughEndpointStatus[] | undefined,
+): readonly TlsPassthroughEndpointStatus[] | undefined {
+  return addresses === undefined ? undefined : addresses.map((service) => ({ ...service }));
+}
+
 function cloneServiceDerivedFields(
   metadata: SandboxMetadata | undefined,
-): Pick<SandboxMetadata, "exposedPorts" | "serviceUrls"> {
+): Pick<SandboxMetadata, "exposedPorts" | "serviceAddresses" | "serviceEndpoints" | "serviceUrls"> {
   const exposedPorts = cloneExposedPorts(metadata?.exposedPorts);
+  const serviceAddresses = cloneServiceAddresses(metadata?.serviceAddresses);
+  const serviceEndpoints = cloneServiceEndpoints(metadata?.serviceEndpoints);
   const serviceUrls = cloneServiceUrls(metadata?.serviceUrls);
   return {
     ...(exposedPorts === undefined ? {} : { exposedPorts }),
+    ...(serviceAddresses === undefined ? {} : { serviceAddresses }),
+    ...(serviceEndpoints === undefined ? {} : { serviceEndpoints }),
     ...(serviceUrls === undefined ? {} : { serviceUrls }),
   };
+}
+
+function serviceAddressKey(port: number, name: string | undefined): string {
+  return `${String(port)}\0${name ?? ""}`;
+}
+
+function mergeServiceAddresses(
+  previous: SandboxMetadata,
+  incoming: SandboxMetadata,
+): readonly TlsPassthroughEndpointStatus[] | undefined {
+  if (incoming.status === undefined || !ADDRESS_RETAIN_STATUSES.has(incoming.status)) {
+    return undefined;
+  }
+
+  const livePorts = incoming.exposedPorts;
+  if (livePorts === undefined && incoming.serviceAddresses === undefined) {
+    return undefined;
+  }
+
+  const live = new Set((livePorts ?? []).map((port) => serviceAddressKey(port.port, port.name)));
+  for (const entry of incoming.serviceAddresses ?? []) {
+    live.add(serviceAddressKey(entry.port, entry.name));
+  }
+
+  const byKey = new Map<string, TlsPassthroughEndpointStatus>();
+  for (const entry of previous.serviceAddresses ?? []) {
+    const key = serviceAddressKey(entry.port, entry.name);
+    if (live.has(key)) {
+      byKey.set(key, entry);
+    }
+  }
+  for (const entry of incoming.serviceAddresses ?? []) {
+    byKey.set(serviceAddressKey(entry.port, entry.name), { ...entry });
+  }
+
+  const merged: TlsPassthroughEndpointStatus[] = [];
+  const seen = new Set<string>();
+  for (const port of livePorts ?? []) {
+    const key = serviceAddressKey(port.port, port.name);
+    const entry = byKey.get(key);
+    if (entry !== undefined && !seen.has(key)) {
+      merged.push({ ...entry });
+      seen.add(key);
+    }
+  }
+  for (const entry of incoming.serviceAddresses ?? []) {
+    const key = serviceAddressKey(entry.port, entry.name);
+    if (!seen.has(key)) {
+      merged.push({ ...entry });
+      seen.add(key);
+    }
+  }
+
+  return merged.length === 0 ? undefined : merged;
 }
 
 function cloneMetadata(metadata: SandboxMetadata | undefined): Partial<SandboxMetadata> {

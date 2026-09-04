@@ -19,28 +19,29 @@ SDK patterns; use `weave/` / `tanstack/` for integrations with extra dependencie
 
 ## SDK scripts
 
-| File                            | Entry                   | Description                    |
-| ------------------------------- | ----------------------- | ------------------------------ |
-| `sdk/quick-start.ts`            | `async function main()` | `withSandbox` + `commands.run` |
-| `sdk/basic-execution.ts`        | `async function main()` | commands + files               |
-| `sdk/streaming-exec.ts`         | `async function main()` | streaming stdout               |
-| `sdk/stdin-streaming.ts`        | `async function main()` | stdin writer                   |
-| `sdk/large-file-streaming.ts`   | `async function main()` | file streams                   |
-| `sdk/resource-configuration.ts` | `async function main()` | resources                      |
-| `sdk/error-handling.ts`         | `async function main()` | typed errors                   |
-| `sdk/direct-data-plane.ts`      | `async function main()` | direct mTLS transport policy   |
-| `sdk/reconnect-to-sandbox.ts`   | CLI flags               | `fromId`                       |
-| `sdk/delete-sandboxes.ts`       | `async function main()` | delete / missingOk             |
-| `sdk/cleanup-by-tag.ts`         | CLI flags               | tag cleanup                    |
-| `sdk/cleanup-old-sandboxes.ts`  | CLI flags               | age cleanup                    |
-| `sdk/list-stopped-sandboxes.ts` | CLI flags               | showTerminated                 |
-| `sdk/multiple-sandboxes.ts`     | `async function main()` | parallel sandboxes             |
-| `sdk/parallel-batch-job.ts`     | `async function main()` | batch jobs                     |
-| `sdk/interactive-streaming.ts`  | `async function main()` | log follow                     |
-| `sdk/wandb-integration.ts`      | `async function main()` | W&B gateway auth               |
-| `sdk/file-system-snapshots.ts`  | `async function main()` | scratch-mount snapshot/restore |
-| `sdk/run-from-template.ts`      | `async function main()` | `withSandboxFromTemplate`      |
-| `sdk/https-endpoint.ts`         | `async function main()` | public HTTPS + request timeout |
+| File                            | Entry                   | Description                      |
+| ------------------------------- | ----------------------- | -------------------------------- |
+| `sdk/quick-start.ts`            | `async function main()` | `withSandbox` + `commands.run`   |
+| `sdk/basic-execution.ts`        | `async function main()` | commands + files                 |
+| `sdk/streaming-exec.ts`         | `async function main()` | streaming stdout                 |
+| `sdk/stdin-streaming.ts`        | `async function main()` | stdin writer                     |
+| `sdk/large-file-streaming.ts`   | `async function main()` | file streams                     |
+| `sdk/resource-configuration.ts` | `async function main()` | resources                        |
+| `sdk/error-handling.ts`         | `async function main()` | typed errors                     |
+| `sdk/direct-data-plane.ts`      | `async function main()` | direct mTLS transport policy     |
+| `sdk/reconnect-to-sandbox.ts`   | CLI flags               | `fromId`                         |
+| `sdk/delete-sandboxes.ts`       | `async function main()` | delete / missingOk               |
+| `sdk/cleanup-by-tag.ts`         | CLI flags               | tag cleanup                      |
+| `sdk/cleanup-old-sandboxes.ts`  | CLI flags               | age cleanup                      |
+| `sdk/list-stopped-sandboxes.ts` | CLI flags               | showTerminated                   |
+| `sdk/multiple-sandboxes.ts`     | `async function main()` | parallel sandboxes               |
+| `sdk/parallel-batch-job.ts`     | `async function main()` | batch jobs                       |
+| `sdk/interactive-streaming.ts`  | `async function main()` | log follow                       |
+| `sdk/wandb-integration.ts`      | `async function main()` | W&B gateway auth                 |
+| `sdk/file-system-snapshots.ts`  | `async function main()` | scratch-mount snapshot/restore   |
+| `sdk/run-from-template.ts`      | `async function main()` | `withSandboxFromTemplate`        |
+| `sdk/https-endpoint.ts`         | `async function main()` | public HTTPS + request timeout   |
+| `sdk/tls-passthrough.ts`        | `async function main()` | public TLS passthrough + SNI GET |
 
 ## Running
 

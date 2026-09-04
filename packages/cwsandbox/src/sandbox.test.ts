@@ -318,12 +318,13 @@ describe("Sandbox", () => {
     expect(sandbox.statusReason).toBe("ready");
   });
 
-  it("clears service-derived metadata when inspect omits them", async () => {
+  it("clears serviceUrls when inspect omits them and retains exposedPorts", async () => {
+    const ports = [{ name: "http", port: 8000, protocol: "tcp" as const }];
     const transport: SandboxTransport = {
       ...createFakeTransport(),
       async start(request) {
         return {
-          exposedPorts: [{ name: "http", port: 8000, protocol: "tcp" }],
+          exposedPorts: ports,
           sandboxId: `sandbox-for-${request.command[0]}`,
           serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
           status: "running",
@@ -341,15 +342,129 @@ describe("Sandbox", () => {
     expect(sandbox.serviceUrls).toEqual([
       { name: "http", port: 8000, url: "https://sandbox.example.com" },
     ]);
-    expect(sandbox.exposedPorts).toEqual([{ name: "http", port: 8000, protocol: "tcp" }]);
+    expect(sandbox.exposedPorts).toEqual(ports);
 
     const info = await sandbox.inspect();
 
     expect(info.serviceUrls).toBeUndefined();
-    expect(info.exposedPorts).toBeUndefined();
+    expect(info.exposedPorts).toEqual(ports);
     expect(sandbox.serviceUrls).toBeUndefined();
-    expect(sandbox.exposedPorts).toBeUndefined();
+    expect(sandbox.exposedPorts).toEqual(ports);
     expect(sandbox.status).toBe("completed");
+  });
+
+  it("retains exposedPorts when inspect returns an empty list", async () => {
+    const ports = [{ name: "http", port: 8000, protocol: "tcp" as const }];
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          exposedPorts: ports,
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          status: "running",
+        };
+      },
+      async get(request) {
+        return {
+          exposedPorts: [],
+          sandboxId: request.sandboxId,
+          status: "running",
+        };
+      },
+    };
+
+    const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
+    const info = await sandbox.inspect();
+
+    expect(info.exposedPorts).toEqual(ports);
+    expect(sandbox.exposedPorts).toEqual(ports);
+  });
+
+  it("replaces exposedPorts when inspect returns a nonempty list", async () => {
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          exposedPorts: [{ name: "http", port: 8000, protocol: "tcp" }],
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          status: "running",
+        };
+      },
+      async get(request) {
+        return {
+          exposedPorts: [{ name: "metrics", port: 9090, protocol: "tcp" }],
+          sandboxId: request.sandboxId,
+          status: "running",
+        };
+      },
+    };
+
+    const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
+    const info = await sandbox.inspect();
+
+    expect(info.exposedPorts).toEqual([{ name: "metrics", port: 9090, protocol: "tcp" }]);
+    expect(sandbox.exposedPorts).toEqual([{ name: "metrics", port: 9090, protocol: "tcp" }]);
+  });
+
+  it("replaces serviceEndpoints on inspect and clears them when omitted", async () => {
+    const created = {
+      auth: "open" as const,
+      kind: "https" as const,
+      name: "http",
+      port: 8000,
+      requestTimeoutSeconds: 120,
+      url: "https://sandbox.example.com",
+    };
+    const refreshed = {
+      ...created,
+      requestTimeoutSeconds: 60,
+      url: "",
+    };
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          serviceEndpoints: [created],
+          status: "running",
+        };
+      },
+      async get(request) {
+        return {
+          sandboxId: request.sandboxId,
+          serviceEndpoints: [refreshed],
+          status: "completed",
+        };
+      },
+    };
+
+    const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
+    expect(sandbox.serviceEndpoints).toEqual([created]);
+
+    const info = await sandbox.inspect();
+    expect(info.serviceEndpoints).toEqual([refreshed]);
+    expect(sandbox.serviceEndpoints).toEqual([refreshed]);
+
+    const clearing: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          serviceEndpoints: [created],
+          status: "running",
+        };
+      },
+      async get(request) {
+        return {
+          sandboxId: request.sandboxId,
+          status: "completed",
+        };
+      },
+    };
+    const clearingSandbox = await createClient(clearing).run(["echo"], { waitUntilRunning: false });
+    const cleared = await clearingSandbox.inspect();
+    expect(cleared.serviceEndpoints).toBeUndefined();
+    expect(clearingSandbox.serviceEndpoints).toBeUndefined();
   });
 
   it("exposes dnsEgressNames from start and inspect", async () => {
@@ -380,7 +495,7 @@ describe("Sandbox", () => {
     expect(sandbox.dnsEgressNames).toEqual(["pypi.org"]);
   });
 
-  it("keeps last echoed dnsEgressNames when inspect omits them", async () => {
+  it("clears last echoed dnsEgressNames when inspect omits them", async () => {
     const transport: SandboxTransport = {
       ...createFakeTransport(),
       async start(request) {
@@ -402,8 +517,34 @@ describe("Sandbox", () => {
     const info = await sandbox.inspect();
 
     expect(info.dnsEgressNames).toBeUndefined();
-    expect(sandbox.dnsEgressNames).toEqual(["pypi.org"]);
+    expect(sandbox.dnsEgressNames).toBeUndefined();
     expect(sandbox.status).toBe("completed");
+  });
+
+  it("clears last echoed dnsEgressNames when inspect returns an empty list", async () => {
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          dnsEgressNames: ["pypi.org"],
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          status: "running",
+        };
+      },
+      async get(request) {
+        return {
+          dnsEgressNames: [],
+          sandboxId: request.sandboxId,
+          status: "completed",
+        };
+      },
+    };
+
+    const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
+    const info = await sandbox.inspect();
+
+    expect(info.dnsEgressNames).toEqual([]);
+    expect(sandbox.dnsEgressNames).toBeUndefined();
   });
 
   it("inspects fresh metadata and forwards request options", async () => {
@@ -452,6 +593,278 @@ describe("Sandbox", () => {
       { name: "http", port: 8000, url: "https://sandbox.example.com" },
     ]);
     expect(sandbox.exposedPorts).toEqual([{ name: "http", port: 8000, protocol: "tcp" }]);
+  });
+
+  it("retains TLS addresses when a live Get omits them", async () => {
+    const address = {
+      address: "8443-tls-id.example:443",
+      kind: "tls_passthrough" as const,
+      name: "tls",
+      port: 8443,
+    };
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          exposedPorts: [{ name: "tls", port: 8443, protocol: "tcp" }],
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          serviceAddresses: [address],
+          status: "creating",
+        };
+      },
+      async get(request) {
+        return {
+          exposedPorts: [{ name: "tls", port: 8443, protocol: "tcp" }],
+          sandboxId: request.sandboxId,
+          status: "running",
+        };
+      },
+    };
+
+    const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
+    expect(sandbox.serviceAddresses).toEqual([address]);
+
+    const info = await sandbox.inspect();
+    expect(info.serviceAddresses).toEqual([address]);
+    expect(sandbox.serviceAddresses).toEqual([address]);
+    expect(sandbox.status).toBe("running");
+  });
+
+  it("handle retains TLS address when inspect Get is the mapped PREPARING SDK shape (creating, ports present, address omitted)", async () => {
+    const address = {
+      address: "8443-tls-id.example:443",
+      kind: "tls_passthrough" as const,
+      name: "tls",
+      port: 8443,
+    };
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          exposedPorts: [{ name: "tls", port: 8443, protocol: "tcp" }],
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          serviceAddresses: [address],
+          status: "creating",
+        };
+      },
+      async get(request) {
+        return {
+          exposedPorts: [{ name: "tls", port: 8443 }],
+          sandboxId: request.sandboxId,
+          status: "creating",
+        };
+      },
+    };
+
+    const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
+    const info = await sandbox.inspect();
+
+    expect(info.serviceAddresses).toEqual([address]);
+    expect(sandbox.serviceAddresses).toEqual([address]);
+    expect(sandbox.status).toBe("creating");
+  });
+
+  it("handle clears TLS address when mapped PREPARING inspect Get has no service rows", async () => {
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          exposedPorts: [{ name: "tls", port: 8443, protocol: "tcp" }],
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          serviceAddresses: [
+            {
+              address: "8443-tls-id.example:443",
+              kind: "tls_passthrough",
+              name: "tls",
+              port: 8443,
+            },
+          ],
+          status: "creating",
+        };
+      },
+      async get(request) {
+        return {
+          sandboxId: request.sandboxId,
+          status: "creating",
+        };
+      },
+    };
+
+    const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
+    const info = await sandbox.inspect();
+
+    expect(info.serviceAddresses).toBeUndefined();
+    expect(sandbox.serviceAddresses).toBeUndefined();
+  });
+
+  it("clears TLS addresses when inspect reaches a terminal status", async () => {
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          exposedPorts: [{ name: "tls", port: 8443, protocol: "tcp" }],
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          serviceAddresses: [
+            {
+              address: "8443-tls-id.example:443",
+              kind: "tls_passthrough",
+              name: "tls",
+              port: 8443,
+            },
+          ],
+          status: "running",
+        };
+      },
+      async get(request) {
+        return {
+          sandboxId: request.sandboxId,
+          status: "completed",
+        };
+      },
+    };
+
+    const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
+    const info = await sandbox.inspect();
+
+    expect(info.serviceAddresses).toBeUndefined();
+    expect(sandbox.serviceAddresses).toBeUndefined();
+  });
+
+  it("clears TLS addresses when inspect reaches paused", async () => {
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          exposedPorts: [{ name: "tls", port: 8443, protocol: "tcp" }],
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          serviceAddresses: [
+            {
+              address: "8443-tls-id.example:443",
+              kind: "tls_passthrough",
+              name: "tls",
+              port: 8443,
+            },
+          ],
+          status: "running",
+        };
+      },
+      async get(request) {
+        return {
+          exposedPorts: [{ name: "tls", port: 8443, protocol: "tcp" }],
+          sandboxId: request.sandboxId,
+          status: "paused",
+        };
+      },
+    };
+
+    const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
+    const info = await sandbox.inspect();
+
+    expect(info.serviceAddresses).toBeUndefined();
+    expect(sandbox.serviceAddresses).toBeUndefined();
+    expect(sandbox.status).toBe("paused");
+  });
+
+  it("clears TLS addresses when inspect reaches unspecified", async () => {
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          exposedPorts: [{ name: "tls", port: 8443, protocol: "tcp" }],
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          serviceAddresses: [
+            {
+              address: "8443-tls-id.example:443",
+              kind: "tls_passthrough",
+              name: "tls",
+              port: 8443,
+            },
+          ],
+          status: "running",
+        };
+      },
+      async get(request) {
+        return {
+          exposedPorts: [{ name: "tls", port: 8443, protocol: "tcp" }],
+          sandboxId: request.sandboxId,
+          status: "unspecified",
+        };
+      },
+    };
+
+    const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
+    const info = await sandbox.inspect();
+
+    expect(info.serviceAddresses).toBeUndefined();
+    expect(sandbox.serviceAddresses).toBeUndefined();
+    expect(sandbox.status).toBe("unspecified");
+  });
+
+  it("drops a cached TLS address when the service row is gone", async () => {
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          exposedPorts: [{ name: "tls", port: 8443, protocol: "tcp" }],
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          serviceAddresses: [
+            {
+              address: "8443-tls-id.example:443",
+              kind: "tls_passthrough",
+              name: "tls",
+              port: 8443,
+            },
+          ],
+          status: "running",
+        };
+      },
+      async get(request) {
+        return {
+          exposedPorts: [{ name: "http", port: 8000, protocol: "tcp" }],
+          sandboxId: request.sandboxId,
+          status: "running",
+        };
+      },
+    };
+
+    const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
+    await sandbox.inspect();
+    expect(sandbox.serviceAddresses).toBeUndefined();
+  });
+
+  it("does not inherit another handle TLS cache on fromId", async () => {
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          exposedPorts: [{ name: "tls", port: 8443, protocol: "tcp" }],
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          serviceAddresses: [
+            {
+              address: "8443-tls-id.example:443",
+              kind: "tls_passthrough",
+              name: "tls",
+              port: 8443,
+            },
+          ],
+          status: "running",
+        };
+      },
+      async get(request) {
+        return {
+          exposedPorts: [{ name: "tls", port: 8443, protocol: "tcp" }],
+          sandboxId: request.sandboxId,
+          status: "running",
+        };
+      },
+    };
+
+    const client = createClient(transport);
+    const created = await client.run(["echo"], { waitUntilRunning: false });
+    expect(created.serviceAddresses).toHaveLength(1);
+
+    const fetched = await client.fromId(created.sandboxId);
+    expect(fetched.serviceAddresses).toBeUndefined();
   });
 
   it("caches inspect exitCode including zero", async () => {

@@ -8,6 +8,28 @@ SPDX-PackageName: cwsandbox
 
 ## Unreleased
 
+## 0.5.0-beta.0
+
+- Add create-time TLS passthrough product endpoints (`endpoint.kind:
+"tls_passthrough"` on a PUBLIC service). `auth` and `requestTimeoutSeconds`
+  must be omitted. Create, Get, list, and `fromId` fill `serviceAddresses`
+  as `{ port, name, kind, address }` where `address` is `host:port`. Use the
+  host as TLS SNI; the workload owns certs. TLS stays off `serviceUrls`. On a
+  live handle, a later CREATING/RUNNING Get keeps a cached address per
+  `(port, name)` when that row is still present and Get omits the endpoint or
+  address. Any other status, including `paused` and `unspecified`, clears it.
+  Vendored v1 stubs are refreshed from BSR `183ca230…`
+  (`EndpointStatus.address`). Wire `STATE_PREPARING` maps to `creating`.
+- Wait and poll remap wire `unspecified` to `completed` before `onStatus`,
+  target matching, and completed-only exit-code grace. `inspect()`, `fromId()`,
+  and list stay `unspecified`.
+- Add `serviceEndpoints` (`HttpsEndpointStatus`) for HTTPS rows whose proto
+  `requestTimeoutSeconds` is greater than 0, including an empty `url`. Replace
+  the list on each Get like `serviceUrls`. Timeout rows stay off `serviceUrls`
+  unless a hostname was assigned.
+- Clear `dnsEgressNames` when Get omits them or echoes an empty list. Retain
+  `exposedPorts` when Get omits services or maps an empty list; a nonempty
+  mapped list replaces.
 - Add `dataPlaneMode` (`auto`, `direct`, or `gateway`) for sandbox exec, shell,
   logs, and file operations. `auto` prefers operation-scoped direct mTLS with a
   bounded gateway fallback; lifecycle and management calls remain on the API.

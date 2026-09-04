@@ -109,11 +109,15 @@ export type {
   Endpoint,
   EndpointAuth,
   EndpointKind,
+  HttpsEndpoint,
+  HttpsEndpointStatus,
   NetworkOptions,
   Service,
   ServiceProtocol,
   ServiceUrl,
   ServiceVisibility,
+  TlsPassthroughEndpoint,
+  TlsPassthroughEndpointStatus,
 } from "./public/network.js";
 export type {
   ResourceOptions,

@@ -12,10 +12,13 @@ import { isAdvancedResources } from "../../internal/resources.js";
 import { groupSecretsByStore, normalizeSecrets } from "../../internal/secrets.js";
 import type { Command, ProcessResult } from "../../public/commands.js";
 import type {
+  Endpoint,
+  HttpsEndpointStatus,
   NetworkOptions,
   Service,
   ServiceProtocol as SdkServiceProtocol,
   ServiceUrl,
+  TlsPassthroughEndpointStatus,
 } from "../../public/network.js";
 import type { ResourceOptions, ResourceSpec } from "../../public/resources.js";
 import type {
@@ -390,19 +393,26 @@ function toProtoServices(
       port: service.port,
       protocol: toProtoServiceProtocol(service.protocol),
       visibility: toProtoVisibility(service.visibility),
-      ...(service.endpoint === undefined
-        ? {}
-        : {
-            endpoint: {
-              auth: EndpointAuth.OPEN,
-              kind: EndpointKind.HTTPS,
-              ...(service.endpoint.requestTimeoutSeconds
-                ? { requestTimeoutSeconds: service.endpoint.requestTimeoutSeconds }
-                : {}),
-            },
-          }),
+      ...(service.endpoint === undefined ? {} : { endpoint: toProtoEndpoint(service.endpoint) }),
     }),
   );
+}
+
+function toProtoEndpoint(endpoint: Endpoint): {
+  auth?: EndpointAuth;
+  kind: EndpointKind;
+  requestTimeoutSeconds?: number;
+} {
+  if (endpoint.kind === "tls_passthrough") {
+    return { kind: EndpointKind.TLS_PASSTHROUGH };
+  }
+  return {
+    auth: EndpointAuth.OPEN,
+    kind: EndpointKind.HTTPS,
+    ...(endpoint.requestTimeoutSeconds
+      ? { requestTimeoutSeconds: endpoint.requestTimeoutSeconds }
+      : {}),
+  };
 }
 
 function toProtoServiceProtocol(protocol: string | undefined): ServiceProtocol {
@@ -564,6 +574,8 @@ export function toSdkSandboxInfo(sandbox: ProtoSandboxMessage): SandboxInfo {
 function toSdkSandboxMetadata(sandbox: ProtoSandboxMessage): StartSandboxResult {
   const status = sandbox.status;
   const exposedPorts = toSdkExposedPorts(status?.services);
+  const serviceAddresses = toSdkServiceAddresses(status?.services);
+  const serviceEndpoints = toSdkServiceEndpoints(status?.services);
   const serviceUrls = toSdkServiceUrls(status?.services);
   const resourceLimits = toSdkResourceSpec(
     status?.effectiveResourceRequirements?.limits ?? status?.effectiveResources,
@@ -587,6 +599,8 @@ function toSdkSandboxMetadata(sandbox: ProtoSandboxMessage): StartSandboxResult 
       ? {}
       : { runnerId: status.runnerId }),
     sandboxId: sandbox.sandboxId,
+    ...(serviceAddresses === undefined ? {} : { serviceAddresses }),
+    ...(serviceEndpoints === undefined ? {} : { serviceEndpoints }),
     ...(serviceUrls === undefined ? {} : { serviceUrls }),
     ...(startedAt === undefined ? {} : { startedAt }),
     ...(status === undefined ? {} : { status: toSdkSandboxStatus(status.state) }),
@@ -622,11 +636,71 @@ function toSdkServiceUrls(
   }
 
   const urls = services.flatMap((service) => {
+    if (service.endpoint?.kind === EndpointKind.TLS_PASSTHROUGH) {
+      return [];
+    }
     const url = service.url || service.endpoint?.url || "";
     return url === "" ? [] : [{ name: service.name, port: service.port, url }];
   });
 
   return urls.length === 0 ? undefined : urls;
+}
+
+function toSdkServiceEndpoints(
+  services: readonly ProtoServiceStatus[] | undefined,
+): readonly HttpsEndpointStatus[] | undefined {
+  if (services === undefined || services.length === 0) {
+    return undefined;
+  }
+
+  const endpoints = services.flatMap((service) => {
+    if (service.endpoint?.kind !== EndpointKind.HTTPS) {
+      return [];
+    }
+    const requestTimeoutSeconds = service.endpoint.requestTimeoutSeconds;
+    if (requestTimeoutSeconds <= 0) {
+      return [];
+    }
+    return [
+      {
+        auth: "open" as const,
+        kind: "https" as const,
+        name: service.name,
+        port: service.port,
+        requestTimeoutSeconds,
+        url: service.endpoint.url,
+      },
+    ];
+  });
+
+  return endpoints.length === 0 ? undefined : endpoints;
+}
+
+function toSdkServiceAddresses(
+  services: readonly ProtoServiceStatus[] | undefined,
+): readonly TlsPassthroughEndpointStatus[] | undefined {
+  if (services === undefined || services.length === 0) {
+    return undefined;
+  }
+
+  const addresses = services.flatMap((service) => {
+    if (service.endpoint?.kind !== EndpointKind.TLS_PASSTHROUGH) {
+      return [];
+    }
+    const address = service.endpoint.address;
+    return address === ""
+      ? []
+      : [
+          {
+            address,
+            kind: "tls_passthrough" as const,
+            name: service.name,
+            port: service.port,
+          },
+        ];
+  });
+
+  return addresses.length === 0 ? undefined : addresses;
 }
 
 function toSdkExposedPorts(
@@ -693,6 +767,7 @@ export function toSdkSandboxStatus(status: State): SandboxStatus {
   switch (status) {
     case State.PENDING:
       return "pending";
+    case State.PREPARING:
     case State.CREATING:
       return "creating";
     case State.RUNNING:

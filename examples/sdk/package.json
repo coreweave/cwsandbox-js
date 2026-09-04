@@ -26,6 +26,7 @@
     "file-system-snapshots": "tsx file-system-snapshots.ts",
     "run-from-template": "tsx run-from-template.ts",
     "https-endpoint": "tsx https-endpoint.ts",
+    "tls-passthrough": "tsx tls-passthrough.ts",
     "typecheck": "tsc --noEmit --project tsconfig.json"
   },
   "dependencies": {
@@ -33,7 +34,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
-    "tsx": "^4.23.12",
+    "tsx": "^4.23.13",
     "typescript": "^7.0.2"
   }
 }
