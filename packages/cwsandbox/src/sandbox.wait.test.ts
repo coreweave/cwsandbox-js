@@ -251,9 +251,12 @@ describe("Sandbox status and wait", () => {
   });
 
   it("remaps polled unspecified to completed on default wait", async () => {
-    const sandbox = await createClient(createFakeTransport(["unspecified"])).run(["echo", "hello"], {
-      waitUntilRunning: false,
-    });
+    const sandbox = await createClient(createFakeTransport(["unspecified"])).run(
+      ["echo", "hello"],
+      {
+        waitUntilRunning: false,
+      },
+    );
 
     await expect(sandbox.wait(fastWait({ timeoutMs: 100 }))).resolves.toBe(sandbox);
     expect(sandbox.status).toBe("completed");
