@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
+import "reflect-metadata";
 import { createHash, webcrypto } from "node:crypto";
 
 import { ChannelCredentials, Client } from "@grpc/grpc-js";

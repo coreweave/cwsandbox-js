@@ -60,18 +60,19 @@
   },
   "dependencies": {
     "@grpc/grpc-js": "^1.14.4",
-    "@peculiar/x509": "^1.14.3",
+    "@peculiar/x509": "^2.0.0",
     "@protobuf-ts/grpc-transport": "^2.11.1",
     "@protobuf-ts/runtime": "^2.11.1",
-    "@protobuf-ts/runtime-rpc": "^2.11.1"
+    "@protobuf-ts/runtime-rpc": "^2.11.1",
+    "reflect-metadata": "^0.2.2"
   },
   "devDependencies": {
     "@bufbuild/buf": "^1.72.0",
     "@types/node": "^22.20.1",
     "tsdown": "^0.22.14",
-    "tsx": "^4.23.12",
+    "tsx": "^4.23.13",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.11"
+    "vitest": "^5.0.0"
   },
   "engines": {
     "node": ">=22"
