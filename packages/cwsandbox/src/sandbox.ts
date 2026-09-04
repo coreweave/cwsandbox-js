@@ -274,13 +274,22 @@ export class Sandbox implements PublicSandbox {
 
   private updateMetadata(metadata: SandboxMetadata): void {
     const serviceAddresses = mergeServiceAddresses(this.metadata, metadata);
+    const exposedPorts = mergeExposedPorts(this.metadata.exposedPorts, metadata.exposedPorts);
     const { serviceAddresses: _ignored, ...metadataWithoutAddresses } = metadata;
+    const previousClone = cloneMetadata(this.metadata);
+    const incomingClone = cloneMetadata(metadata);
+    const { dnsEgressNames: _previousDns, ...previousWithoutDns } = previousClone;
+    const { dnsEgressNames: incomingDns, ...incomingWithoutDns } = incomingClone;
     this.metadata = {
-      ...cloneMetadata(this.metadata),
-      ...cloneMetadata(metadata),
+      ...previousWithoutDns,
+      ...incomingWithoutDns,
       sandboxId: this.sandboxId,
       ...cloneServiceDerivedFields(metadataWithoutAddresses),
+      ...(exposedPorts === undefined ? {} : { exposedPorts }),
       ...(serviceAddresses === undefined ? {} : { serviceAddresses }),
+      ...(incomingDns !== undefined && incomingDns.length > 0
+        ? { dnsEgressNames: [...incomingDns] }
+        : {}),
     };
   }
 }
@@ -375,6 +384,16 @@ function cloneServiceEndpoints(
   endpoints: readonly HttpsEndpointStatus[] | undefined,
 ): readonly HttpsEndpointStatus[] | undefined {
   return endpoints === undefined ? undefined : endpoints.map((service) => ({ ...service }));
+}
+
+function mergeExposedPorts(
+  previous: readonly SandboxExposedPort[] | undefined,
+  incoming: readonly SandboxExposedPort[] | undefined,
+): readonly SandboxExposedPort[] | undefined {
+  if (incoming !== undefined && incoming.length > 0) {
+    return cloneExposedPorts(incoming);
+  }
+  return cloneExposedPorts(previous);
 }
 
 function cloneServiceAddresses(
