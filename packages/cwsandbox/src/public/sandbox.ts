@@ -42,6 +42,12 @@ export type SandboxStatus =
   | "terminated"
   | "unspecified";
 
+/** Document type for `runFromFile`. Compose is pull-only. */
+export type SandboxFileType = "compose";
+
+/** Filesystem path (`string`) or raw file bytes. A string is always a path. */
+export type SandboxFileContents = string | Uint8Array;
+
 export type WaitTargetStatus = "completed" | "paused" | "running" | "terminal";
 
 export interface WaitOptions extends RequestOptions {
@@ -264,6 +270,48 @@ export interface SandboxRunFromTemplateOptions extends RequestOptions, DataPlane
    * Non-empty input replaces the complete list. Empty `[]` means inherit,
    * not clear.
    */
+  readonly tags?: readonly SandboxTag[];
+  /**
+   * Wait for the sandbox to reach `running` before resolving creation helpers.
+   *
+   * Defaults to `true`. Set to `false` only when you need a handle as soon as
+   * the backend accepts the start request.
+   */
+  readonly waitUntilRunning?: boolean;
+}
+
+/**
+ * Options for `runFromFile`. Volumes, published services, secrets, mounted
+ * files, and container/image overlays are not fields here; those callers use
+ * `create` / `run`.
+ */
+export interface SandboxRunFromFileOptions extends RequestOptions, DataPlaneOptions {
+  /**
+   * Compose service that is the sandbox primary. Required. Must name a
+   * service in `contents`.
+   */
+  readonly primaryService: string;
+  /** Document type. Defaults to `"compose"`. */
+  readonly fileType?: SandboxFileType;
+  /**
+   * Per-service pullable image refs. Keys must be services in `contents`.
+   * Use this when a service would otherwise need a build.
+   */
+  readonly imageOverrides?: Readonly<Record<string, string>>;
+  /**
+   * CPU and memory copied onto each service that omitted deploy resources.
+   * Per container, not a project budget. GPU is not supported.
+   */
+  readonly defaultResources?: ResourceOptions;
+  readonly annotations?: SandboxAnnotations;
+  readonly maxLifetimeSeconds?: Seconds;
+  readonly network?: NetworkOptions;
+  readonly objectStorageAccess?: SandboxObjectStorageAccess;
+  /**
+   * Non-empty input pins CKS runners. There is no `placementMode` option;
+   * CKS placement is only via non-empty `runnerIds`.
+   */
+  readonly runnerIds?: readonly string[];
   readonly tags?: readonly SandboxTag[];
   /**
    * Wait for the sandbox to reach `running` before resolving creation helpers.

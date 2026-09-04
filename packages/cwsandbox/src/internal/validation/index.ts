@@ -12,12 +12,15 @@ import type {
   DeleteSnapshotOptions,
   ListSandboxesOptions,
   ListSnapshotsOptions,
+  SandboxFileContents,
+  SandboxRunFromFileOptions,
   SandboxRunFromTemplateOptions,
   SandboxRunOptions,
   StopOptions,
   WaitOptions,
 } from "../../public/sandbox.js";
 import { normalizeCommand } from "../commands.js";
+import { validateFromFileContentsInput } from "../from-file-contents.js";
 import { validateMountedFiles } from "../mounted-files.js";
 import { validateNetworkOptions } from "../network.js";
 import { validateResources } from "../resources.js";
@@ -137,6 +140,124 @@ export function validateSandboxRunFromTemplateOptions(
   validateTags(options.tags);
   validateOptionalBoolean(options.waitUntilRunning, "waitUntilRunning");
   validateDataPlaneMode(options.dataPlaneMode);
+}
+
+const FROM_FILE_UNSUPPORTED_KEYS = [
+  "buildContexts",
+  "command",
+  "containerImage",
+  "containers",
+  "environmentVariables",
+  "fileSystemSnapshot",
+  "imagePullCredentials",
+  "instanceType",
+  "mountedFiles",
+  "networkIds",
+  "resources",
+  "runtimeClass",
+  "secrets",
+  "securityContext",
+  "services",
+  "templateId",
+  "volumes",
+  "workingDir",
+] as const;
+
+export function validateSandboxRunFromFileOptions(
+  contents: SandboxFileContents,
+  options: SandboxRunFromFileOptions,
+): void {
+  validateFromFileContentsInput(contents);
+  if (!isPlainRecordValue(options)) {
+    throw new CWSandboxValidationError("options must be an object");
+  }
+  rejectUnsupportedFromFileKeys(options);
+  rejectRemovedKeys(options, REMOVED_CREATE_KEYS);
+  if (options.network !== undefined) {
+    rejectRemovedKeys(options.network, ["egressMode", "exposedPorts", "ingressMode"]);
+  }
+  validateFromFileOptionShapes(options);
+  if (typeof options.primaryService !== "string" || options.primaryService.trim() === "") {
+    throw new CWSandboxValidationError("primaryService must not be empty.");
+  }
+  if (options.fileType !== undefined && options.fileType !== "compose") {
+    throw new CWSandboxValidationError('fileType must be "compose".');
+  }
+  validateRequestOptions(options);
+  validateAnnotations(options.annotations);
+  validateNonNegativeFinite(options.maxLifetimeSeconds, "maxLifetimeSeconds");
+  validateObjectStorageAccess(options.objectStorageAccess);
+  validateNetworkOptions(undefined, options.network);
+  rejectGpuResources(options.defaultResources, "defaultResources");
+  validateResources(options.defaultResources);
+  validateUniqueStringList(options.runnerIds, "runnerIds");
+  validateTags(options.tags);
+  validateOptionalBoolean(options.waitUntilRunning, "waitUntilRunning");
+  validateDataPlaneMode(options.dataPlaneMode);
+}
+
+function rejectUnsupportedFromFileKeys(options: object): void {
+  const record = options as Record<string, unknown>;
+  for (const key of FROM_FILE_UNSUPPORTED_KEYS) {
+    if (record[key] !== undefined) {
+      throw new CWSandboxValidationError(`${key} is not supported with from-file sandboxes.`);
+    }
+  }
+}
+
+function validateFromFileOptionShapes(options: SandboxRunFromFileOptions): void {
+  requirePlainRecordIfPresent(options.annotations, "annotations");
+  requirePlainRecordIfPresent(options.imageOverrides, "imageOverrides");
+  requirePlainRecordIfPresent(options.network, "network");
+  requirePlainRecordIfPresent(options.objectStorageAccess, "objectStorageAccess");
+  requirePlainRecordIfPresent(options.defaultResources, "defaultResources");
+  requireArrayIfPresent(options.runnerIds, "runnerIds");
+  requireArrayIfPresent(options.tags, "tags");
+  requireStringIfPresent(options.primaryService, "primaryService");
+  requireStringIfPresent(options.fileType, "fileType");
+
+  if (options.imageOverrides !== undefined) {
+    for (const [key, value] of Object.entries(options.imageOverrides)) {
+      if (key === "") {
+        throw new CWSandboxValidationError("imageOverrides must not contain empty keys");
+      }
+      if (typeof value !== "string" || value === "") {
+        throw new CWSandboxValidationError(`imageOverrides["${key}"] must be a non-empty string`);
+      }
+    }
+  }
+
+  if (options.defaultResources !== undefined) {
+    const resources = options.defaultResources as Record<string, unknown>;
+    requireStringIfPresent(resources["cpu"], "defaultResources.cpu");
+    requireStringIfPresent(resources["memory"], "defaultResources.memory");
+    if (resources["requests"] !== undefined) {
+      requirePlainRecord(resources["requests"], "defaultResources.requests");
+      requireStringIfPresent(resources["requests"]["cpu"], "defaultResources.requests.cpu");
+      requireStringIfPresent(resources["requests"]["memory"], "defaultResources.requests.memory");
+    }
+    if (resources["limits"] !== undefined) {
+      requirePlainRecord(resources["limits"], "defaultResources.limits");
+      requireStringIfPresent(resources["limits"]["cpu"], "defaultResources.limits.cpu");
+      requireStringIfPresent(resources["limits"]["memory"], "defaultResources.limits.memory");
+    }
+  }
+}
+
+function rejectGpuResources(resources: unknown, field: string): void {
+  if (resources === undefined || resources === null || typeof resources !== "object") {
+    return;
+  }
+  const record = resources as Record<string, unknown>;
+  if (record["gpu"] !== undefined) {
+    throw new CWSandboxValidationError(`${field} must not set GPU`);
+  }
+  if (record["requests"] !== undefined) {
+    rejectGpuResources(record["requests"], `${field}.requests`);
+  }
+  if (record["limits"] !== undefined) {
+    rejectGpuResources(record["limits"], `${field}.limits`);
+  }
 }
 
 export function validateDataPlaneMode(mode: DataPlaneMode | undefined): void {

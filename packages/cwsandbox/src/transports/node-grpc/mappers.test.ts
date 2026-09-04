@@ -11,6 +11,7 @@ import {
   FileSystemSnapshot,
   PartialSandboxSpec,
   Sandbox as ProtoSandbox,
+  SandboxFileType,
   SandboxMode,
   ServiceProtocol,
   SnapshotState,
@@ -24,6 +25,7 @@ import { Timestamp } from "./generated/google/protobuf/timestamp.js";
 import {
   DEFAULT_CONTAINER_IMAGE,
   timeoutMsToSeconds,
+  toProtoCreateFromFileRequest,
   toProtoCreateFromTemplateRequest,
   toProtoCreateRequest,
   toProtoExecRequest,
@@ -970,6 +972,72 @@ describe("node transport mappers", () => {
       expect(withoutRunners.overrides?.mode).toBe(SandboxMode.UNSPECIFIED);
       expect(overrideFieldNumbers(withoutRunners)).not.toContain(9);
       expect(overrideFieldNumbers(withoutRunners)).not.toContain(14);
+    });
+  });
+
+  describe("create from file requests", () => {
+    const compose = textEncoder.encode("services:\n  main:\n    image: python:3.11\n  \n");
+
+    it("maps the v1 request shape and leaves contents unnormalized", () => {
+      const request = toProtoCreateFromFileRequest({
+        contents: compose,
+        defaultResources: {
+          limits: { cpu: "1", memory: "256Mi" },
+          requests: { cpu: "1", memory: "256Mi" },
+        },
+        imageOverrides: { api: "python:3.12" },
+        primaryService: "main",
+        runnerIds: ["runner-1"],
+        tags: ["from-file"],
+      });
+
+      expect(request.type).toBe(SandboxFileType.COMPOSE);
+      expect(request.contents).toEqual(compose);
+      expect(request.primaryService).toBe("main");
+      expect(request.imageOverrides).toEqual({ api: "python:3.12" });
+      expect(request.defaultResources?.requests).toMatchObject({ cpu: "1", memory: "256Mi" });
+      expect(request.defaultResources?.requests?.gpu).toBeUndefined();
+      expect(request.defaultResources?.limits).toMatchObject({ cpu: "1", memory: "256Mi" });
+      expect(request.mode).toBe(SandboxMode.CKS);
+      expect(request.runnerIds).toEqual(["runner-1"]);
+      expect(request.tags).toEqual(["from-file"]);
+      expect(request.requestId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+      );
+      expect(request.networkIds).toEqual([]);
+      expect(request.buildContexts).toEqual({});
+    });
+
+    it("omits default resources, image overrides, and CKS mode when unset", () => {
+      const request = toProtoCreateFromFileRequest({
+        contents: compose,
+        primaryService: "main",
+      });
+
+      expect(request.type).toBe(SandboxFileType.COMPOSE);
+      expect(request.defaultResources).toBeUndefined();
+      expect(request.imageOverrides).toEqual({});
+      expect(request.mode).toBe(SandboxMode.UNSPECIFIED);
+      expect(request.runnerIds).toEqual([]);
+    });
+
+    it("maps network and object-storage fields", () => {
+      const request = toProtoCreateFromFileRequest({
+        annotations: { team: "platform" },
+        contents: compose,
+        maxLifetimeSeconds: 600,
+        network: { denyEgress: true },
+        objectStorageAccess: {
+          buckets: ["example-bucket"],
+          permission: "read",
+        },
+        primaryService: "main",
+      });
+
+      expect(request.annotations).toEqual({ team: "platform" });
+      expect(request.maxLifetimeSeconds).toBe(600);
+      expect(request.network?.denyEgress).toBe(true);
+      expect(request.objectStorageAccess?.buckets).toEqual(["example-bucket"]);
     });
   });
 

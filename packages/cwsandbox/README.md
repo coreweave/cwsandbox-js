@@ -16,6 +16,7 @@ TypeScript SDK for CoreWeave Sandbox.
 > `network.denyIngress`, `network.egress`, `runnerIds`, and `showTerminated`.
 > Profiles, `ports`, and `includeStopped` are not part of this API. Use
 > `runFromTemplate` / `withSandboxFromTemplate` for organization templates.
+> Use `runFromFile` / `withSandboxFromFile` for Compose files.
 
 For platform concepts and product guides, see the
 [CoreWeave Sandbox documentation](https://docs.coreweave.com/products/coreweave-sandbox/client).
@@ -196,7 +197,7 @@ try {
 
 Set a client-wide default with
 `createSandboxClient({ apiKey, dataPlaneMode: "gateway" })`, or set the mode on
-`create`, `run`, `runFromTemplate`, `fromId`, or `listSandboxes`. Per-sandbox
+`create`, `run`, `runFromTemplate`, `runFromFile`, `fromId`, or `listSandboxes`. Per-sandbox
 options override the client default. Direct credentials are requested lazily,
 kept in memory, scoped to one sandbox and operation, and expire with the
 server-issued certificate. Direct calls do not send the API bearer token.
@@ -285,8 +286,9 @@ const result = await sandbox.commands.run(["python", "-c", "print('hello')"]);
 console.log(result.stdout);
 ```
 
-`client.create()`, `client.run(...)`, `client.runFromTemplate(...)`, `client.withSandbox(...)`,
-and `client.withSandboxFromTemplate(...)` wait for the sandbox to reach
+`client.create()`, `client.run(...)`, `client.runFromTemplate(...)`, `client.runFromFile(...)`,
+`client.withSandbox(...)`, `client.withSandboxFromTemplate(...)`, and
+`client.withSandboxFromFile(...)` wait for the sandbox to reach
 `running` by default, so the returned sandbox is safe for exec, file, and log operations. This is
 sandbox lifecycle readiness, not application readiness: if your main process starts an HTTP server
 or performs setup, wait for that app-specific condition with commands, logs, files, or services.
@@ -936,6 +938,45 @@ await using replaced = await client.runFromTemplate("template-id", {
 });
 await replaced.inspect();
 console.log(inherited, replaced.sandboxId);
+```
+
+## Compose Files
+
+`runFromFile(contents, options)` starts a sandbox from Compose YAML. `contents`
+is a filesystem path or raw file bytes. A string is always opened as a path;
+encode Compose text with `new TextEncoder().encode(...)`. Bytes are sent as-is,
+so whitespace is part of the request. The file is capped at 256 KiB.
+
+`primaryService` is required and must name a service in the file. Optional
+`imageOverrides` and CPU/memory `defaultResources` apply per service. Images
+must already be pullable; leftover `build:` is not supported. Volumes,
+published services, secrets, mounted files, and container overlays stay on
+`create` / `run`.
+
+Wait for `running` as usual. If creation is accepted but the readiness wait
+rejects, the SDK best-effort stops the sandbox. `waitUntilRunning: false`
+returns immediately after accept with no automatic cleanup.
+
+Prefer `withSandboxFromFile` for short-lived work:
+
+```ts
+const contents = new TextEncoder().encode(`services:
+  main:
+    image: docker.io/library/ubuntu:22.04
+    command: ["sleep", "3600"]
+`);
+
+await client.withSandboxFromFile(
+  contents,
+  async (sandbox) => {
+    const result = await sandbox.commands.run(["uname", "-s"]);
+    console.log(result.stdout);
+  },
+  {
+    primaryService: "main",
+    tags: ["example"],
+  },
+);
 ```
 
 ## Reconnect, List, And Delete

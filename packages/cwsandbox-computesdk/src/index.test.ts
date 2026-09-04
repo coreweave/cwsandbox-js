@@ -575,6 +575,12 @@ function createTrackingClient(options: TrackingClientOptions = {}): TrackingClie
     async withSandboxFromTemplate() {
       throw new Error("withSandboxFromTemplate not used in these tests.");
     },
+    async runFromFile() {
+      throw new Error("runFromFile not used in these tests.");
+    },
+    async withSandboxFromFile() {
+      throw new Error("withSandboxFromFile not used in these tests.");
+    },
   };
 
   return {

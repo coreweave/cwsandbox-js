@@ -32,6 +32,7 @@ import type {
   GetSandboxRequest,
   StartCommandRequest,
   StartShellRequest,
+  StartSandboxFromFileRequest,
   StartSandboxFromTemplateRequest,
   StartSandboxRequest,
   StopSandboxRequest,
@@ -49,6 +50,7 @@ interface TransportCalls {
   readonly get: GetSandboxRequest[];
   readonly list: ListSandboxesOptions[];
   readonly start: StartSandboxRequest[];
+  readonly startFromFile: StartSandboxFromFileRequest[];
   readonly startFromTemplate: StartSandboxFromTemplateRequest[];
   readonly startCommand: StartCommandRequest[];
   readonly startShell: StartShellRequest[];
@@ -110,6 +112,29 @@ describe("SandboxTransport contract", () => {
     });
     expect(expectSingle(calls.startFromTemplate)).not.toHaveProperty("waitUntilRunning");
     expect(sandbox.sandboxId).toBe(`sandbox-for-template-${templateId}`);
+  });
+
+  it("routes runFromFile through startFromFile with raw file bytes", async () => {
+    const { calls, transport, fileAdapter } = createContractTransport();
+    const client = new SandboxClient({ fileAdapter, transport });
+    const contents = new TextEncoder().encode("services:\n  main:\n    image: python:3.11\n  \n");
+
+    const sandbox = await client.runFromFile(contents, {
+      imageOverrides: { api: "python:3.12" },
+      primaryService: "main",
+      waitUntilRunning: false,
+    });
+
+    expect(calls.start).toEqual([]);
+    expect(calls.startFromTemplate).toEqual([]);
+    expect(expectSingle(calls.startFromFile)).toMatchObject({
+      contents,
+      fileType: "compose",
+      imageOverrides: { api: "python:3.12" },
+      primaryService: "main",
+    });
+    expect(expectSingle(calls.startFromFile)).not.toHaveProperty("waitUntilRunning");
+    expect(sandbox.sandboxId).toBe("sandbox-from-file");
   });
 
   it("attaches sandbox ids and normalized payloads for sandbox operations", async () => {
@@ -186,6 +211,7 @@ function createContractTransport(): {
     get: [],
     list: [],
     start: [],
+    startFromFile: [],
     startFromTemplate: [],
     startCommand: [],
     startShell: [],
@@ -258,6 +284,13 @@ function createContractTransport(): {
         calls.startFromTemplate.push(request);
         return {
           sandboxId: `sandbox-for-template-${request.templateId}`,
+          status: "running",
+        };
+      },
+      async startFromFile(request) {
+        calls.startFromFile.push(request);
+        return {
+          sandboxId: "sandbox-from-file",
           status: "running",
         };
       },

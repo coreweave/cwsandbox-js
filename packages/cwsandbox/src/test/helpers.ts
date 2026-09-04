@@ -202,6 +202,12 @@ export function createFakeTransport(
         status: "running",
       };
     },
+    async startFromFile() {
+      return {
+        sandboxId: "sandbox-from-file",
+        status: "running",
+      };
+    },
     async get(request) {
       if (stopped) {
         return {

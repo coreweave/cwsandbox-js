@@ -18,6 +18,8 @@ import type {
   Sandbox,
   SandboxId,
   SandboxListOptions,
+  SandboxFileContents,
+  SandboxRunFromFileOptions,
   SandboxRunFromTemplateOptions,
   SandboxRunOptions,
 } from "./sandbox.js";
@@ -86,5 +88,40 @@ export interface SandboxClient {
     templateId: string,
     callback: WithSandboxCallback<TResult>,
     options?: SandboxRunFromTemplateOptions,
+  ): Promise<TResult>;
+  /**
+   * Starts from a Compose file. `contents` is a filesystem path (`string`) or
+   * raw file bytes (`Uint8Array`). A string is always opened as a path;
+   * encode Compose text with `new TextEncoder().encode(...)`. Bytes are sent
+   * as-is, so whitespace is part of the request. The file is capped at 256 KiB.
+   *
+   * Compose is pull-only. Images must already be pullable or supplied in
+   * `imageOverrides`. Leftover `build:` is not implemented.
+   * `primaryService` is required and must name a service in the file.
+   *
+   * This surface does not accept volumes, published services, secrets,
+   * mounted files, or container/image overlays. Use `create` / `run` for
+   * those. CPU and memory may be set with `defaultResources` (no GPU).
+   *
+   * If creation returns an accepted sandbox but the readiness wait rejects, the
+   * SDK best-effort stops it and rethrows the original readiness error.
+   * `waitUntilRunning: false` returns immediately after accept with no
+   * automatic cleanup.
+   */
+  runFromFile(contents: SandboxFileContents, options: SandboxRunFromFileOptions): Promise<Sandbox>;
+  /**
+   * Starts from a Compose file and always stops the sandbox after the callback
+   * returns or throws. A callback error is rethrown; a cleanup failure after a
+   * successful callback is thrown; a cleanup failure after a callback or
+   * readiness error does not replace that error.
+   *
+   * Overlay semantics match `runFromFile`. The helper accepts the sandbox
+   * first, then waits (unless `waitUntilRunning: false`) before the callback so
+   * a readiness failure still `stop`s and the callback is not run.
+   */
+  withSandboxFromFile<TResult>(
+    contents: SandboxFileContents,
+    callback: WithSandboxCallback<TResult>,
+    options: SandboxRunFromFileOptions,
   ): Promise<TResult>;
 }

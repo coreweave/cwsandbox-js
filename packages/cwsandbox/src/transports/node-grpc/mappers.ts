@@ -37,11 +37,13 @@ import type {
 } from "../../public/sandbox.js";
 import type {
   ExecRequest,
+  StartSandboxFromFileRequest,
   StartSandboxFromTemplateRequest,
   StartSandboxRequest,
 } from "../../transport/types.js";
 import {
   Container,
+  CreateSandboxFromFileRequest,
   CreateSandboxFromTemplateRequest,
   CreateSandboxRequest,
   DeleteSandboxRequest,
@@ -58,6 +60,7 @@ import {
   ResourceRequirements,
   Resources,
   Sandbox as ProtoSandbox,
+  SandboxFileType,
   SandboxMode,
   SandboxSpec,
   SandboxVolume,
@@ -116,6 +119,36 @@ export function toProtoCreateRequest(request: StartSandboxRequest): CreateSandbo
         ...(volumes === undefined ? {} : { volumes }),
       }),
     }),
+  });
+}
+
+export function toProtoCreateFromFileRequest(
+  request: StartSandboxFromFileRequest,
+): CreateSandboxFromFileRequest {
+  const runnerIds = [...(request.runnerIds ?? [])];
+  const network = toProtoNetwork(request.network);
+  const objectStorageAccess = toProtoObjectStorageAccess(request.objectStorageAccess);
+  const defaultResources = toProtoResourceRequirements(request.defaultResources);
+  const imageOverrides =
+    request.imageOverrides !== undefined && Object.keys(request.imageOverrides).length > 0
+      ? { ...request.imageOverrides }
+      : undefined;
+
+  return CreateSandboxFromFileRequest.create({
+    requestId: randomUUID(),
+    type: SandboxFileType.COMPOSE,
+    contents: request.contents,
+    primaryService: request.primaryService,
+    ...(imageOverrides === undefined ? {} : { imageOverrides }),
+    ...(defaultResources === undefined ? {} : { defaultResources }),
+    ...(request.maxLifetimeSeconds === undefined
+      ? {}
+      : { maxLifetimeSeconds: request.maxLifetimeSeconds }),
+    ...(network === undefined ? {} : { network }),
+    ...(objectStorageAccess === undefined ? {} : { objectStorageAccess }),
+    annotations: { ...request.annotations },
+    tags: [...(request.tags ?? [])],
+    ...(runnerIds.length === 0 ? {} : { mode: SandboxMode.CKS, runnerIds }),
   });
 }
 

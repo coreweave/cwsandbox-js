@@ -57,6 +57,9 @@ import {
   type SandboxMetadata,
   type SandboxObjectStorageAccess,
   type SandboxResourceSpec,
+  type SandboxFileContents,
+  type SandboxFileType,
+  type SandboxRunFromFileOptions,
   type SandboxRunFromTemplateOptions,
   type SandboxRunOptions,
   type SandboxStatus,
@@ -161,6 +164,50 @@ test("public API types", async () => {
   >();
   // @ts-expect-error positional command is not part of runFromTemplate
   void client.runFromTemplate("template-id", ["/bin/sh"]);
+  const composeBytes: SandboxFileContents = new TextEncoder().encode(
+    "services:\n  main:\n    image: python:3.11\n",
+  );
+  const sandboxFileType: SandboxFileType = "compose";
+  const sandboxRunFromFileOptions: SandboxRunFromFileOptions = {
+    defaultResources: { cpu: "500m", memory: "256Mi" },
+    fileType: sandboxFileType,
+    imageOverrides: { api: "python:3.12" },
+    objectStorageAccess: {
+      buckets: ["example-bucket"],
+      permission: "read",
+    },
+    primaryService: "main",
+  };
+  expectTypeOf(client.runFromFile(composeBytes, sandboxRunFromFileOptions)).toEqualTypeOf<
+    ReturnType<SandboxClient["runFromFile"]>
+  >();
+  expectTypeOf(client.runFromFile("./docker-compose.yaml", { primaryService: "main" })).toEqualTypeOf<
+    ReturnType<SandboxClient["runFromFile"]>
+  >();
+  expectTypeOf(
+    client.withSandboxFromFile(composeBytes, async (sandbox) => sandbox.sandboxId, {
+      primaryService: "main",
+    }),
+  ).toEqualTypeOf<Promise<string>>();
+  void client.runFromFile(composeBytes, {
+    // @ts-expect-error volumes are not part of runFromFile
+    volumes: [{ mountPath: "/workspace", name: "workspace" }],
+    primaryService: "main",
+  });
+  void client.runFromFile(composeBytes, {
+    // @ts-expect-error services are not part of runFromFile
+    services: [{ port: 8080 }],
+    primaryService: "main",
+  });
+  void client.runFromFile(composeBytes, {
+    // @ts-expect-error buildContexts are not part of runFromFile
+    buildContexts: { main: new Uint8Array() },
+    primaryService: "main",
+  });
+  // @ts-expect-error primaryService is required
+  void client.runFromFile(composeBytes, {});
+  // @ts-expect-error unspecified is not a supported file type
+  void client.runFromFile(composeBytes, { fileType: "unspecified", primaryService: "main" });
   expectTypeOf<SandboxMetadata>().not.toHaveProperty("sourceTemplateId");
   expectTypeOf<SandboxMetadata>().not.toHaveProperty("sourceTemplateRevision");
   expectTypeOf<Sandbox>().not.toHaveProperty("sourceTemplateId");
