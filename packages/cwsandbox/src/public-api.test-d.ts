@@ -181,9 +181,9 @@ test("public API types", async () => {
   expectTypeOf(client.runFromFile(composeBytes, sandboxRunFromFileOptions)).toEqualTypeOf<
     ReturnType<SandboxClient["runFromFile"]>
   >();
-  expectTypeOf(client.runFromFile("./docker-compose.yaml", { primaryService: "main" })).toEqualTypeOf<
-    ReturnType<SandboxClient["runFromFile"]>
-  >();
+  expectTypeOf(
+    client.runFromFile("./docker-compose.yaml", { primaryService: "main" }),
+  ).toEqualTypeOf<ReturnType<SandboxClient["runFromFile"]>>();
   expectTypeOf(
     client.withSandboxFromFile(composeBytes, async (sandbox) => sandbox.sandboxId, {
       primaryService: "main",
