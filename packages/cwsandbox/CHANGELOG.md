@@ -25,6 +25,9 @@ SPDX-PackageName: cwsandbox
   `requestTimeoutSeconds` is greater than 0, including an empty `url`. Replace
   the list on each Get like `serviceUrls`. Timeout rows stay off `serviceUrls`
   unless a hostname was assigned.
+- Clear `dnsEgressNames` when Get omits them or echoes an empty list. Retain
+  `exposedPorts` when Get omits services or maps an empty list; a nonempty
+  mapped list replaces.
 - Add `dataPlaneMode` (`auto`, `direct`, or `gateway`) for sandbox exec, shell,
   logs, and file operations. `auto` prefers operation-scoped direct mTLS with a
   bounded gateway fallback; lifecycle and management calls remain on the API.

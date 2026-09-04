@@ -318,12 +318,13 @@ describe("Sandbox", () => {
     expect(sandbox.statusReason).toBe("ready");
   });
 
-  it("clears service-derived metadata when inspect omits them", async () => {
+  it("clears serviceUrls when inspect omits them and retains exposedPorts", async () => {
+    const ports = [{ name: "http", port: 8000, protocol: "tcp" as const }];
     const transport: SandboxTransport = {
       ...createFakeTransport(),
       async start(request) {
         return {
-          exposedPorts: [{ name: "http", port: 8000, protocol: "tcp" }],
+          exposedPorts: ports,
           sandboxId: `sandbox-for-${request.command[0]}`,
           serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
           status: "running",
@@ -341,15 +342,68 @@ describe("Sandbox", () => {
     expect(sandbox.serviceUrls).toEqual([
       { name: "http", port: 8000, url: "https://sandbox.example.com" },
     ]);
-    expect(sandbox.exposedPorts).toEqual([{ name: "http", port: 8000, protocol: "tcp" }]);
+    expect(sandbox.exposedPorts).toEqual(ports);
 
     const info = await sandbox.inspect();
 
     expect(info.serviceUrls).toBeUndefined();
-    expect(info.exposedPorts).toBeUndefined();
+    expect(info.exposedPorts).toEqual(ports);
     expect(sandbox.serviceUrls).toBeUndefined();
-    expect(sandbox.exposedPorts).toBeUndefined();
+    expect(sandbox.exposedPorts).toEqual(ports);
     expect(sandbox.status).toBe("completed");
+  });
+
+  it("retains exposedPorts when inspect returns an empty list", async () => {
+    const ports = [{ name: "http", port: 8000, protocol: "tcp" as const }];
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          exposedPorts: ports,
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          status: "running",
+        };
+      },
+      async get(request) {
+        return {
+          exposedPorts: [],
+          sandboxId: request.sandboxId,
+          status: "running",
+        };
+      },
+    };
+
+    const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
+    const info = await sandbox.inspect();
+
+    expect(info.exposedPorts).toEqual(ports);
+    expect(sandbox.exposedPorts).toEqual(ports);
+  });
+
+  it("replaces exposedPorts when inspect returns a nonempty list", async () => {
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          exposedPorts: [{ name: "http", port: 8000, protocol: "tcp" }],
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          status: "running",
+        };
+      },
+      async get(request) {
+        return {
+          exposedPorts: [{ name: "metrics", port: 9090, protocol: "tcp" }],
+          sandboxId: request.sandboxId,
+          status: "running",
+        };
+      },
+    };
+
+    const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
+    const info = await sandbox.inspect();
+
+    expect(info.exposedPorts).toEqual([{ name: "metrics", port: 9090, protocol: "tcp" }]);
+    expect(sandbox.exposedPorts).toEqual([{ name: "metrics", port: 9090, protocol: "tcp" }]);
   });
 
   it("replaces serviceEndpoints on inspect and clears them when omitted", async () => {
@@ -441,7 +495,7 @@ describe("Sandbox", () => {
     expect(sandbox.dnsEgressNames).toEqual(["pypi.org"]);
   });
 
-  it("keeps last echoed dnsEgressNames when inspect omits them", async () => {
+  it("clears last echoed dnsEgressNames when inspect omits them", async () => {
     const transport: SandboxTransport = {
       ...createFakeTransport(),
       async start(request) {
@@ -463,8 +517,34 @@ describe("Sandbox", () => {
     const info = await sandbox.inspect();
 
     expect(info.dnsEgressNames).toBeUndefined();
-    expect(sandbox.dnsEgressNames).toEqual(["pypi.org"]);
+    expect(sandbox.dnsEgressNames).toBeUndefined();
     expect(sandbox.status).toBe("completed");
+  });
+
+  it("clears last echoed dnsEgressNames when inspect returns an empty list", async () => {
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          dnsEgressNames: ["pypi.org"],
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          status: "running",
+        };
+      },
+      async get(request) {
+        return {
+          dnsEgressNames: [],
+          sandboxId: request.sandboxId,
+          status: "completed",
+        };
+      },
+    };
+
+    const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
+    const info = await sandbox.inspect();
+
+    expect(info.dnsEgressNames).toEqual([]);
+    expect(sandbox.dnsEgressNames).toBeUndefined();
   });
 
   it("inspects fresh metadata and forwards request options", async () => {
