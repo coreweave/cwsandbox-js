@@ -436,9 +436,7 @@ expectTypeOf(sandbox.serviceUrls).toEqualTypeOf<readonly ServiceUrl[] | undefine
 expectTypeOf(sandbox.serviceAddresses).toEqualTypeOf<
   readonly TlsPassthroughEndpointStatus[] | undefined
 >();
-expectTypeOf(sandbox.serviceEndpoints).toEqualTypeOf<
-  readonly HttpsEndpointStatus[] | undefined
->();
+expectTypeOf(sandbox.serviceEndpoints).toEqualTypeOf<readonly HttpsEndpointStatus[] | undefined>();
 expectTypeOf(httpsStatus.url).toEqualTypeOf<string>();
 expectTypeOf(sandbox.dnsEgressNames).toEqualTypeOf<readonly string[] | undefined>();
 expectTypeOf(sandbox.exposedPorts).toEqualTypeOf<readonly SandboxExposedPort[] | undefined>();

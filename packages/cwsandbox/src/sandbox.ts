@@ -385,10 +385,7 @@ function cloneServiceAddresses(
 
 function cloneServiceDerivedFields(
   metadata: SandboxMetadata | undefined,
-): Pick<
-  SandboxMetadata,
-  "exposedPorts" | "serviceAddresses" | "serviceEndpoints" | "serviceUrls"
-> {
+): Pick<SandboxMetadata, "exposedPorts" | "serviceAddresses" | "serviceEndpoints" | "serviceUrls"> {
   const exposedPorts = cloneExposedPorts(metadata?.exposedPorts);
   const serviceAddresses = cloneServiceAddresses(metadata?.serviceAddresses);
   const serviceEndpoints = cloneServiceEndpoints(metadata?.serviceEndpoints);
