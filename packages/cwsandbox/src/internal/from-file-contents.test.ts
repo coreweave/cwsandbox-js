@@ -9,7 +9,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { CWSandboxTimeoutError, CWSandboxValidationError, isCWSandboxError } from "../errors.js";
+import { CWSandboxValidationError, isCWSandboxError } from "../errors.js";
 import {
   CREATE_FROM_FILE_CONTENTS_MAX_BYTES,
   readFromFileContents,
@@ -94,47 +94,32 @@ describe("from-file contents", () => {
     });
   });
 
-  it.skipIf(process.platform === "win32")(
-    "rejects a FIFO that delivers more than 256 KiB",
-    async () => {
-      await withTempDir(async (directory) => {
-        const path = join(directory, "compose.fifo");
-        expect(createFifo(path)).toBe(true);
-
-        const oversized = new Uint8Array(CREATE_FROM_FILE_CONTENTS_MAX_BYTES + 1);
-        const pending = readFromFileContents(path);
-        const written = writeFile(path, oversized).catch(() => undefined);
-        await expect(pending).rejects.toBeInstanceOf(CWSandboxValidationError);
-        await expect(pending).rejects.toThrow(/256 KiB/);
-        await written;
-      });
-    },
-  );
-
-  it.skipIf(process.platform === "win32")("aborts a blocked FIFO read", async () => {
+  it("reads a path at the 256 KiB limit", async () => {
     await withTempDir(async (directory) => {
-      const path = join(directory, "compose.fifo");
-      expect(createFifo(path)).toBe(true);
-
-      const controller = new AbortController();
-      const pending = readFromFileContents(path, { signal: controller.signal });
-      const reason = new Error("cancelled");
-      await new Promise((resolve) => {
-        setTimeout(resolve, 25);
-      });
-      controller.abort(reason);
-      await expect(pending).rejects.toBe(reason);
+      const path = join(directory, "compose.yaml");
+      const exact = new Uint8Array(CREATE_FROM_FILE_CONTENTS_MAX_BYTES);
+      await writeFile(path, exact);
+      await expect(readFromFileContents(path)).resolves.toEqual(exact);
     });
   });
 
-  it.skipIf(process.platform === "win32")("times out a blocked FIFO read", async () => {
+  it.skipIf(process.platform === "win32")("rejects a FIFO path before reading", async () => {
     await withTempDir(async (directory) => {
       const path = join(directory, "compose.fifo");
       expect(createFifo(path)).toBe(true);
+      await expect(readFromFileContents(path)).rejects.toBeInstanceOf(CWSandboxValidationError);
+      await expect(readFromFileContents(path)).rejects.toThrow(/regular file/);
+    });
+  });
 
-      await expect(readFromFileContents(path, { timeoutMs: 25 })).rejects.toBeInstanceOf(
-        CWSandboxTimeoutError,
-      );
+  it("honors an already-aborted signal before reading a path", async () => {
+    await withTempDir(async (directory) => {
+      const path = join(directory, "compose.yaml");
+      await writeFile(path, compose);
+      const controller = new AbortController();
+      const reason = new Error("cancelled");
+      controller.abort(reason);
+      await expect(readFromFileContents(path, { signal: controller.signal })).rejects.toBe(reason);
     });
   });
 });

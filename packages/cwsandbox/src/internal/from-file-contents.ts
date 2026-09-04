@@ -83,41 +83,34 @@ function combineReadSignals(options: ReadFromFileContentsOptions): {
   };
 }
 
-function unblockFifoOpen(path: string): void {
-  void open(path, constants.O_WRONLY | constants.O_NONBLOCK)
-    .then(async (writer) => {
-      await writer.close();
-    })
-    .catch(() => undefined);
-}
-
 async function readCappedFilePath(
   path: string,
   signal: AbortSignal | undefined,
 ): Promise<Uint8Array> {
   signal?.throwIfAborted();
 
-  let handle: FileHandle | undefined;
-  let stream: ReturnType<FileHandle["createReadStream"]> | undefined;
-  const onAbort = (): void => {
-    unblockFifoOpen(path);
-    stream?.destroy();
-    void handle?.close().catch(() => undefined);
+  let handle: FileHandle;
+  try {
+    handle = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
+  } catch (error) {
+    return wrapFromFilePathError(path, error);
+  }
+
+  const abortRead = (): void => {
+    void handle.close().catch(() => undefined);
   };
   if (signal !== undefined) {
-    signal.addEventListener("abort", onAbort, { once: true });
+    signal.addEventListener("abort", abortRead, { once: true });
   }
 
   try {
-    handle = await open(path, "r");
     signal?.throwIfAborted();
-
     const info = await handle.stat();
-    if (!info.isFile() && !info.isFIFO()) {
+    if (!info.isFile()) {
       throw new CWSandboxValidationError(`contents path must be a regular file: ${path}`);
     }
 
-    stream = handle.createReadStream(signal === undefined ? {} : { signal });
+    const stream = handle.createReadStream(signal === undefined ? {} : { signal });
     const buffer = new Uint8Array(CREATE_FROM_FILE_CONTENTS_MAX_BYTES + 1);
     let offset = 0;
     for await (const chunk of stream) {
@@ -140,8 +133,8 @@ async function readCappedFilePath(
     }
     return wrapFromFilePathError(path, error);
   } finally {
-    signal?.removeEventListener("abort", onAbort);
-    await handle?.close().catch(() => undefined);
+    signal?.removeEventListener("abort", abortRead);
+    await handle.close().catch(() => undefined);
   }
 }
 
