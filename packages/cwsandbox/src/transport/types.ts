@@ -19,7 +19,9 @@ import type {
   FileSystemSnapshotOptions,
   FileSystemSnapshotResult,
   SandboxAnnotations,
+  SandboxFileType,
   SandboxId,
+  SandboxObjectStorageAccess,
   SandboxRunOptions,
   SandboxTag,
   ScratchVolumeOptions,
@@ -38,6 +40,20 @@ export interface ListFileSystemSnapshotsResult {
 
 export interface StartSandboxRequest extends Omit<SandboxRunOptions, "waitUntilRunning"> {
   readonly command: Command;
+}
+
+export interface StartSandboxFromFileRequest extends RequestOptions {
+  readonly contents: Uint8Array;
+  readonly primaryService: string;
+  readonly fileType?: SandboxFileType;
+  readonly imageOverrides?: Readonly<Record<string, string>>;
+  readonly defaultResources?: ResourceOptions;
+  readonly annotations?: SandboxAnnotations;
+  readonly maxLifetimeSeconds?: Seconds;
+  readonly network?: NetworkOptions;
+  readonly objectStorageAccess?: SandboxObjectStorageAccess;
+  readonly runnerIds?: readonly string[];
+  readonly tags?: readonly SandboxTag[];
 }
 
 export interface StartSandboxFromTemplateRequest extends RequestOptions {

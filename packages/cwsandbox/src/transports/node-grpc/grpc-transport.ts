@@ -26,6 +26,7 @@ import type {
   GetSandboxRequest,
   ListFileSystemSnapshotsRequest,
   ListFileSystemSnapshotsResult,
+  StartSandboxFromFileRequest,
   StartSandboxFromTemplateRequest,
   StartCommandRequest,
   StartShellRequest,
@@ -46,6 +47,7 @@ import {
 } from "./generated/coreweave/sandbox/v1/sandbox.js";
 import { startGrpcLogStream } from "./log-stream.js";
 import {
+  toProtoCreateFromFileRequest,
   toProtoCreateFromTemplateRequest,
   toProtoCreateRequest,
   toProtoDeleteRequest,
@@ -96,6 +98,19 @@ export class GrpcSandboxTransport implements SandboxTransport {
       () =>
         this.client.createSandboxFromTemplate(
           toProtoCreateFromTemplateRequest(request),
+          toRpcOptions(request),
+        ).response,
+    );
+
+    return toSdkStartSandboxResult(response);
+  }
+
+  public async startFromFile(request: StartSandboxFromFileRequest): Promise<StartSandboxResult> {
+    const response = await withGrpcErrorMapping(
+      "Create sandbox from file",
+      () =>
+        this.client.createSandboxFromFile(
+          toProtoCreateFromFileRequest(request),
           toRpcOptions(request),
         ).response,
     );

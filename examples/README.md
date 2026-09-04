@@ -42,6 +42,7 @@ One workspace package with self-contained scripts (same deps). Typecheck is part
 | `large-file-streaming.ts`   | `files.writeStream` / `readStream`            | `pnpm --dir examples/sdk large-file-streaming`               |
 | `resource-configuration.ts` | flat + requests/limits resources              | `pnpm --dir examples/sdk resource-configuration`             |
 | `run-from-template.ts`      | `runFromTemplate` + `withSandboxFromTemplate` | `pnpm --dir examples/sdk run-from-template`                  |
+| `run-from-file.ts`          | `runFromFile` + `withSandboxFromFile`         | `pnpm --dir examples/sdk run-from-file`                      |
 | `error-handling.ts`         | execution / not-found errors                  | `pnpm --dir examples/sdk error-handling`                     |
 | `reconnect-to-sandbox.ts`   | `create` + `fromId`                           | `pnpm --dir examples/sdk reconnect-to-sandbox -- --create`   |
 | `delete-sandboxes.ts`       | `delete` / `missingOk` / `stop`               | `pnpm --dir examples/sdk delete-sandboxes`                   |

@@ -8,6 +8,17 @@ SPDX-PackageName: cwsandbox
 
 ## Unreleased
 
+- Add `client.runFromFile(contents, options)` and
+  `client.withSandboxFromFile(contents, callback, options)` to start a sandbox
+  from pull-only Compose YAML. `contents` is a filesystem path or raw
+  `Uint8Array` bytes (sent as-is; 256 KiB cap). A string is always opened as a
+  path. `primaryService` is required. Optional `imageOverrides` and CPU/memory
+  `defaultResources` apply per service. Leftover Compose `build:` is not
+  implemented. Volumes, published services, secrets, mounted files, and
+  container overlays are rejected; those callers use `create` / `run`. A
+  rejected readiness wait after accept best-effort `stop`s the sandbox and
+  rethrows the original error.
+
 ## 0.5.0-beta.0
 
 - Add create-time TLS passthrough product endpoints (`endpoint.kind:

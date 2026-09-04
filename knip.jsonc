@@ -4,6 +4,8 @@
   "ignoreExportsUsedInFile": true,
   // Generated proto surface is not hand-written debt.
   "ignore": ["packages/cwsandbox/src/transports/node-grpc/generated/**"],
+  // POSIX helper used by the from-file FIFO rejection test.
+  "ignoreBinaries": ["mkfifo"],
   "ignoreIssues": {
     // Named + default export is the public ComputeSDK provider API.
     "packages/cwsandbox-computesdk/src/index.ts": ["duplicates"],

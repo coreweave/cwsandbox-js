@@ -5,6 +5,7 @@
 import { DEFAULT_KEEP_ALIVE_COMMAND } from "./defaults.js";
 import { normalizeCommand } from "./internal/commands.js";
 import { ignoreMissingSandbox } from "./internal/delete.js";
+import { readFromFileContents } from "./internal/from-file-contents.js";
 import { scratchVolumeNamesFromRunOptions } from "./internal/validation/file-system-snapshot.js";
 import {
   validateDeleteOptions,
@@ -12,6 +13,7 @@ import {
   validateDataPlaneMode,
   validateListSandboxesOptions,
   validateRequestOptions,
+  validateSandboxRunFromFileOptions,
   validateSandboxRunFromTemplateOptions,
   validateSandboxRunOptions,
 } from "./internal/validation/index.js";
@@ -29,9 +31,11 @@ import type {
   ListSandboxesResult,
   ListSnapshotsOptions,
   Sandbox as PublicSandbox,
+  SandboxFileContents,
   SandboxId,
   SandboxInfo,
   SandboxListOptions,
+  SandboxRunFromFileOptions,
   SandboxRunFromTemplateOptions,
   SandboxRunOptions,
 } from "./public/sandbox.js";
@@ -130,6 +134,53 @@ export class SandboxClient implements SandboxClientInterface {
       sandboxId: result.sandboxId,
       transport,
       ...(scratchVolumeNames === undefined ? {} : { scratchVolumeNames }),
+    });
+
+    if (waitUntilRunning !== false) {
+      try {
+        await sandbox.wait(waitRequestOptions(options));
+      } catch (error) {
+        await this.stopAfterFailedReadiness(sandbox);
+        throw error;
+      }
+    }
+
+    return sandbox;
+  }
+
+  /**
+   * Starts from a Compose file. `contents` is a filesystem path (`string`) or
+   * raw file bytes (`Uint8Array`). A string is always opened as a path.
+   *
+   * If creation returns an accepted sandbox but the readiness wait rejects, the
+   * SDK best-effort stops it (without the caller's abort signal) and rethrows
+   * the original readiness error. `waitUntilRunning: false` returns immediately
+   * after accept with no automatic cleanup.
+   */
+  public async runFromFile(
+    contents: SandboxFileContents,
+    options: SandboxRunFromFileOptions,
+  ): Promise<PublicSandbox> {
+    const transport = this.transport;
+    const fileAdapter = this.fileAdapter;
+    validateSandboxRunFromFileOptions(contents, options);
+    const contentsBytes = await readFromFileContents(contents, {
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+      ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+    });
+    const { dataPlaneMode, waitUntilRunning, ...startOptions } = options;
+    const result = await transport.startFromFile({
+      ...startOptions,
+      contents: contentsBytes,
+      fileType: options.fileType ?? "compose",
+    });
+
+    const sandbox = new SandboxImpl({
+      fileAdapter,
+      dataPlaneMode: dataPlaneMode ?? this.dataPlaneMode,
+      metadata: result,
+      sandboxId: result.sandboxId,
+      transport,
     });
 
     if (waitUntilRunning !== false) {
@@ -291,6 +342,30 @@ export class SandboxClient implements SandboxClientInterface {
     });
   }
 
+  /**
+   * Starts from a Compose file and always stops the sandbox after the callback
+   * returns or throws. Accepts the sandbox with `waitUntilRunning: false`, then
+   * waits (unless the caller disabled it) before the callback so a readiness
+   * failure still `stop`s and the callback is not run.
+   */
+  public async withSandboxFromFile<TResult>(
+    contents: SandboxFileContents,
+    callback: WithSandboxCallback<TResult>,
+    options: SandboxRunFromFileOptions,
+  ): Promise<TResult> {
+    validateSandboxRunFromFileOptions(contents, options);
+    const sandbox = await this.runFromFile(contents, {
+      ...options,
+      waitUntilRunning: false,
+    });
+    return this.disposeAfterCallback(sandbox, async (handle) => {
+      if (options.waitUntilRunning !== false) {
+        await handle.wait(waitRequestOptions(options));
+      }
+      return callback(handle);
+    });
+  }
+
   private async disposeAfterCallback<TResult>(
     sandbox: PublicSandbox,
     callback: WithSandboxCallback<TResult>,
@@ -335,7 +410,7 @@ export class SandboxClient implements SandboxClientInterface {
   }
 }
 
-function waitRequestOptions(options: SandboxRunFromTemplateOptions): {
+function waitRequestOptions(options: RequestOptions): {
   readonly signal?: AbortSignal;
   readonly timeoutMs?: number;
 } {

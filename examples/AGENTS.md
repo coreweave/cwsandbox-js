@@ -40,6 +40,7 @@ SDK patterns; use `weave/` / `tanstack/` for integrations with extra dependencie
 | `sdk/wandb-integration.ts`      | `async function main()` | W&B gateway auth                 |
 | `sdk/file-system-snapshots.ts`  | `async function main()` | scratch-mount snapshot/restore   |
 | `sdk/run-from-template.ts`      | `async function main()` | `withSandboxFromTemplate`        |
+| `sdk/run-from-file.ts`          | `async function main()` | `withSandboxFromFile`            |
 | `sdk/https-endpoint.ts`         | `async function main()` | public HTTPS + request timeout   |
 | `sdk/tls-passthrough.ts`        | `async function main()` | public TLS passthrough + SNI GET |
 

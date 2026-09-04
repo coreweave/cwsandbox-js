@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { MAX_LIST_ALL_PAGES } from "./defaults.js";
@@ -11,6 +15,7 @@ import {
   CWSandboxTimeoutError,
   CWSandboxTransportError,
   CWSandboxValidationError,
+  isCWSandboxError,
   DEFAULT_KEEP_ALIVE_COMMAND,
   DEFAULT_LIST_ALL_TIMEOUT_MS,
   type ResourceOptions,
@@ -1689,6 +1694,329 @@ describe("SandboxClient", () => {
     });
   });
 
+  describe("runFromFile", () => {
+    const compose = new TextEncoder().encode("services:\n  main:\n    image: python:3.11\n  \n");
+
+    it("starts through startFromFile, not start or startFromTemplate", async () => {
+      let startCalls = 0;
+      let templateCalls = 0;
+      let fileRequest: Parameters<SandboxTransport["startFromFile"]>[0] | undefined;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async start() {
+          startCalls += 1;
+          throw new Error("start should not be called");
+        },
+        async startFromTemplate() {
+          templateCalls += 1;
+          throw new Error("startFromTemplate should not be called");
+        },
+        async startFromFile(request) {
+          fileRequest = request;
+          return { sandboxId: "sandbox-from-file", status: "running" };
+        },
+      };
+
+      const sandbox = await createClient(transport).runFromFile(compose, {
+        defaultResources: {
+          limits: { cpu: "1", memory: "256Mi" },
+          requests: { cpu: "1", memory: "256Mi" },
+        },
+        imageOverrides: { api: "python:3.12" },
+        primaryService: "main",
+        runnerIds: ["runner-1"],
+        tags: ["from-file"],
+        waitUntilRunning: false,
+      });
+
+      expect(sandbox.sandboxId).toBe("sandbox-from-file");
+      expect(startCalls).toBe(0);
+      expect(templateCalls).toBe(0);
+      expect(fileRequest).toMatchObject({
+        contents: compose,
+        fileType: "compose",
+        imageOverrides: { api: "python:3.12" },
+        primaryService: "main",
+        runnerIds: ["runner-1"],
+        tags: ["from-file"],
+      });
+      expect(fileRequest).not.toHaveProperty("waitUntilRunning");
+      expect(fileRequest?.defaultResources).toEqual({
+        limits: { cpu: "1", memory: "256Mi" },
+        requests: { cpu: "1", memory: "256Mi" },
+      });
+    });
+
+    it("sends raw bytes without normalizing whitespace", async () => {
+      let fileRequest: Parameters<SandboxTransport["startFromFile"]>[0] | undefined;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async startFromFile(request) {
+          fileRequest = request;
+          return { sandboxId: "sandbox-from-file", status: "running" };
+        },
+      };
+
+      await createClient(transport).runFromFile(compose, {
+        primaryService: "main",
+        waitUntilRunning: false,
+      });
+
+      expect(fileRequest?.contents).toEqual(compose);
+    });
+
+    it("treats a string as a filesystem path", async () => {
+      const directory = await mkdtemp(join(tmpdir(), "cwsandbox-from-file-"));
+      const path = join(directory, "compose.yaml");
+      let fileRequest: Parameters<SandboxTransport["startFromFile"]>[0] | undefined;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async startFromFile(request) {
+          fileRequest = request;
+          return { sandboxId: "sandbox-from-file", status: "running" };
+        },
+      };
+
+      try {
+        await writeFile(path, compose);
+        await createClient(transport).runFromFile(path, {
+          primaryService: "main",
+          waitUntilRunning: false,
+        });
+        expect(fileRequest?.contents).toEqual(compose);
+      } finally {
+        await rm(directory, { force: true, recursive: true });
+      }
+    });
+
+    it("maps tags and network onto the transport request", async () => {
+      let fileRequest: Parameters<SandboxTransport["startFromFile"]>[0] | undefined;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async startFromFile(request) {
+          fileRequest = request;
+          return { sandboxId: "sandbox-from-file", status: "running" };
+        },
+      };
+
+      await createClient(transport).runFromFile(compose, {
+        network: { denyEgress: true },
+        primaryService: "main",
+        tags: ["from-file"],
+        waitUntilRunning: false,
+      });
+
+      expect(fileRequest).toMatchObject({
+        network: { denyEgress: true },
+        tags: ["from-file"],
+      });
+    });
+
+    it("rejects an empty primaryService before the transport", async () => {
+      let startFromFileCalls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async startFromFile() {
+          startFromFileCalls += 1;
+          throw new Error("transport should not be called");
+        },
+      };
+      const client = createClient(transport);
+
+      await expect(client.runFromFile(compose, { primaryService: "" })).rejects.toThrow(
+        /primaryService must not be empty/,
+      );
+      await expect(client.runFromFile(compose, { primaryService: "   " })).rejects.toThrow(
+        /primaryService must not be empty/,
+      );
+      expect(startFromFileCalls).toBe(0);
+    });
+
+    it("rejects GPU on defaultResources", async () => {
+      const client = createClient();
+
+      await expect(
+        client.runFromFile(compose, {
+          defaultResources: { gpu: { count: 1 } } as never,
+          primaryService: "main",
+        }),
+      ).rejects.toThrow(/defaultResources must not set GPU/);
+    });
+
+    it("rejects contents over 256 KiB", async () => {
+      const client = createClient();
+      const oversized = new Uint8Array(256 * 1024 + 1);
+
+      await expect(client.runFromFile(oversized, { primaryService: "main" })).rejects.toThrow(
+        /256 KiB/,
+      );
+    });
+
+    it("wraps a missing contents path as a CWSandboxError before the transport", async () => {
+      let startFromFileCalls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async startFromFile() {
+          startFromFileCalls += 1;
+          throw new Error("transport should not be called");
+        },
+      };
+      const client = createClient(transport);
+
+      await expect(
+        client.runFromFile("/definitely-missing-compose.yaml", { primaryService: "main" }),
+      ).rejects.toSatisfy((error: unknown) => {
+        return (
+          error instanceof CWSandboxValidationError &&
+          isCWSandboxError(error) &&
+          error.code === "validation_error" &&
+          (error.cause as NodeJS.ErrnoException | undefined)?.code === "ENOENT"
+        );
+      });
+      expect(startFromFileCalls).toBe(0);
+    });
+
+    it("rejects volumes and other create-only fields before the transport", async () => {
+      let startFromFileCalls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async startFromFile() {
+          startFromFileCalls += 1;
+          throw new Error("transport should not be called");
+        },
+      };
+      const client = createClient(transport);
+
+      await expect(
+        client.runFromFile(compose, {
+          primaryService: "main",
+          volumes: [{ mountPath: "/workspace", name: "workspace" }],
+        } as never),
+      ).rejects.toThrow(/volumes is not supported with from-file sandboxes/);
+      await expect(
+        client.runFromFile(compose, {
+          buildContexts: { main: new Uint8Array() },
+          primaryService: "main",
+        } as never),
+      ).rejects.toThrow(/buildContexts is not supported with from-file sandboxes/);
+      await expect(
+        client.runFromFile(compose, {
+          primaryService: "main",
+          services: [{ port: 8080 }],
+        } as never),
+      ).rejects.toThrow(/services is not supported with from-file sandboxes/);
+      expect(startFromFileCalls).toBe(0);
+    });
+
+    it("defaults fileType to compose", async () => {
+      let fileRequest: Parameters<SandboxTransport["startFromFile"]>[0] | undefined;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async startFromFile(request) {
+          fileRequest = request;
+          return { sandboxId: "sandbox-from-file", status: "running" };
+        },
+      };
+
+      await createClient(transport).runFromFile(compose, {
+        fileType: "compose",
+        primaryService: "main",
+        waitUntilRunning: false,
+      });
+
+      expect(fileRequest?.fileType).toBe("compose");
+    });
+
+    it("stops the accepted sandbox when readiness wait fails and stop succeeds", async () => {
+      let stopCalls = 0;
+      const getStatuses: string[] = [];
+      const base = createFakeTransport(["failed", "running"]);
+      const transport: SandboxTransport = {
+        ...base,
+        async startFromFile() {
+          return { sandboxId: "sandbox-from-file", status: "creating" };
+        },
+        async get(request) {
+          const result = await base.get(request);
+          getStatuses.push(result.status);
+          return result;
+        },
+        async stop(request) {
+          stopCalls += 1;
+          await base.stop(request);
+        },
+      };
+
+      await expect(
+        createClient(transport).runFromFile(compose, { primaryService: "main" }),
+      ).rejects.toBeInstanceOf(CWSandboxFailedError);
+      expect(stopCalls).toBe(1);
+      expect(getStatuses).toEqual(["failed", "running", "terminated"]);
+    });
+
+    it("rethrows the readiness error when cleanup stop also fails", async () => {
+      const readinessError = new Error("readiness failed");
+      const stopError = new Error("stop failed");
+      let getCalls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(["running"]),
+        async startFromFile() {
+          return { sandboxId: "sandbox-from-file", status: "creating" };
+        },
+        async get() {
+          getCalls += 1;
+          if (getCalls === 1) {
+            throw readinessError;
+          }
+          return { sandboxId: "sandbox-from-file", status: "running" };
+        },
+        async stop() {
+          throw stopError;
+        },
+      };
+
+      let thrown: unknown;
+      try {
+        await createClient(transport).runFromFile(compose, { primaryService: "main" });
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBe(readinessError);
+      expect(thrown).not.toBe(stopError);
+      expect((thrown as { constructor: { name: string } }).constructor.name).not.toBe(
+        "SuppressedError",
+      );
+    });
+
+    it("returns ownership after accept when waitUntilRunning is false", async () => {
+      let getCalls = 0;
+      let stopCalls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(["creating"]),
+        async startFromFile() {
+          return { sandboxId: "sandbox-from-file", status: "creating" };
+        },
+        async get() {
+          getCalls += 1;
+          return { sandboxId: "sandbox-from-file", status: "creating" };
+        },
+        async stop() {
+          stopCalls += 1;
+        },
+      };
+
+      const sandbox = await createClient(transport).runFromFile(compose, {
+        primaryService: "main",
+        waitUntilRunning: false,
+      });
+
+      expect(sandbox.sandboxId).toBe("sandbox-from-file");
+      expect(getCalls).toBe(0);
+      expect(stopCalls).toBe(0);
+    });
+  });
+
   describe("withSandbox", () => {
     it("runs callback-first withSandbox with default keep-alive and cleanup", async () => {
       const events: string[] = [];
@@ -1989,6 +2317,137 @@ describe("SandboxClient", () => {
       );
 
       expect(result).toBe("sandbox-from-template");
+      expect(getCallsBeforeCallback).toBe(0);
+    });
+  });
+
+  describe("withSandboxFromFile", () => {
+    const compose = new TextEncoder().encode("services:\n  main:\n    image: python:3.11\n");
+
+    it.each([null, new Date(), []] as const)(
+      "rejects non-record options %s before the transport",
+      async (options) => {
+        let startFromFileCalls = 0;
+        let callbackCalled = false;
+        const transport: SandboxTransport = {
+          ...createFakeTransport(),
+          async startFromFile() {
+            startFromFileCalls += 1;
+            throw new Error("transport should not be called");
+          },
+        };
+
+        await expect(
+          createClient(transport).withSandboxFromFile(
+            compose,
+            () => {
+              callbackCalled = true;
+              return "unused";
+            },
+            options as never,
+          ),
+        ).rejects.toThrow(CWSandboxValidationError);
+        expect(startFromFileCalls).toBe(0);
+        expect(callbackCalled).toBe(false);
+      },
+    );
+
+    it("stops the sandbox after the callback", async () => {
+      const { stoppedSandboxIds, transport } = createTrackingTransport();
+      const client = createClient(transport);
+
+      const result = await client.withSandboxFromFile(
+        compose,
+        async (sandbox) => {
+          expect(sandbox.sandboxId).toBe("sandbox-from-file");
+          return "from-file";
+        },
+        { primaryService: "main" },
+      );
+
+      expect(result).toBe("from-file");
+      expect(stoppedSandboxIds).toEqual(["sandbox-from-file"]);
+    });
+
+    it("stops the sandbox and preserves callback errors", async () => {
+      const { stoppedSandboxIds, transport } = createTrackingTransport();
+      const client = createClient(transport);
+      const error = new Error("callback failed");
+
+      await expect(
+        client.withSandboxFromFile(
+          compose,
+          () => {
+            throw error;
+          },
+          { primaryService: "main" },
+        ),
+      ).rejects.toBe(error);
+
+      expect(stoppedSandboxIds).toEqual(["sandbox-from-file"]);
+    });
+
+    it("stops the accepted sandbox when readiness wait fails and does not run the callback", async () => {
+      let callbackCalled = false;
+      let stopCalls = 0;
+      const getStatuses: string[] = [];
+      const base = createFakeTransport(["failed", "running"]);
+      const transport: SandboxTransport = {
+        ...base,
+        async startFromFile() {
+          return { sandboxId: "sandbox-from-file", status: "creating" };
+        },
+        async get(request) {
+          const result = await base.get(request);
+          getStatuses.push(result.status);
+          return result;
+        },
+        async stop(request) {
+          stopCalls += 1;
+          await base.stop(request);
+        },
+      };
+
+      await expect(
+        createClient(transport).withSandboxFromFile(
+          compose,
+          () => {
+            callbackCalled = true;
+            return "unused";
+          },
+          { primaryService: "main" },
+        ),
+      ).rejects.toBeInstanceOf(CWSandboxFailedError);
+      expect(callbackCalled).toBe(false);
+      expect(stopCalls).toBe(1);
+      expect(getStatuses).toEqual(["failed", "running", "terminated"]);
+    });
+
+    it("skips readiness wait when waitUntilRunning is false", async () => {
+      let getCalls = 0;
+      let getCallsBeforeCallback = 0;
+      const base = createFakeTransport(["creating"]);
+      const transport: SandboxTransport = {
+        ...base,
+        async startFromFile() {
+          return { sandboxId: "sandbox-from-file", status: "creating" };
+        },
+        async get(request) {
+          getCalls += 1;
+          return base.get(request);
+        },
+      };
+
+      const result = await createClient(transport).withSandboxFromFile(
+        compose,
+        async (sandbox) => {
+          getCallsBeforeCallback = getCalls;
+          return sandbox.sandboxId;
+        },
+        { primaryService: "main", waitUntilRunning: false },
+      );
+
+      expect(result).toBe("sandbox-from-file");
       expect(getCallsBeforeCallback).toBe(0);
     });
   });
