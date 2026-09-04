@@ -39,6 +39,29 @@ describe("Sandbox.stop terminal wait", () => {
     expect(sandbox.status).toBe("completed");
   });
 
+  it("resolves stop when poll returns unspecified and leaves the handle completed", async () => {
+    let stopCalls = 0;
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async get(request) {
+        return {
+          sandboxId: request.sandboxId,
+          status: "unspecified",
+        };
+      },
+      async stop() {
+        stopCalls += 1;
+      },
+    };
+    const sandbox = await createClient(transport).run(["echo", "hello"], {
+      waitUntilRunning: false,
+    });
+
+    await expect(sandbox.stop()).resolves.toBeUndefined();
+    expect(stopCalls).toBe(1);
+    expect(sandbox.status).toBe("completed");
+  });
+
   it("rejects snapshotOnStop and tells callers to use snapshot()", async () => {
     const sandbox = await createClient().run(["echo", "hello"], { waitUntilRunning: false });
 
