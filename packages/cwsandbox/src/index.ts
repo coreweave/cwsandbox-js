@@ -110,6 +110,7 @@ export type {
   EndpointAuth,
   EndpointKind,
   HttpsEndpoint,
+  HttpsEndpointStatus,
   NetworkOptions,
   Service,
   ServiceProtocol,

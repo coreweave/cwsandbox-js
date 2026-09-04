@@ -21,6 +21,10 @@ SPDX-PackageName: cwsandbox
 - Wait and poll remap wire `unspecified` to `completed` before `onStatus`,
   target matching, and completed-only exit-code grace. `inspect()`, `fromId()`,
   and list stay `unspecified`.
+- Add `serviceEndpoints` (`HttpsEndpointStatus`) for HTTPS rows whose proto
+  `requestTimeoutSeconds` is greater than 0, including an empty `url`. Replace
+  the list on each Get like `serviceUrls`. Timeout rows stay off `serviceUrls`
+  unless a hostname was assigned.
 - Add `dataPlaneMode` (`auto`, `direct`, or `gateway`) for sandbox exec, shell,
   logs, and file operations. `auto` prefers operation-scoped direct mTLS with a
   bounded gateway fallback; lifecycle and management calls remain on the API.

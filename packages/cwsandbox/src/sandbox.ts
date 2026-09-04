@@ -23,7 +23,11 @@ import type { RequestOptions } from "./public/common.js";
 import type { DataPlaneMode } from "./public/data-plane.js";
 import type { SandboxFiles } from "./public/files.js";
 import type { SandboxLogs } from "./public/logs.js";
-import type { ServiceUrl, TlsPassthroughEndpointStatus } from "./public/network.js";
+import type {
+  HttpsEndpointStatus,
+  ServiceUrl,
+  TlsPassthroughEndpointStatus,
+} from "./public/network.js";
 import type {
   DeleteOptions,
   FileSystemSnapshotResult,
@@ -130,6 +134,10 @@ export class Sandbox implements PublicSandbox {
 
   public get serviceAddresses(): readonly TlsPassthroughEndpointStatus[] | undefined {
     return this.metadata.serviceAddresses?.map((service) => ({ ...service }));
+  }
+
+  public get serviceEndpoints(): readonly HttpsEndpointStatus[] | undefined {
+    return this.metadata.serviceEndpoints?.map((service) => ({ ...service }));
   }
 
   public get serviceUrls(): readonly ServiceUrl[] | undefined {
@@ -363,6 +371,12 @@ function cloneServiceUrls(
   return urls === undefined ? undefined : urls.map((service) => ({ ...service }));
 }
 
+function cloneServiceEndpoints(
+  endpoints: readonly HttpsEndpointStatus[] | undefined,
+): readonly HttpsEndpointStatus[] | undefined {
+  return endpoints === undefined ? undefined : endpoints.map((service) => ({ ...service }));
+}
+
 function cloneServiceAddresses(
   addresses: readonly TlsPassthroughEndpointStatus[] | undefined,
 ): readonly TlsPassthroughEndpointStatus[] | undefined {
@@ -371,13 +385,18 @@ function cloneServiceAddresses(
 
 function cloneServiceDerivedFields(
   metadata: SandboxMetadata | undefined,
-): Pick<SandboxMetadata, "exposedPorts" | "serviceAddresses" | "serviceUrls"> {
+): Pick<
+  SandboxMetadata,
+  "exposedPorts" | "serviceAddresses" | "serviceEndpoints" | "serviceUrls"
+> {
   const exposedPorts = cloneExposedPorts(metadata?.exposedPorts);
   const serviceAddresses = cloneServiceAddresses(metadata?.serviceAddresses);
+  const serviceEndpoints = cloneServiceEndpoints(metadata?.serviceEndpoints);
   const serviceUrls = cloneServiceUrls(metadata?.serviceUrls);
   return {
     ...(exposedPorts === undefined ? {} : { exposedPorts }),
     ...(serviceAddresses === undefined ? {} : { serviceAddresses }),
+    ...(serviceEndpoints === undefined ? {} : { serviceEndpoints }),
     ...(serviceUrls === undefined ? {} : { serviceUrls }),
   };
 }

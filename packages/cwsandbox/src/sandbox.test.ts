@@ -352,6 +352,67 @@ describe("Sandbox", () => {
     expect(sandbox.status).toBe("completed");
   });
 
+  it("replaces serviceEndpoints on inspect and clears them when omitted", async () => {
+    const created = {
+      auth: "open" as const,
+      kind: "https" as const,
+      name: "http",
+      port: 8000,
+      requestTimeoutSeconds: 120,
+      url: "https://sandbox.example.com",
+    };
+    const refreshed = {
+      ...created,
+      requestTimeoutSeconds: 60,
+      url: "",
+    };
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          serviceEndpoints: [created],
+          status: "running",
+        };
+      },
+      async get(request) {
+        return {
+          sandboxId: request.sandboxId,
+          serviceEndpoints: [refreshed],
+          status: "completed",
+        };
+      },
+    };
+
+    const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
+    expect(sandbox.serviceEndpoints).toEqual([created]);
+
+    const info = await sandbox.inspect();
+    expect(info.serviceEndpoints).toEqual([refreshed]);
+    expect(sandbox.serviceEndpoints).toEqual([refreshed]);
+
+    const clearing: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          serviceEndpoints: [created],
+          status: "running",
+        };
+      },
+      async get(request) {
+        return {
+          sandboxId: request.sandboxId,
+          status: "completed",
+        };
+      },
+    };
+    const clearingSandbox = await createClient(clearing).run(["echo"], { waitUntilRunning: false });
+    const cleared = await clearingSandbox.inspect();
+    expect(cleared.serviceEndpoints).toBeUndefined();
+    expect(clearingSandbox.serviceEndpoints).toBeUndefined();
+  });
+
   it("exposes dnsEgressNames from start and inspect", async () => {
     const transport: SandboxTransport = {
       ...createFakeTransport(),

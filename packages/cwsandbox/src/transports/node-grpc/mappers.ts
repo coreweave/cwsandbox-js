@@ -13,6 +13,7 @@ import { groupSecretsByStore, normalizeSecrets } from "../../internal/secrets.js
 import type { Command, ProcessResult } from "../../public/commands.js";
 import type {
   Endpoint,
+  HttpsEndpointStatus,
   NetworkOptions,
   Service,
   ServiceProtocol as SdkServiceProtocol,
@@ -574,6 +575,7 @@ function toSdkSandboxMetadata(sandbox: ProtoSandboxMessage): StartSandboxResult 
   const status = sandbox.status;
   const exposedPorts = toSdkExposedPorts(status?.services);
   const serviceAddresses = toSdkServiceAddresses(status?.services);
+  const serviceEndpoints = toSdkServiceEndpoints(status?.services);
   const serviceUrls = toSdkServiceUrls(status?.services);
   const resourceLimits = toSdkResourceSpec(
     status?.effectiveResourceRequirements?.limits ?? status?.effectiveResources,
@@ -598,6 +600,7 @@ function toSdkSandboxMetadata(sandbox: ProtoSandboxMessage): StartSandboxResult 
       : { runnerId: status.runnerId }),
     sandboxId: sandbox.sandboxId,
     ...(serviceAddresses === undefined ? {} : { serviceAddresses }),
+    ...(serviceEndpoints === undefined ? {} : { serviceEndpoints }),
     ...(serviceUrls === undefined ? {} : { serviceUrls }),
     ...(startedAt === undefined ? {} : { startedAt }),
     ...(status === undefined ? {} : { status: toSdkSandboxStatus(status.state) }),
@@ -641,6 +644,36 @@ function toSdkServiceUrls(
   });
 
   return urls.length === 0 ? undefined : urls;
+}
+
+function toSdkServiceEndpoints(
+  services: readonly ProtoServiceStatus[] | undefined,
+): readonly HttpsEndpointStatus[] | undefined {
+  if (services === undefined || services.length === 0) {
+    return undefined;
+  }
+
+  const endpoints = services.flatMap((service) => {
+    if (service.endpoint?.kind !== EndpointKind.HTTPS) {
+      return [];
+    }
+    const requestTimeoutSeconds = service.endpoint.requestTimeoutSeconds;
+    if (requestTimeoutSeconds <= 0) {
+      return [];
+    }
+    return [
+      {
+        auth: "open" as const,
+        kind: "https" as const,
+        name: service.name,
+        port: service.port,
+        requestTimeoutSeconds,
+        url: service.endpoint.url,
+      },
+    ];
+  });
+
+  return endpoints.length === 0 ? undefined : endpoints;
 }
 
 function toSdkServiceAddresses(

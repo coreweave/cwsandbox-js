@@ -1307,6 +1307,99 @@ describe("node transport mappers", () => {
       ]);
     });
 
+    it("maps HTTPS rows with a proto timeout onto serviceEndpoints, including an empty url", () => {
+      const withUrl = toSdkGetSandboxResult(
+        ProtoSandbox.create({
+          sandboxId: "https-id",
+          status: {
+            services: [
+              {
+                endpoint: {
+                  auth: EndpointAuth.OPEN,
+                  kind: EndpointKind.HTTPS,
+                  requestTimeoutSeconds: 120,
+                  url: "https://assigned.example.com",
+                },
+                name: "http",
+                port: 8000,
+                visibility: Visibility.PUBLIC,
+              },
+            ],
+            state: State.RUNNING,
+          },
+        }),
+      );
+      const emptyUrl = toSdkGetSandboxResult(
+        ProtoSandbox.create({
+          sandboxId: "https-id",
+          status: {
+            services: [
+              {
+                endpoint: {
+                  auth: EndpointAuth.OPEN,
+                  kind: EndpointKind.HTTPS,
+                  requestTimeoutSeconds: 120,
+                },
+                name: "http",
+                port: 8000,
+                visibility: Visibility.PUBLIC,
+              },
+            ],
+            state: State.COMPLETED,
+          },
+        }),
+      );
+      const defaultTimeout = toSdkGetSandboxResult(
+        ProtoSandbox.create({
+          sandboxId: "https-id",
+          status: {
+            services: [
+              {
+                endpoint: {
+                  auth: EndpointAuth.OPEN,
+                  kind: EndpointKind.HTTPS,
+                  url: "https://assigned.example.com",
+                },
+                name: "http",
+                port: 8000,
+                visibility: Visibility.PUBLIC,
+              },
+            ],
+            state: State.RUNNING,
+          },
+        }),
+      );
+
+      expect(withUrl.serviceEndpoints).toEqual([
+        {
+          auth: "open",
+          kind: "https",
+          name: "http",
+          port: 8000,
+          requestTimeoutSeconds: 120,
+          url: "https://assigned.example.com",
+        },
+      ]);
+      expect(withUrl.serviceUrls).toEqual([
+        { name: "http", port: 8000, url: "https://assigned.example.com" },
+      ]);
+      expect(emptyUrl.serviceEndpoints).toEqual([
+        {
+          auth: "open",
+          kind: "https",
+          name: "http",
+          port: 8000,
+          requestTimeoutSeconds: 120,
+          url: "",
+        },
+      ]);
+      expect(emptyUrl.serviceUrls).toBeUndefined();
+      expect(defaultTimeout.serviceEndpoints).toBeUndefined();
+      expect(defaultTimeout.serviceUrls).toEqual([
+        { name: "http", port: 8000, url: "https://assigned.example.com" },
+      ]);
+    });
+
     it("omits unspecified-visibility services from exposedPorts", () => {
       const result = toSdkStartSandboxResult(
         ProtoSandbox.create({

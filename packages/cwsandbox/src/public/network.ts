@@ -76,6 +76,21 @@ export interface ServiceUrl {
 }
 
 /**
+ * Applied HTTPS product endpoint echoed on `serviceEndpoints`.
+ *
+ * Present when proto `requestTimeoutSeconds` is greater than 0. `url` may be
+ * `""` when the API suppresses the hostname (for example a terminal Get).
+ */
+export interface HttpsEndpointStatus {
+  readonly auth: "open";
+  readonly kind: "https";
+  readonly name: string;
+  readonly port: number;
+  readonly requestTimeoutSeconds: number;
+  readonly url: string;
+}
+
+/**
  * Applied TLS passthrough endpoint echoed on `serviceAddresses`.
  *
  * `address` is `host:port`. Use the host as TLS SNI. The workload owns certs.
