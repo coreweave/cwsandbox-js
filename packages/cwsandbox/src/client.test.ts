@@ -15,6 +15,7 @@ import {
   CWSandboxTimeoutError,
   CWSandboxTransportError,
   CWSandboxValidationError,
+  isCWSandboxError,
   DEFAULT_KEEP_ALIVE_COMMAND,
   DEFAULT_LIST_ALL_TIMEOUT_MS,
   type ResourceOptions,
@@ -1849,6 +1850,30 @@ describe("SandboxClient", () => {
       await expect(client.runFromFile(oversized, { primaryService: "main" })).rejects.toThrow(
         /256 KiB/,
       );
+    });
+
+    it("wraps a missing contents path as a CWSandboxError before the transport", async () => {
+      let startFromFileCalls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async startFromFile() {
+          startFromFileCalls += 1;
+          throw new Error("transport should not be called");
+        },
+      };
+      const client = createClient(transport);
+
+      await expect(
+        client.runFromFile("/definitely-missing-compose.yaml", { primaryService: "main" }),
+      ).rejects.toSatisfy((error: unknown) => {
+        return (
+          error instanceof CWSandboxValidationError &&
+          isCWSandboxError(error) &&
+          error.code === "validation_error" &&
+          (error.cause as NodeJS.ErrnoException | undefined)?.code === "ENOENT"
+        );
+      });
+      expect(startFromFileCalls).toBe(0);
     });
 
     it("rejects volumes and other create-only fields before the transport", async () => {

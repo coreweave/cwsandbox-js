@@ -164,7 +164,10 @@ export class SandboxClient implements SandboxClientInterface {
     const transport = this.transport;
     const fileAdapter = this.fileAdapter;
     validateSandboxRunFromFileOptions(contents, options);
-    const contentsBytes = await readFromFileContents(contents);
+    const contentsBytes = await readFromFileContents(contents, {
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+      ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+    });
     const { dataPlaneMode, waitUntilRunning, ...startOptions } = options;
     const result = await transport.startFromFile({
       ...startOptions,

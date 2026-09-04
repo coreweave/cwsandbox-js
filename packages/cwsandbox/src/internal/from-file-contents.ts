@@ -2,12 +2,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
-import { readFile, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open, type FileHandle } from "node:fs/promises";
 
-import { CWSandboxValidationError } from "../errors.js";
+import { CWSandboxError, CWSandboxTimeoutError, CWSandboxValidationError } from "../errors.js";
 
 /** Raw Compose YAML cap for create-from-file. The API also enforces this. */
 export const CREATE_FROM_FILE_CONTENTS_MAX_BYTES = 256 * 1024;
+
+export interface ReadFromFileContentsOptions {
+  readonly signal?: AbortSignal;
+  readonly timeoutMs?: number;
+}
 
 export function validateFromFileContentsInput(
   contents: unknown,
@@ -31,20 +37,129 @@ function validateFromFileContentsSize(contents: Uint8Array): void {
   }
 }
 
+function isPreservedReadError(error: unknown): boolean {
+  return (
+    error instanceof CWSandboxError ||
+    (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError"))
+  );
+}
+
+function wrapFromFilePathError(path: string, error: unknown): never {
+  if (isPreservedReadError(error)) {
+    throw error;
+  }
+  const code = error instanceof Error && "code" in error ? error.code : undefined;
+  const detail = error instanceof Error ? error.message : "unknown error";
+  const suffix = typeof code === "string" ? ` (${code})` : "";
+  throw new CWSandboxValidationError(`Failed to read contents path "${path}"${suffix}: ${detail}`, {
+    cause: error,
+  });
+}
+
+function combineReadSignals(options: ReadFromFileContentsOptions): {
+  readonly cleanup: () => void;
+  readonly signal: AbortSignal | undefined;
+} {
+  if (options.timeoutMs === undefined) {
+    return {
+      cleanup() {},
+      signal: options.signal,
+    };
+  }
+
+  const timeoutController = new AbortController();
+  const timer = setTimeout(() => {
+    timeoutController.abort(new CWSandboxTimeoutError("Timed out reading contents path."));
+  }, options.timeoutMs);
+  timer.unref();
+  return {
+    cleanup() {
+      clearTimeout(timer);
+    },
+    signal:
+      options.signal === undefined
+        ? timeoutController.signal
+        : AbortSignal.any([options.signal, timeoutController.signal]),
+  };
+}
+
+function unblockFifoOpen(path: string): void {
+  void open(path, constants.O_WRONLY | constants.O_NONBLOCK)
+    .then(async (writer) => {
+      await writer.close();
+    })
+    .catch(() => undefined);
+}
+
+async function readCappedFilePath(
+  path: string,
+  signal: AbortSignal | undefined,
+): Promise<Uint8Array> {
+  signal?.throwIfAborted();
+
+  let handle: FileHandle | undefined;
+  let stream: ReturnType<FileHandle["createReadStream"]> | undefined;
+  const onAbort = (): void => {
+    unblockFifoOpen(path);
+    stream?.destroy();
+    void handle?.close().catch(() => undefined);
+  };
+  if (signal !== undefined) {
+    signal.addEventListener("abort", onAbort, { once: true });
+  }
+
+  try {
+    handle = await open(path, "r");
+    signal?.throwIfAborted();
+
+    const info = await handle.stat();
+    if (!info.isFile() && !info.isFIFO()) {
+      throw new CWSandboxValidationError(`contents path must be a regular file: ${path}`);
+    }
+
+    stream = handle.createReadStream(signal === undefined ? {} : { signal });
+    const buffer = new Uint8Array(CREATE_FROM_FILE_CONTENTS_MAX_BYTES + 1);
+    let offset = 0;
+    for await (const chunk of stream) {
+      signal?.throwIfAborted();
+      const bytes = chunk instanceof Uint8Array ? chunk : Buffer.from(chunk);
+      if (offset + bytes.byteLength > CREATE_FROM_FILE_CONTENTS_MAX_BYTES) {
+        stream.destroy();
+        throw new CWSandboxValidationError(
+          `contents exceeds ${String(CREATE_FROM_FILE_CONTENTS_MAX_BYTES)} bytes (256 KiB).`,
+        );
+      }
+      buffer.set(bytes, offset);
+      offset += bytes.byteLength;
+    }
+    signal?.throwIfAborted();
+    return Uint8Array.from(buffer.subarray(0, offset));
+  } catch (error) {
+    if (signal?.aborted === true) {
+      throw signal.reason;
+    }
+    return wrapFromFilePathError(path, error);
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
+    await handle?.close().catch(() => undefined);
+  }
+}
+
 /** Reads path bytes or returns the given `Uint8Array`. Do not log `contents`. */
-export async function readFromFileContents(contents: string | Uint8Array): Promise<Uint8Array> {
+export async function readFromFileContents(
+  contents: string | Uint8Array,
+  options: ReadFromFileContentsOptions = {},
+): Promise<Uint8Array> {
   validateFromFileContentsInput(contents);
   if (contents instanceof Uint8Array) {
     validateFromFileContentsSize(contents);
     return contents;
   }
 
-  const info = await stat(contents);
-  if (info.size > CREATE_FROM_FILE_CONTENTS_MAX_BYTES) {
-    throw new CWSandboxValidationError(
-      `contents exceeds ${String(CREATE_FROM_FILE_CONTENTS_MAX_BYTES)} bytes (256 KiB).`,
-    );
+  const combined = combineReadSignals(options);
+  try {
+    return await readCappedFilePath(contents, combined.signal);
+  } finally {
+    combined.cleanup();
   }
-  const bytes = await readFile(contents);
-  return Uint8Array.from(bytes);
 }
