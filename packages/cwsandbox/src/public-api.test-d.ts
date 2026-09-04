@@ -39,6 +39,7 @@ import {
   type MountedFiles,
   type Endpoint,
   type HttpsEndpoint,
+  type HttpsEndpointStatus,
   type TlsPassthroughEndpoint,
   type TlsPassthroughEndpointStatus,
   type NetworkOptions,
@@ -371,6 +372,15 @@ const service: Service = {
   visibility: "public",
 };
 const serviceUrl: ServiceUrl = { name: "http", port: 8000, url: "https://sandbox.example.com" };
+const httpsStatus: HttpsEndpointStatus = {
+  auth: "open",
+  kind: "https",
+  name: "http",
+  port: 8000,
+  requestTimeoutSeconds: 120,
+  url: "https://sandbox.example.com",
+};
+void httpsStatus;
 const sandboxAnnotations: SandboxAnnotations = { team: "platform" };
 const sandboxTag: SandboxTag = "project-demo";
 const sandboxExposedPort: SandboxExposedPort = { name: "http", port: 8000, protocol: "tcp" };
@@ -384,6 +394,7 @@ const sandboxMetadata: SandboxMetadata = {
   runnerId: "runner-id",
   sandboxId: "sandbox-id",
   serviceAddresses: [tlsStatus],
+  serviceEndpoints: [httpsStatus],
   serviceUrls: [serviceUrl],
   startedAt: new Date(),
   status: "running",
@@ -425,6 +436,8 @@ expectTypeOf(sandbox.serviceUrls).toEqualTypeOf<readonly ServiceUrl[] | undefine
 expectTypeOf(sandbox.serviceAddresses).toEqualTypeOf<
   readonly TlsPassthroughEndpointStatus[] | undefined
 >();
+expectTypeOf(sandbox.serviceEndpoints).toEqualTypeOf<readonly HttpsEndpointStatus[] | undefined>();
+expectTypeOf(httpsStatus.url).toEqualTypeOf<string>();
 expectTypeOf(sandbox.dnsEgressNames).toEqualTypeOf<readonly string[] | undefined>();
 expectTypeOf(sandbox.exposedPorts).toEqualTypeOf<readonly SandboxExposedPort[] | undefined>();
 expectTypeOf(sandbox.resourceRequests).toEqualTypeOf<SandboxResourceSpec | undefined>();

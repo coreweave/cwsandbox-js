@@ -15,6 +15,7 @@ import type { DataPlaneOptions } from "./data-plane.js";
 import type { MountedFiles, SandboxFiles } from "./files.js";
 import type { SandboxLogs } from "./logs.js";
 import type {
+  HttpsEndpointStatus,
   NetworkOptions,
   Service,
   ServiceProtocol,
@@ -333,6 +334,7 @@ export interface SandboxMetadata {
   readonly runnerId?: string;
   readonly sandboxId: SandboxId;
   readonly serviceAddresses?: readonly TlsPassthroughEndpointStatus[];
+  readonly serviceEndpoints?: readonly HttpsEndpointStatus[];
   readonly serviceUrls?: readonly ServiceUrl[];
   readonly startedAt?: Date;
   readonly status?: SandboxStatus;
@@ -368,6 +370,7 @@ export interface Sandbox {
   readonly runnerGroupId: string | undefined;
   readonly runnerId: string | undefined;
   readonly serviceAddresses: readonly TlsPassthroughEndpointStatus[] | undefined;
+  readonly serviceEndpoints: readonly HttpsEndpointStatus[] | undefined;
   readonly serviceUrls: readonly ServiceUrl[] | undefined;
   readonly startedAt: Date | undefined;
   readonly status: SandboxStatus | undefined;
