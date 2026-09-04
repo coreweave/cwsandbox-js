@@ -9,6 +9,7 @@ export default defineConfig({
     exclude: ["dist/**", "node_modules/**"],
     include: [
       "scripts/check-package-consumers.test.ts",
+      "scripts/publish-release.test.ts",
       "scripts/release-provenance.test.ts",
       "scripts/version-packages.test.ts",
     ],

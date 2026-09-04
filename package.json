@@ -28,9 +28,7 @@
     "proto:update": "turbo run proto:update --filter=@coreweave/cwsandbox",
     "check": "turbo run //#lint //#format //#knip build typecheck test test:types //#test:readme //#test:package //#test:pack",
     "changeset": "changeset",
-    "release:check": "tsx scripts/check-release.ts",
-    "release:notes": "tsx scripts/release-notes.ts",
-    "release:publish": "tsx scripts/publish-package.ts",
+    "release:publish": "tsx scripts/publish-release.ts",
     "release:version": "tsx scripts/version-packages.ts"
   },
   "devDependencies": {

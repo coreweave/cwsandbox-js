@@ -66,7 +66,8 @@ The automated release flow SHOULD be:
    changelog changes.
 3. A maintainer reviews and merges the release pull request.
 4. The publishing job verifies that the commit came from the merged Changesets release
-   pull request, then packs and publishes the allowlisted packages from that commit.
+   pull request, then `pnpm release:publish` checks the version, packs and publishes
+   the allowlisted packages, and writes the GitHub Release notes from that commit.
 5. Automation creates the Git tag and GitHub Release for the published commit.
 
 Merging an ordinary feature or fix pull request MUST NOT publish directly. During beta,
@@ -76,6 +77,10 @@ the same branch boundary through its trusted-publisher identity. Required enviro
 reviewers are not enabled, so the environment does not add a second human approval.
 The workflow supports manual retry of a failed publishing job, but a manual run MUST
 publish only a version already approved in a merged release pull request.
+
+`pnpm release:version` remains separate because it prepares the pull request for human
+approval. `pnpm release:publish` is the single post-approval release command; it MUST
+NOT run before that pull request is merged.
 
 ## Required release checks
 

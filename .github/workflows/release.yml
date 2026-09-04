@@ -113,17 +113,11 @@ jobs:
       - name: Run release checks
         run: pnpm check
 
-      - name: Check approved version
+      - name: Check, pack, and publish approved beta
         id: release
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: pnpm release:check
-
-      - name: Pack and publish core package
         run: pnpm release:publish
-
-      - name: Build GitHub Release notes
-        run: pnpm release:notes > release-notes.md
 
       - name: Create Git tag and GitHub Release
         env:
