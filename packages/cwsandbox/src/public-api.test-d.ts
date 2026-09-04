@@ -38,6 +38,9 @@ import {
   type MountedFileContent,
   type MountedFiles,
   type Endpoint,
+  type HttpsEndpoint,
+  type TlsPassthroughEndpoint,
+  type TlsPassthroughEndpointStatus,
   type NetworkOptions,
   type EgressRule,
   type ObjectStoragePermission,
@@ -230,6 +233,18 @@ expectTypeOf(
     ],
   }),
 ).toEqualTypeOf<ReturnType<SandboxClient["run"]>>();
+expectTypeOf(
+  client.run(["python3"], {
+    services: [
+      {
+        endpoint: { kind: "tls_passthrough" },
+        name: "tls",
+        port: 8443,
+        visibility: "public",
+      },
+    ],
+  }),
+).toEqualTypeOf<ReturnType<SandboxClient["run"]>>();
 const tags = ["project-demo", "purpose-smoke"] as const satisfies readonly SandboxTag[];
 expectTypeOf(
   client.run(["python"], {
@@ -324,15 +339,30 @@ const commandInput: CommandInput = command;
 expectTypeOf(command).toExtend<CommandInput>();
 
 const endpoint: Endpoint = { auth: "open", kind: "https" };
-const timedEndpoint: Endpoint = { auth: "open", kind: "https", requestTimeoutSeconds: 120 };
+const timedEndpoint: HttpsEndpoint = { auth: "open", kind: "https", requestTimeoutSeconds: 120 };
 void timedEndpoint;
+const tlsEndpoint: TlsPassthroughEndpoint = { kind: "tls_passthrough" };
+void tlsEndpoint;
 // @ts-expect-error TOKEN is not a supported EndpointAuth
 const tokenEndpoint: Endpoint = { auth: "token", kind: "https" };
 const stringAuth: string = "open";
 // @ts-expect-error Endpoint.auth does not accept a widened string
 const stringEndpoint: Endpoint = { auth: stringAuth, kind: "https" };
+// @ts-expect-error TLS passthrough does not accept auth
+const tlsWithAuth: Endpoint = { auth: "open", kind: "tls_passthrough" };
+// @ts-expect-error TLS passthrough does not accept requestTimeoutSeconds
+const tlsWithTimeout: Endpoint = { kind: "tls_passthrough", requestTimeoutSeconds: 120 };
 void tokenEndpoint;
 void stringEndpoint;
+void tlsWithAuth;
+void tlsWithTimeout;
+const tlsStatus: TlsPassthroughEndpointStatus = {
+  address: "8443-tls-id.example:443",
+  kind: "tls_passthrough",
+  name: "tls",
+  port: 8443,
+};
+void tlsStatus;
 const service: Service = {
   endpoint,
   name: "http",
@@ -353,6 +383,7 @@ const sandboxMetadata: SandboxMetadata = {
   runnerGroupId: "runner-group-id",
   runnerId: "runner-id",
   sandboxId: "sandbox-id",
+  serviceAddresses: [tlsStatus],
   serviceUrls: [serviceUrl],
   startedAt: new Date(),
   status: "running",
@@ -391,6 +422,9 @@ expectTypeOf(sandbox.startedAt).toEqualTypeOf<Date | undefined>();
 expectTypeOf(sandbox.runnerId).toEqualTypeOf<string | undefined>();
 expectTypeOf(sandbox.runnerGroupId).toEqualTypeOf<string | undefined>();
 expectTypeOf(sandbox.serviceUrls).toEqualTypeOf<readonly ServiceUrl[] | undefined>();
+expectTypeOf(sandbox.serviceAddresses).toEqualTypeOf<
+  readonly TlsPassthroughEndpointStatus[] | undefined
+>();
 expectTypeOf(sandbox.dnsEgressNames).toEqualTypeOf<readonly string[] | undefined>();
 expectTypeOf(sandbox.exposedPorts).toEqualTypeOf<readonly SandboxExposedPort[] | undefined>();
 expectTypeOf(sandbox.resourceRequests).toEqualTypeOf<SandboxResourceSpec | undefined>();

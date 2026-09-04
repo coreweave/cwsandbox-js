@@ -3,13 +3,13 @@
 // SPDX-PackageName: cwsandbox
 
 export type EndpointAuth = "open";
-export type EndpointKind = "https";
+export type EndpointKind = "https" | "tls_passthrough";
 export type ServiceProtocol = "sctp" | "tcp" | "udp";
 export type ServiceVisibility = "custom" | "private" | "public";
 
-export interface Endpoint {
+export interface HttpsEndpoint {
   readonly auth: EndpointAuth;
-  readonly kind: EndpointKind;
+  readonly kind: "https";
   /**
    * Server-side HTTPS request clock on this product endpoint (504 while the
    * sandbox stays alive). Not `timeoutMs` on `client.run` / RPCs. Omit or `0`
@@ -18,6 +18,18 @@ export interface Endpoint {
    */
   readonly requestTimeoutSeconds?: number;
 }
+
+/**
+ * TLS passthrough product endpoint. The platform forwards TLS by SNI to the
+ * container. `auth` and `requestTimeoutSeconds` must be omitted. The assigned
+ * target is `host:port` on `serviceAddresses`. Use the host as TLS SNI. The
+ * workload owns certs.
+ */
+export interface TlsPassthroughEndpoint {
+  readonly kind: "tls_passthrough";
+}
+
+export type Endpoint = HttpsEndpoint | TlsPassthroughEndpoint;
 
 export interface Service {
   readonly endpoint?: Endpoint;
@@ -61,4 +73,16 @@ export interface ServiceUrl {
   readonly name: string;
   readonly port: number;
   readonly url: string;
+}
+
+/**
+ * Applied TLS passthrough endpoint echoed on `serviceAddresses`.
+ *
+ * `address` is `host:port`. Use the host as TLS SNI. The workload owns certs.
+ */
+export interface TlsPassthroughEndpointStatus {
+  readonly address: string;
+  readonly kind: "tls_passthrough";
+  readonly name: string;
+  readonly port: number;
 }

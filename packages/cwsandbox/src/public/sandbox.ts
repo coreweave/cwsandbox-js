@@ -14,7 +14,13 @@ import type { RequestOptions, Seconds } from "./common.js";
 import type { DataPlaneOptions } from "./data-plane.js";
 import type { MountedFiles, SandboxFiles } from "./files.js";
 import type { SandboxLogs } from "./logs.js";
-import type { NetworkOptions, Service, ServiceProtocol, ServiceUrl } from "./network.js";
+import type {
+  NetworkOptions,
+  Service,
+  ServiceProtocol,
+  ServiceUrl,
+  TlsPassthroughEndpointStatus,
+} from "./network.js";
 import type { ResourceOptions, ResourceSpec } from "./resources.js";
 import type { Secrets } from "./secrets.js";
 
@@ -326,6 +332,7 @@ export interface SandboxMetadata {
   readonly runnerGroupId?: string;
   readonly runnerId?: string;
   readonly sandboxId: SandboxId;
+  readonly serviceAddresses?: readonly TlsPassthroughEndpointStatus[];
   readonly serviceUrls?: readonly ServiceUrl[];
   readonly startedAt?: Date;
   readonly status?: SandboxStatus;
@@ -360,6 +367,7 @@ export interface Sandbox {
   readonly resourceRequests: SandboxResourceSpec | undefined;
   readonly runnerGroupId: string | undefined;
   readonly runnerId: string | undefined;
+  readonly serviceAddresses: readonly TlsPassthroughEndpointStatus[] | undefined;
   readonly serviceUrls: readonly ServiceUrl[] | undefined;
   readonly startedAt: Date | undefined;
   readonly status: SandboxStatus | undefined;

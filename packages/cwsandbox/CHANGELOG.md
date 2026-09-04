@@ -8,6 +8,16 @@ SPDX-PackageName: cwsandbox
 
 ## Unreleased
 
+- Add create-time TLS passthrough product endpoints (`endpoint.kind:
+"tls_passthrough"` on a PUBLIC service). `auth` and `requestTimeoutSeconds`
+  must be omitted. Create, Get, list, and `fromId` fill `serviceAddresses`
+  as `{ port, name, kind, address }` where `address` is `host:port`. Use the
+  host as TLS SNI; the workload owns certs. TLS stays off `serviceUrls`. On a
+  live handle, a later CREATING/RUNNING Get keeps a cached address per
+  `(port, name)` when that row is still present and Get omits the endpoint or
+  address. Any other status, including `paused` and `unspecified`, clears it.
+  Vendored v1 stubs are refreshed from BSR `183ca230…`
+  (`EndpointStatus.address`). Wire `STATE_PREPARING` maps to `creating`.
 - Add `dataPlaneMode` (`auto`, `direct`, or `gateway`) for sandbox exec, shell,
   logs, and file operations. `auto` prefers operation-scoped direct mTLS with a
   bounded gateway fallback; lifecycle and management calls remain on the API.

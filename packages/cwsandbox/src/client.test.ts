@@ -1106,6 +1106,27 @@ describe("SandboxClient", () => {
           ],
         }),
       ).rejects.toThrow(/requestTimeoutSeconds must be a non-negative integer/);
+      await expect(
+        client.run(["python"], {
+          services: [
+            {
+              endpoint: { auth: "open", kind: "tls_passthrough" } as never,
+              port: 8443,
+              visibility: "public",
+            },
+          ],
+        }),
+      ).rejects.toThrow(/auth must be unset when kind is tls_passthrough/);
+      await expect(
+        client.run(["python"], {
+          services: [
+            {
+              endpoint: { kind: "tls_passthrough" },
+              port: 8443,
+            },
+          ],
+        }),
+      ).rejects.toThrow(/Service.visibility must be public/);
     });
 
     it("throws a typed validation error for invalid run timeouts", async () => {

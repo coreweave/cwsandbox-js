@@ -102,3 +102,49 @@ describe("validateNetworkOptions endpoint requestTimeoutSeconds", () => {
     ).toThrow(/requestTimeoutSeconds must be a non-negative integer/);
   });
 });
+
+describe("validateNetworkOptions TLS passthrough", () => {
+  const publicTls = {
+    endpoint: { kind: "tls_passthrough" as const },
+    port: 8443,
+    visibility: "public" as const,
+  };
+
+  it("accepts a public TLS passthrough endpoint", () => {
+    expect(() => validateNetworkOptions([publicTls], undefined)).not.toThrow();
+  });
+
+  it("rejects auth on a TLS passthrough endpoint", () => {
+    expect(() =>
+      validateNetworkOptions(
+        [
+          {
+            ...publicTls,
+            endpoint: { auth: "open", kind: "tls_passthrough" } as never,
+          },
+        ],
+        undefined,
+      ),
+    ).toThrow(/auth must be unset when kind is tls_passthrough/);
+  });
+
+  it("rejects requestTimeoutSeconds on a TLS passthrough endpoint", () => {
+    expect(() =>
+      validateNetworkOptions(
+        [
+          {
+            ...publicTls,
+            endpoint: { kind: "tls_passthrough", requestTimeoutSeconds: 120 } as never,
+          },
+        ],
+        undefined,
+      ),
+    ).toThrow(/requestTimeoutSeconds must be unset when kind is tls_passthrough/);
+  });
+
+  it("rejects a non-public TLS passthrough endpoint", () => {
+    expect(() =>
+      validateNetworkOptions([{ ...publicTls, visibility: "private" }], undefined),
+    ).toThrow(/visibility must be public/);
+  });
+});
