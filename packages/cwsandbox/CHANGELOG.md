@@ -18,6 +18,9 @@ SPDX-PackageName: cwsandbox
   address. Any other status, including `paused` and `unspecified`, clears it.
   Vendored v1 stubs are refreshed from BSR `183ca230…`
   (`EndpointStatus.address`). Wire `STATE_PREPARING` maps to `creating`.
+- Wait and poll remap wire `unspecified` to `completed` before `onStatus`,
+  target matching, and completed-only exit-code grace. `inspect()`, `fromId()`,
+  and list stay `unspecified`.
 - Add `dataPlaneMode` (`auto`, `direct`, or `gateway`) for sandbox exec, shell,
   logs, and file operations. `auto` prefers operation-scoped direct mTLS with a
   bounded gateway fallback; lifecycle and management calls remain on the API.

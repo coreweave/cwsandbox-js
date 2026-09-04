@@ -250,6 +250,30 @@ describe("Sandbox status and wait", () => {
     expect(sandbox.status).toBe("paused");
   });
 
+  it("remaps polled unspecified to completed on default wait", async () => {
+    const sandbox = await createClient(createFakeTransport(["unspecified"])).run(["echo", "hello"], {
+      waitUntilRunning: false,
+    });
+
+    await expect(sandbox.wait(fastWait({ timeoutMs: 100 }))).resolves.toBe(sandbox);
+    expect(sandbox.status).toBe("completed");
+  });
+
+  it("leaves inspect, fromId, and list unspecified", async () => {
+    const transport = createFakeTransport(["unspecified"]);
+    const client = createClient(transport);
+    const sandbox = await client.run(["echo", "hello"], { waitUntilRunning: false });
+
+    await expect(sandbox.inspect()).resolves.toMatchObject({ status: "unspecified" });
+    expect(sandbox.status).toBe("unspecified");
+
+    const fetched = await client.fromId(sandbox.sandboxId);
+    expect(fetched.status).toBe("unspecified");
+
+    const listed = await client.listAll();
+    expect(listed[0]?.status).toBe("unspecified");
+  });
+
   it("succeeds when completed during default wait-until-running", async () => {
     const sandbox = await createClient(createFakeTransport(["completed"])).run(["echo", "hello"], {
       waitUntilRunning: false,
