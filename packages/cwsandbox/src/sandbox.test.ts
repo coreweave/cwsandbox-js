@@ -489,6 +489,73 @@ describe("Sandbox", () => {
     expect(sandbox.status).toBe("running");
   });
 
+  it("handle retains TLS address when inspect Get is the mapped PREPARING SDK shape (creating, ports present, address omitted)", async () => {
+    const address = {
+      address: "8443-tls-id.example:443",
+      kind: "tls_passthrough" as const,
+      name: "tls",
+      port: 8443,
+    };
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          exposedPorts: [{ name: "tls", port: 8443, protocol: "tcp" }],
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          serviceAddresses: [address],
+          status: "creating",
+        };
+      },
+      async get(request) {
+        return {
+          exposedPorts: [{ name: "tls", port: 8443 }],
+          sandboxId: request.sandboxId,
+          status: "creating",
+        };
+      },
+    };
+
+    const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
+    const info = await sandbox.inspect();
+
+    expect(info.serviceAddresses).toEqual([address]);
+    expect(sandbox.serviceAddresses).toEqual([address]);
+    expect(sandbox.status).toBe("creating");
+  });
+
+  it("handle clears TLS address when mapped PREPARING inspect Get has no service rows", async () => {
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          exposedPorts: [{ name: "tls", port: 8443, protocol: "tcp" }],
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          serviceAddresses: [
+            {
+              address: "8443-tls-id.example:443",
+              kind: "tls_passthrough",
+              name: "tls",
+              port: 8443,
+            },
+          ],
+          status: "creating",
+        };
+      },
+      async get(request) {
+        return {
+          sandboxId: request.sandboxId,
+          status: "creating",
+        };
+      },
+    };
+
+    const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
+    const info = await sandbox.inspect();
+
+    expect(info.serviceAddresses).toBeUndefined();
+    expect(sandbox.serviceAddresses).toBeUndefined();
+  });
+
   it("clears TLS addresses when inspect reaches a terminal status", async () => {
     const transport: SandboxTransport = {
       ...createFakeTransport(),

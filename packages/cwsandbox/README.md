@@ -854,9 +854,10 @@ console.log(sandbox.serviceAddresses?.[0]?.address);
 A non-empty `serviceAddresses` entry means the target was assigned, not that
 the application or edge is ready. On a live handle, a later CREATING/RUNNING
 Get keeps a cached address per `(port, name)` when that service is still
-present and Get omits the endpoint or address. `fromId` and list have no
-Create cache. Any other status, including `paused` and `unspecified`, clears
-it.
+present and Get omits the endpoint or address. Wire `STATE_PREPARING` maps to
+`creating`, so a live handle keeps the address when service rows remain
+(visible on Get/poll). `fromId` and list have no Create cache. Any other
+status, including `paused` and `unspecified`, clears it.
 
 Sandbox handles expose cached backend metadata. Use `inspect()` when you need a
 fresh one-shot metadata snapshot for traces, tool results, or logs:

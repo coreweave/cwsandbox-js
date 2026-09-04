@@ -1240,6 +1240,46 @@ describe("node transport mappers", () => {
       expect(result.serviceAddresses).toBeUndefined();
     });
 
+    it("proto Get STATE_PREPARING maps to creating and omits an empty TLS address", () => {
+      const result = toSdkGetSandboxResult(
+        ProtoSandbox.create({
+          sandboxId: "tls-id",
+          status: {
+            services: [
+              {
+                endpoint: {
+                  kind: EndpointKind.TLS_PASSTHROUGH,
+                },
+                name: "tls",
+                port: 8443,
+                visibility: Visibility.PUBLIC,
+              },
+            ],
+            state: State.PREPARING,
+          },
+        }),
+      );
+
+      expect(result.status).toBe("creating");
+      expect(result.serviceAddresses).toBeUndefined();
+      expect(result.exposedPorts).toEqual([{ name: "tls", port: 8443 }]);
+    });
+
+    it("proto Get STATE_PREPARING with no services maps to creating without ports or addresses", () => {
+      const result = toSdkGetSandboxResult(
+        ProtoSandbox.create({
+          sandboxId: "tls-id",
+          status: {
+            state: State.PREPARING,
+          },
+        }),
+      );
+
+      expect(result.status).toBe("creating");
+      expect(result.exposedPorts).toBeUndefined();
+      expect(result.serviceAddresses).toBeUndefined();
+    });
+
     it("prefers endpoint.url when service.url is empty", () => {
       const result = toSdkStartSandboxResult(
         ProtoSandbox.create({
