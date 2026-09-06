@@ -13,6 +13,8 @@ This is a pnpm monorepo. Product docs for the core SDK live in
 
 For contribution guidelines and CLA requirements, see
 [`CONTRIBUTING.md`](./CONTRIBUTING.md).
+Maintainers should also read the [`release policy`](./RELEASING.md) before preparing or
+publishing a release.
 
 ## Packages
 
