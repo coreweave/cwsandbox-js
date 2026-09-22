@@ -12,11 +12,11 @@
   },
   "dependencies": {
     "@coreweave/cwsandbox-tanstack": "workspace:*",
-    "@tanstack/ai": "^0.53.0",
-    "@tanstack/ai-sandbox": "^0.5.6"
+    "@tanstack/ai": "^0.55.0",
+    "@tanstack/ai-sandbox": "^0.5.9"
   },
   "devDependencies": {
-    "@types/node": "^22.20.1",
+    "@types/node": "^22.20.4",
     "typescript": "^7.0.2"
   }
 }
