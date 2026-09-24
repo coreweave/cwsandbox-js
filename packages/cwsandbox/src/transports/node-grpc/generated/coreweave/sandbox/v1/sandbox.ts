@@ -59,6 +59,25 @@ export interface Sandbox {
      * @generated from protobuf field: int64 source_template_revision = 5
      */
     sourceTemplateRevision: string;
+    /**
+     * Optional, immutable lookup name, unique among active sandboxes in the
+     * tenant organization. Case-sensitive, at most 128 UTF-8 bytes; leading or
+     * trailing whitespace, slashes, colons, control characters, and UUIDs are invalid.
+     * The name becomes reusable once the sandbox reaches a terminal state.
+     *
+     * @generated from protobuf field: string display_name = 6
+     */
+    displayName: string;
+    /**
+     * CreateSandbox, CreateSandboxFromTemplate, and an identical request_id
+     * replay of that call, after HTTPS URLs confirm. Omitted from Get, List,
+     * status, and from a successful create while those URLs are unconfirmed.
+     * Send as X-Sandbox-Share-Token or ?share_token=; both are stripped before
+     * forwarding.
+     *
+     * @generated from protobuf field: string endpoint_share_token = 7
+     */
+    endpointShareToken: string;
 }
 /**
  * SandboxSpec is the user-declared workload: one or more containers that share
@@ -709,6 +728,14 @@ export interface SandboxStatus {
      * @generated from protobuf field: string effective_runtime_class = 19
      */
     effectiveRuntimeClass: string;
+    /**
+     * Effective outbound DNS traffic mode after policy resolution, governing
+     * UDP/TCP destination port 53. UNSPECIFIED when unknown. This is separate
+     * from the https_hostname destination rules in effective_egress.
+     *
+     * @generated from protobuf field: coreweave.sandbox.v1.DNSEgressMode effective_dns_egress = 20
+     */
+    effectiveDnsEgress: DNSEgressMode;
 }
 /**
  * ContainerStatus is the observed state of a single container.
@@ -985,22 +1012,23 @@ export interface NetworkOptions {
      */
     ingress: IngressRule[];
     /**
-     * Egress the sandbox needs: an allow-only rule set over a default-deny base.
-     * Traffic matching ANY rule is allowed; anything unmatched is denied. Rules
-     * never interact (no deny rules, no ordering), so adding a rule only widens
-     * access. A rule outside the runner policy's allowed envelope is rejected at
-     * create, never silently narrowed. Empty = the policy's default egress. The
-     * rules in effect are echoed in SandboxStatus.effective_egress.
+     * Egress destinations the sandbox needs. These grants are additive: traffic
+     * matching any rule is allowed, subject to dns_egress. A rule outside the
+     * runner policy's allowed envelope is rejected at create, never silently
+     * narrowed. Empty = the policy's default egress. Platform DNS and storage
+     * access are granted separately; dns_egress=DENY blocks UDP/TCP port 53
+     * across all grants. Resolved destination rules are echoed in
+     * SandboxStatus.effective_egress.
      *
      * @generated from protobuf field: repeated coreweave.sandbox.v1.EgressRule egress = 2
      */
     egress: EgressRule[];
     /**
-     * When true, denies all declared egress: the policy's default_egress does
-     * not apply. Name resolution still works (platform DNS remains reachable).
-     * Mutually exclusive with egress rules. Always admitted — deny-all is valid
-     * narrowing below any allowed envelope. Distinct from an empty egress list,
-     * which means "unset" and opts into the policy default.
+     * When true, applies no declared or default egress rules. Mutually exclusive
+     * with egress rules and always admitted as a narrowing of allowed_egress.
+     * Platform DNS and storage access remain separate. Set dns_egress=DENY to
+     * also block outbound UDP/TCP port 53. An empty egress list with this flag
+     * unset instead inherits the policy's default_egress.
      *
      * @generated from protobuf field: optional bool deny_egress = 3
      */
@@ -1014,6 +1042,16 @@ export interface NetworkOptions {
      * @generated from protobuf field: optional bool deny_ingress = 4
      */
     denyIngress?: boolean;
+    /**
+     * Outbound DNS traffic mode on UDP/TCP destination port 53. UNSPECIFIED
+     * inherits Policy.constraints.network.dns_egress. DENY overrides port-53
+     * access in all egress grants; ALLOW is rejected when the policy requires
+     * DENY. This is independent of https_hostname destination rules and does
+     * not provide a DNS query-name allowlist. See DNSEgressMode for scope.
+     *
+     * @generated from protobuf field: coreweave.sandbox.v1.DNSEgressMode dns_egress = 5
+     */
+    dnsEgress: DNSEgressMode;
 }
 /**
  * EgressRule allows traffic to one destination class, optionally narrowed to
@@ -1035,9 +1073,10 @@ export interface EgressRule {
          */
         cidr: CidrBlock;
     } | {
-        oneofKind: "dnsName";
+        oneofKind: "httpsHostname";
         /**
-         * A DNS name: exact ("pypi.org") or a single leftmost wildcard label
+         * An HTTPS destination hostname, matched against TLS Server Name
+         * Indication (SNI): exact ("pypi.org") or a single leftmost wildcard label
          * ("*.example.com" matches "foo.example.com", not "bar.foo.example.com").
          * On Policy.allowed_egress, "*" entitles every name; it is not a sandbox
          * grant. No other pattern forms. On a sandbox this is a hostname grant
@@ -1046,14 +1085,16 @@ export interface EgressRule {
          * list is rejected. On Policy.allowed_egress it is a ceiling for those
          * grants: every declared name must match an allowed pattern or an `any`
          * entitlement; a CIDR-only envelope does not entitle names. Carve names
-         * out of this ceiling with dns_name_except. Policy.default_egress must
-         * not set dns_name — a curated site set belongs on a SandboxTemplate.
-         * Requires a runner that can enforce DNS-name rules; otherwise create is
-         * rejected rather than ignoring the rule.
+         * out of this ceiling with https_hostname_except. Policy.default_egress must
+         * not set https_hostname — a curated site set belongs on a SandboxTemplate.
+         * This rule authorizes HTTPS access, not DNS queries or resolutions.
+         * Outbound DNS traffic is governed separately by network.dns_egress.
+         * Requires a runner that can enforce hostname-based HTTPS rules;
+         * otherwise create is rejected rather than ignoring the rule.
          *
-         * @generated from protobuf field: string dns_name = 2
+         * @generated from protobuf field: string https_hostname = 2
          */
-        dnsName: string;
+        httpsHostname: string;
     } | {
         oneofKind: "tenant";
         /**
@@ -1099,19 +1140,20 @@ export interface EgressRule {
      */
     ports: PortRange[];
     /**
-     * Names carved out of this rule's dns_name. Valid only with dns_name on
-     * Policy.allowed_egress. An except narrows only THIS rule — another
-     * allowed_egress rule may still entitle the name. Grammar matches dns_name
-     * except "*". Each except must be covered by this dns_name ("*" may except
-     * any name; "*.example.com" may except "foo.example.com"). "evil.com"
+     * Hostnames excluded from this rule's HTTPS grant. Valid only with
+     * https_hostname on Policy.allowed_egress. An except narrows only THIS rule;
+     * another allowed_egress rule may still entitle the hostname. Grammar matches
+     * https_hostname except "*". Each except must be covered by this rule's
+     * hostname pattern ("*" may except any name; "*.example.com" may except
+     * "foo.example.com"). "evil.com"
      * does not except "www.evil.com"; add "*.evil.com" to cover one label
      * under that apex. Extra labels (a.b.evil.com) remain entitled under
      * those excepts. A declared name or wildcard whose match set covers an
      * except is not entitled by this rule.
      *
-     * @generated from protobuf field: repeated string dns_name_except = 7
+     * @generated from protobuf field: repeated string https_hostname_except = 7
      */
-    dnsNameExcept: string[];
+    httpsHostnameExcept: string[];
 }
 /**
  * IngressRule allows inbound traffic from one source class to the sandbox's
@@ -1563,6 +1605,12 @@ export interface CreateSandboxFromTemplateRequest {
      * @generated from protobuf field: string request_id = 3
      */
     requestId: string;
+    /**
+     * Optional name for the created sandbox. Uses Sandbox.display_name rules.
+     *
+     * @generated from protobuf field: string display_name = 4
+     */
+    displayName: string;
 }
 /**
  * CreateSandboxFromFileRequest is the AIP-136 body for CreateSandboxFromFile.
@@ -1605,7 +1653,8 @@ export interface CreateSandboxFromFileRequest {
     };
     /**
      * Per-service gzip build-context tarballs. Keys must be services. Total
-     * 32 MiB. Valid only when type is Compose.
+     * 32 MiB. A service that still needs a build must not have an entry here
+     * when its build.context is a remote URL. Valid only when type is Compose.
      *
      * @generated from protobuf field: map<string, bytes> build_contexts = 5
      */
@@ -1661,12 +1710,80 @@ export interface CreateSandboxFromFileRequest {
      * @generated from protobuf field: string request_id = 15
      */
     requestId: string;
+    /**
+     * Optional name for the created sandbox. Uses Sandbox.display_name rules.
+     *
+     * @generated from protobuf field: string display_name = 16
+     */
+    displayName: string;
+    /**
+     * Per-service build context stored in CoreWeave AI Object Storage, for
+     * contexts larger than build_contexts allows. Keys must be services that
+     * still need a build. A service with an entry here must not also have a
+     * build_contexts entry or a remote build.context. At most 64 entries.
+     * Valid only when type is Compose.
+     *
+     * @generated from protobuf field: map<string, coreweave.sandbox.v1.BuildContextObject> build_context_objects = 17
+     */
+    buildContextObjects: {
+        [key: string]: BuildContextObject;
+    };
+    /**
+     * Per-service builder size name, at most 64 bytes. Omitted services use the
+     * default size. Keys must be services that still need a build. At most 64
+     * entries. Valid only when type is Compose.
+     *
+     * @generated from protobuf field: map<string, string> builder_sizes = 18
+     */
+    builderSizes: {
+        [key: string]: string;
+    };
+}
+/**
+ * BuildContextObject names one exact version of a gzip-compressed tar build
+ * context in CoreWeave AI Object Storage. The caller's credential must be able
+ * to read it; the platform never modifies or deletes it.
+ *
+ * @generated from protobuf message coreweave.sandbox.v1.BuildContextObject
+ */
+export interface BuildContextObject {
+    /**
+     * Object-storage location. Must equal the organization's build storage
+     * location.
+     *
+     * @generated from protobuf field: string location = 1
+     */
+    location: string;
+    /**
+     * Bucket that holds the object.
+     *
+     * @generated from protobuf field: string bucket = 2
+     */
+    bucket: string;
+    /**
+     * Object key, at most 1024 bytes.
+     *
+     * @generated from protobuf field: string key = 3
+     */
+    key: string;
+    /**
+     * Exact object version, at most 1024 bytes. The build reads this version
+     * only. Unversioned objects (version "null") are rejected.
+     *
+     * @generated from protobuf field: string version_id = 4
+     */
+    versionId: string;
 }
 /**
  * @generated from protobuf message coreweave.sandbox.v1.GetSandboxRequest
  */
 export interface GetSandboxRequest {
     /**
+     * Sandbox UUID or tenant-scoped display_name. Names resolve active sandboxes
+     * only; use the UUID to retrieve a terminal sandbox. UUIDs resolve by ID only.
+     * Use the returned sandbox_id for subsequent operations, since names can be
+     * reused after termination. Existing ownership and access rules apply.
+     *
      * @generated from protobuf field: string sandbox_id = 1
      */
     sandboxId: string;
@@ -2686,17 +2803,17 @@ export enum EndpointAuth {
      */
     UNSPECIFIED = 0,
     /**
-     * no platform edge token
+     * no platform share-token auth
      *
      * @generated from protobuf enum value: ENDPOINT_AUTH_OPEN = 1;
      */
     OPEN = 1,
     /**
-     * platform edge token (not yet wired)
+     * platform share-token auth
      *
-     * @generated from protobuf enum value: ENDPOINT_AUTH_TOKEN = 2;
+     * @generated from protobuf enum value: ENDPOINT_AUTH_SHARE_TOKEN = 2;
      */
-    TOKEN = 2
+    SHARE_TOKEN = 2
 }
 /**
  * Visibility is the user's declared reachability intent for a port. It says
@@ -2730,6 +2847,38 @@ export enum Visibility {
      * @generated from protobuf enum value: VISIBILITY_CUSTOM = 3;
      */
     CUSTOM = 3
+}
+/**
+ * DNSEgressMode controls outbound traffic on UDP/TCP destination port 53.
+ * It does not filter DNS query names. Locally answered lookups and DNS carried
+ * over other permitted transports, such as HTTPS, are outside this control.
+ *
+ * @generated from protobuf enum coreweave.sandbox.v1.DNSEgressMode
+ */
+export enum DNSEgressMode {
+    /**
+     * Inherit Policy.constraints.network.dns_egress. If the policy is also
+     * unspecified, use ALLOW.
+     *
+     * @generated from protobuf enum value: DNS_EGRESS_MODE_UNSPECIFIED = 0;
+     */
+    DNS_EGRESS_MODE_UNSPECIFIED = 0,
+    /**
+     * Permit access to the platform DNS resolver. Access to other resolvers
+     * requires a matching egress rule. Query names are unrestricted.
+     *
+     * @generated from protobuf enum value: DNS_EGRESS_MODE_ALLOW = 1;
+     */
+    DNS_EGRESS_MODE_ALLOW = 1,
+    /**
+     * Block outbound UDP/TCP destination port 53, including traffic otherwise
+     * allowed by egress rules or platform storage grants. HTTPS permitted by
+     * https_hostname rules remains available: local lookups can direct it to the
+     * egress proxy, which resolves the destination outside the sandbox.
+     *
+     * @generated from protobuf enum value: DNS_EGRESS_MODE_DENY = 2;
+     */
+    DNS_EGRESS_MODE_DENY = 2
 }
 /**
  * TenantScope selects other sandboxes as an egress destination, relationally.
@@ -2937,7 +3086,9 @@ class Sandbox$Type extends MessageType<Sandbox> {
             { no: 2, name: "spec", kind: "message", T: () => SandboxSpec, options: { "google.api.field_behavior": ["REQUIRED"] } },
             { no: 3, name: "status", kind: "message", T: () => SandboxStatus, options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } },
             { no: 4, name: "source_template_id", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } },
-            { no: 5, name: "source_template_revision", kind: "scalar", T: 3 /*ScalarType.INT64*/, options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } }
+            { no: 5, name: "source_template_revision", kind: "scalar", T: 3 /*ScalarType.INT64*/, options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } },
+            { no: 6, name: "display_name", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
+            { no: 7, name: "endpoint_share_token", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } }
         ]);
     }
     create(value?: PartialMessage<Sandbox>): Sandbox {
@@ -2945,6 +3096,8 @@ class Sandbox$Type extends MessageType<Sandbox> {
         message.sandboxId = "";
         message.sourceTemplateId = "";
         message.sourceTemplateRevision = "0";
+        message.displayName = "";
+        message.endpointShareToken = "";
         if (value !== undefined)
             reflectionMergePartial<Sandbox>(this, message, value);
         return message;
@@ -2968,6 +3121,12 @@ class Sandbox$Type extends MessageType<Sandbox> {
                     break;
                 case /* int64 source_template_revision */ 5:
                     message.sourceTemplateRevision = reader.int64().toString();
+                    break;
+                case /* string display_name */ 6:
+                    message.displayName = reader.string();
+                    break;
+                case /* string endpoint_share_token */ 7:
+                    message.endpointShareToken = reader.string();
                     break;
                 default:
                     let u = options.readUnknownField;
@@ -2996,6 +3155,12 @@ class Sandbox$Type extends MessageType<Sandbox> {
         /* int64 source_template_revision = 5; */
         if (message.sourceTemplateRevision !== "0")
             writer.tag(5, WireType.Varint).int64(message.sourceTemplateRevision);
+        /* string display_name = 6; */
+        if (message.displayName !== "")
+            writer.tag(6, WireType.LengthDelimited).string(message.displayName);
+        /* string endpoint_share_token = 7; */
+        if (message.endpointShareToken !== "")
+            writer.tag(7, WireType.LengthDelimited).string(message.endpointShareToken);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -3856,7 +4021,8 @@ class SandboxStatus$Type extends MessageType<SandboxStatus> {
             { no: 16, name: "effective_egress", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => EgressRule, options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } },
             { no: 17, name: "effective_resource_requirements", kind: "message", T: () => ResourceRequirements, options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } },
             { no: 18, name: "attached_volume_ids", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } },
-            { no: 19, name: "effective_runtime_class", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } }
+            { no: 19, name: "effective_runtime_class", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } },
+            { no: 20, name: "effective_dns_egress", kind: "enum", T: () => ["coreweave.sandbox.v1.DNSEgressMode", DNSEgressMode], options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } }
         ]);
     }
     create(value?: PartialMessage<SandboxStatus>): SandboxStatus {
@@ -3872,6 +4038,7 @@ class SandboxStatus$Type extends MessageType<SandboxStatus> {
         message.effectiveEgress = [];
         message.attachedVolumeIds = [];
         message.effectiveRuntimeClass = "";
+        message.effectiveDnsEgress = 0;
         if (value !== undefined)
             reflectionMergePartial<SandboxStatus>(this, message, value);
         return message;
@@ -3934,6 +4101,9 @@ class SandboxStatus$Type extends MessageType<SandboxStatus> {
                     break;
                 case /* string effective_runtime_class */ 19:
                     message.effectiveRuntimeClass = reader.string();
+                    break;
+                case /* coreweave.sandbox.v1.DNSEgressMode effective_dns_egress */ 20:
+                    message.effectiveDnsEgress = reader.int32();
                     break;
                 default:
                     let u = options.readUnknownField;
@@ -4001,6 +4171,9 @@ class SandboxStatus$Type extends MessageType<SandboxStatus> {
         /* string effective_runtime_class = 19; */
         if (message.effectiveRuntimeClass !== "")
             writer.tag(19, WireType.LengthDelimited).string(message.effectiveRuntimeClass);
+        /* coreweave.sandbox.v1.DNSEgressMode effective_dns_egress = 20; */
+        if (message.effectiveDnsEgress !== 0)
+            writer.tag(20, WireType.Varint).int32(message.effectiveDnsEgress);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -4578,13 +4751,15 @@ class NetworkOptions$Type extends MessageType<NetworkOptions> {
             { no: 1, name: "ingress", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => IngressRule, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 2, name: "egress", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => EgressRule, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 3, name: "deny_egress", kind: "scalar", opt: true, T: 8 /*ScalarType.BOOL*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
-            { no: 4, name: "deny_ingress", kind: "scalar", opt: true, T: 8 /*ScalarType.BOOL*/, options: { "google.api.field_behavior": ["OPTIONAL"] } }
+            { no: 4, name: "deny_ingress", kind: "scalar", opt: true, T: 8 /*ScalarType.BOOL*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
+            { no: 5, name: "dns_egress", kind: "enum", T: () => ["coreweave.sandbox.v1.DNSEgressMode", DNSEgressMode], options: { "google.api.field_behavior": ["OPTIONAL"] } }
         ]);
     }
     create(value?: PartialMessage<NetworkOptions>): NetworkOptions {
         const message = globalThis.Object.create((this.messagePrototype!));
         message.ingress = [];
         message.egress = [];
+        message.dnsEgress = 0;
         if (value !== undefined)
             reflectionMergePartial<NetworkOptions>(this, message, value);
         return message;
@@ -4605,6 +4780,9 @@ class NetworkOptions$Type extends MessageType<NetworkOptions> {
                     break;
                 case /* optional bool deny_ingress */ 4:
                     message.denyIngress = reader.bool();
+                    break;
+                case /* coreweave.sandbox.v1.DNSEgressMode dns_egress */ 5:
+                    message.dnsEgress = reader.int32();
                     break;
                 default:
                     let u = options.readUnknownField;
@@ -4630,6 +4808,9 @@ class NetworkOptions$Type extends MessageType<NetworkOptions> {
         /* optional bool deny_ingress = 4; */
         if (message.denyIngress !== undefined)
             writer.tag(4, WireType.Varint).bool(message.denyIngress);
+        /* coreweave.sandbox.v1.DNSEgressMode dns_egress = 5; */
+        if (message.dnsEgress !== 0)
+            writer.tag(5, WireType.Varint).int32(message.dnsEgress);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -4645,19 +4826,19 @@ class EgressRule$Type extends MessageType<EgressRule> {
     constructor() {
         super("coreweave.sandbox.v1.EgressRule", [
             { no: 1, name: "cidr", kind: "message", oneof: "destination", T: () => CidrBlock },
-            { no: 2, name: "dns_name", kind: "scalar", oneof: "destination", T: 9 /*ScalarType.STRING*/ },
+            { no: 2, name: "https_hostname", kind: "scalar", oneof: "destination", T: 9 /*ScalarType.STRING*/ },
             { no: 3, name: "tenant", kind: "enum", oneof: "destination", T: () => ["coreweave.sandbox.v1.TenantScope", TenantScope, "TENANT_SCOPE_"] },
             { no: 4, name: "any", kind: "scalar", oneof: "destination", T: 8 /*ScalarType.BOOL*/ },
             { no: 6, name: "selector", kind: "message", oneof: "destination", T: () => SelectorBlock },
             { no: 5, name: "ports", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => PortRange, options: { "google.api.field_behavior": ["OPTIONAL"] } },
-            { no: 7, name: "dns_name_except", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } }
+            { no: 7, name: "https_hostname_except", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } }
         ]);
     }
     create(value?: PartialMessage<EgressRule>): EgressRule {
         const message = globalThis.Object.create((this.messagePrototype!));
         message.destination = { oneofKind: undefined };
         message.ports = [];
-        message.dnsNameExcept = [];
+        message.httpsHostnameExcept = [];
         if (value !== undefined)
             reflectionMergePartial<EgressRule>(this, message, value);
         return message;
@@ -4673,10 +4854,10 @@ class EgressRule$Type extends MessageType<EgressRule> {
                         cidr: CidrBlock.internalBinaryRead(reader, reader.uint32(), options, (message.destination as any).cidr)
                     };
                     break;
-                case /* string dns_name */ 2:
+                case /* string https_hostname */ 2:
                     message.destination = {
-                        oneofKind: "dnsName",
-                        dnsName: reader.string()
+                        oneofKind: "httpsHostname",
+                        httpsHostname: reader.string()
                     };
                     break;
                 case /* coreweave.sandbox.v1.TenantScope tenant */ 3:
@@ -4700,8 +4881,8 @@ class EgressRule$Type extends MessageType<EgressRule> {
                 case /* repeated coreweave.sandbox.v1.PortRange ports */ 5:
                     message.ports.push(PortRange.internalBinaryRead(reader, reader.uint32(), options));
                     break;
-                case /* repeated string dns_name_except */ 7:
-                    message.dnsNameExcept.push(reader.string());
+                case /* repeated string https_hostname_except */ 7:
+                    message.httpsHostnameExcept.push(reader.string());
                     break;
                 default:
                     let u = options.readUnknownField;
@@ -4718,9 +4899,9 @@ class EgressRule$Type extends MessageType<EgressRule> {
         /* coreweave.sandbox.v1.CidrBlock cidr = 1; */
         if (message.destination.oneofKind === "cidr")
             CidrBlock.internalBinaryWrite(message.destination.cidr, writer.tag(1, WireType.LengthDelimited).fork(), options).join();
-        /* string dns_name = 2; */
-        if (message.destination.oneofKind === "dnsName")
-            writer.tag(2, WireType.LengthDelimited).string(message.destination.dnsName);
+        /* string https_hostname = 2; */
+        if (message.destination.oneofKind === "httpsHostname")
+            writer.tag(2, WireType.LengthDelimited).string(message.destination.httpsHostname);
         /* coreweave.sandbox.v1.TenantScope tenant = 3; */
         if (message.destination.oneofKind === "tenant")
             writer.tag(3, WireType.Varint).int32(message.destination.tenant);
@@ -4733,9 +4914,9 @@ class EgressRule$Type extends MessageType<EgressRule> {
         /* coreweave.sandbox.v1.SelectorBlock selector = 6; */
         if (message.destination.oneofKind === "selector")
             SelectorBlock.internalBinaryWrite(message.destination.selector, writer.tag(6, WireType.LengthDelimited).fork(), options).join();
-        /* repeated string dns_name_except = 7; */
-        for (let i = 0; i < message.dnsNameExcept.length; i++)
-            writer.tag(7, WireType.LengthDelimited).string(message.dnsNameExcept[i]);
+        /* repeated string https_hostname_except = 7; */
+        for (let i = 0; i < message.httpsHostnameExcept.length; i++)
+            writer.tag(7, WireType.LengthDelimited).string(message.httpsHostnameExcept[i]);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -5707,13 +5888,15 @@ class CreateSandboxFromTemplateRequest$Type extends MessageType<CreateSandboxFro
         super("coreweave.sandbox.v1.CreateSandboxFromTemplateRequest", [
             { no: 1, name: "template_id", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["REQUIRED"] } },
             { no: 2, name: "overrides", kind: "message", T: () => PartialSandboxSpec, options: { "google.api.field_behavior": ["OPTIONAL"] } },
-            { no: 3, name: "request_id", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } }
+            { no: 3, name: "request_id", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
+            { no: 4, name: "display_name", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } }
         ]);
     }
     create(value?: PartialMessage<CreateSandboxFromTemplateRequest>): CreateSandboxFromTemplateRequest {
         const message = globalThis.Object.create((this.messagePrototype!));
         message.templateId = "";
         message.requestId = "";
+        message.displayName = "";
         if (value !== undefined)
             reflectionMergePartial<CreateSandboxFromTemplateRequest>(this, message, value);
         return message;
@@ -5731,6 +5914,9 @@ class CreateSandboxFromTemplateRequest$Type extends MessageType<CreateSandboxFro
                     break;
                 case /* string request_id */ 3:
                     message.requestId = reader.string();
+                    break;
+                case /* string display_name */ 4:
+                    message.displayName = reader.string();
                     break;
                 default:
                     let u = options.readUnknownField;
@@ -5753,6 +5939,9 @@ class CreateSandboxFromTemplateRequest$Type extends MessageType<CreateSandboxFro
         /* string request_id = 3; */
         if (message.requestId !== "")
             writer.tag(3, WireType.LengthDelimited).string(message.requestId);
+        /* string display_name = 4; */
+        if (message.displayName !== "")
+            writer.tag(4, WireType.LengthDelimited).string(message.displayName);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -5781,7 +5970,10 @@ class CreateSandboxFromFileRequest$Type extends MessageType<CreateSandboxFromFil
             { no: 12, name: "object_storage_access", kind: "message", T: () => ObjectStorageAccess, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 13, name: "annotations", kind: "map", K: 9 /*ScalarType.STRING*/, V: { kind: "scalar", T: 9 /*ScalarType.STRING*/ }, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 14, name: "runner_ids", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
-            { no: 15, name: "request_id", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } }
+            { no: 15, name: "request_id", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
+            { no: 16, name: "display_name", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
+            { no: 17, name: "build_context_objects", kind: "map", K: 9 /*ScalarType.STRING*/, V: { kind: "message", T: () => BuildContextObject }, options: { "google.api.field_behavior": ["OPTIONAL"] } },
+            { no: 18, name: "builder_sizes", kind: "map", K: 9 /*ScalarType.STRING*/, V: { kind: "scalar", T: 9 /*ScalarType.STRING*/ }, options: { "google.api.field_behavior": ["OPTIONAL"] } }
         ]);
     }
     create(value?: PartialMessage<CreateSandboxFromFileRequest>): CreateSandboxFromFileRequest {
@@ -5798,6 +5990,9 @@ class CreateSandboxFromFileRequest$Type extends MessageType<CreateSandboxFromFil
         message.annotations = {};
         message.runnerIds = [];
         message.requestId = "";
+        message.displayName = "";
+        message.buildContextObjects = {};
+        message.builderSizes = {};
         if (value !== undefined)
             reflectionMergePartial<CreateSandboxFromFileRequest>(this, message, value);
         return message;
@@ -5851,6 +6046,15 @@ class CreateSandboxFromFileRequest$Type extends MessageType<CreateSandboxFromFil
                     break;
                 case /* string request_id */ 15:
                     message.requestId = reader.string();
+                    break;
+                case /* string display_name */ 16:
+                    message.displayName = reader.string();
+                    break;
+                case /* map<string, coreweave.sandbox.v1.BuildContextObject> build_context_objects */ 17:
+                    this.binaryReadMap17(message.buildContextObjects, reader, options);
+                    break;
+                case /* map<string, string> builder_sizes */ 18:
+                    this.binaryReadMap18(message.builderSizes, reader, options);
                     break;
                 default:
                     let u = options.readUnknownField;
@@ -5911,6 +6115,38 @@ class CreateSandboxFromFileRequest$Type extends MessageType<CreateSandboxFromFil
         }
         map[key ?? ""] = val ?? "";
     }
+    private binaryReadMap17(map: CreateSandboxFromFileRequest["buildContextObjects"], reader: IBinaryReader, options: BinaryReadOptions): void {
+        let len = reader.uint32(), end = reader.pos + len, key: keyof CreateSandboxFromFileRequest["buildContextObjects"] | undefined, val: CreateSandboxFromFileRequest["buildContextObjects"][any] | undefined;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case 1:
+                    key = reader.string();
+                    break;
+                case 2:
+                    val = BuildContextObject.internalBinaryRead(reader, reader.uint32(), options);
+                    break;
+                default: throw new globalThis.Error("unknown map entry field for coreweave.sandbox.v1.CreateSandboxFromFileRequest.build_context_objects");
+            }
+        }
+        map[key ?? ""] = val ?? BuildContextObject.create();
+    }
+    private binaryReadMap18(map: CreateSandboxFromFileRequest["builderSizes"], reader: IBinaryReader, options: BinaryReadOptions): void {
+        let len = reader.uint32(), end = reader.pos + len, key: keyof CreateSandboxFromFileRequest["builderSizes"] | undefined, val: CreateSandboxFromFileRequest["builderSizes"][any] | undefined;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case 1:
+                    key = reader.string();
+                    break;
+                case 2:
+                    val = reader.string();
+                    break;
+                default: throw new globalThis.Error("unknown map entry field for coreweave.sandbox.v1.CreateSandboxFromFileRequest.builder_sizes");
+            }
+        }
+        map[key ?? ""] = val ?? "";
+    }
     internalBinaryWrite(message: CreateSandboxFromFileRequest, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
         /* coreweave.sandbox.v1.SandboxFileType type = 1; */
         if (message.type !== 0)
@@ -5957,6 +6193,19 @@ class CreateSandboxFromFileRequest$Type extends MessageType<CreateSandboxFromFil
         /* string request_id = 15; */
         if (message.requestId !== "")
             writer.tag(15, WireType.LengthDelimited).string(message.requestId);
+        /* string display_name = 16; */
+        if (message.displayName !== "")
+            writer.tag(16, WireType.LengthDelimited).string(message.displayName);
+        /* map<string, coreweave.sandbox.v1.BuildContextObject> build_context_objects = 17; */
+        for (let k of globalThis.Object.keys(message.buildContextObjects)) {
+            writer.tag(17, WireType.LengthDelimited).fork().tag(1, WireType.LengthDelimited).string(k);
+            writer.tag(2, WireType.LengthDelimited).fork();
+            BuildContextObject.internalBinaryWrite(message.buildContextObjects[k], writer, options);
+            writer.join().join();
+        }
+        /* map<string, string> builder_sizes = 18; */
+        for (let k of globalThis.Object.keys(message.builderSizes))
+            writer.tag(18, WireType.LengthDelimited).fork().tag(1, WireType.LengthDelimited).string(k).tag(2, WireType.LengthDelimited).string(message.builderSizes[k]).join();
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -5967,6 +6216,77 @@ class CreateSandboxFromFileRequest$Type extends MessageType<CreateSandboxFromFil
  * @generated MessageType for protobuf message coreweave.sandbox.v1.CreateSandboxFromFileRequest
  */
 export const CreateSandboxFromFileRequest = new CreateSandboxFromFileRequest$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class BuildContextObject$Type extends MessageType<BuildContextObject> {
+    constructor() {
+        super("coreweave.sandbox.v1.BuildContextObject", [
+            { no: 1, name: "location", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["REQUIRED"] } },
+            { no: 2, name: "bucket", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["REQUIRED"] } },
+            { no: 3, name: "key", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["REQUIRED"] } },
+            { no: 4, name: "version_id", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["REQUIRED"] } }
+        ]);
+    }
+    create(value?: PartialMessage<BuildContextObject>): BuildContextObject {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.location = "";
+        message.bucket = "";
+        message.key = "";
+        message.versionId = "";
+        if (value !== undefined)
+            reflectionMergePartial<BuildContextObject>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: BuildContextObject): BuildContextObject {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* string location */ 1:
+                    message.location = reader.string();
+                    break;
+                case /* string bucket */ 2:
+                    message.bucket = reader.string();
+                    break;
+                case /* string key */ 3:
+                    message.key = reader.string();
+                    break;
+                case /* string version_id */ 4:
+                    message.versionId = reader.string();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: BuildContextObject, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* string location = 1; */
+        if (message.location !== "")
+            writer.tag(1, WireType.LengthDelimited).string(message.location);
+        /* string bucket = 2; */
+        if (message.bucket !== "")
+            writer.tag(2, WireType.LengthDelimited).string(message.bucket);
+        /* string key = 3; */
+        if (message.key !== "")
+            writer.tag(3, WireType.LengthDelimited).string(message.key);
+        /* string version_id = 4; */
+        if (message.versionId !== "")
+            writer.tag(4, WireType.LengthDelimited).string(message.versionId);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message coreweave.sandbox.v1.BuildContextObject
+ */
+export const BuildContextObject = new BuildContextObject$Type();
 // @generated message type with reflection information, may provide speed optimized methods
 class GetSandboxRequest$Type extends MessageType<GetSandboxRequest> {
     constructor() {

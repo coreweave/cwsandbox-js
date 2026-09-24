@@ -394,13 +394,13 @@ describe("node transport mappers", () => {
       expect(request.sandbox?.spec?.network?.denyIngress).toBeUndefined();
       expect(request.sandbox?.spec?.network?.egress).toMatchObject([
         {
-          destination: { dnsName: "pypi.org", oneofKind: "dnsName" },
-          dnsNameExcept: [],
+          destination: { httpsHostname: "pypi.org", oneofKind: "httpsHostname" },
+          httpsHostnameExcept: [],
           ports: [],
         },
         {
-          destination: { dnsName: "*.pypi.org", oneofKind: "dnsName" },
-          dnsNameExcept: [],
+          destination: { httpsHostname: "*.pypi.org", oneofKind: "httpsHostname" },
+          httpsHostnameExcept: [],
           ports: [],
         },
       ]);
@@ -1110,10 +1110,10 @@ describe("node transport mappers", () => {
         status: {
           effectiveEgress: [
             {
-              destination: { dnsName: "pypi.org", oneofKind: "dnsName" },
+              destination: { httpsHostname: "pypi.org", oneofKind: "httpsHostname" },
             },
             {
-              destination: { dnsName: "*.pypi.org", oneofKind: "dnsName" },
+              destination: { httpsHostname: "*.pypi.org", oneofKind: "httpsHostname" },
             },
           ],
           state: State.RUNNING,
@@ -1132,8 +1132,8 @@ describe("node transport mappers", () => {
           status: {
             effectiveEgress: [
               { destination: { any: true, oneofKind: "any" } },
-              { destination: { dnsName: "", oneofKind: "dnsName" } },
-              { destination: { dnsName: "pypi.org", oneofKind: "dnsName" } },
+              { destination: { httpsHostname: "", oneofKind: "httpsHostname" } },
+              { destination: { httpsHostname: "pypi.org", oneofKind: "httpsHostname" } },
             ],
             state: State.RUNNING,
           },
