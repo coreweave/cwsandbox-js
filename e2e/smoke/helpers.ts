@@ -307,6 +307,42 @@ export function shouldSkipHttpsShareToken(error: unknown): boolean {
   );
 }
 
+const SHARE_TOKEN_CREATE_ATTEMPTS = 3;
+const SHARE_TOKEN_MISSING_ON_CREATE =
+  "Share-token URL/token missing on create. Delete and recreate; Get/fromId cannot recover the token.";
+
+export async function withShareTokenHttpsSandbox<TResult>(
+  client: SandboxClient,
+  options: SandboxRunOptions & { readonly command: CommandInput },
+  callback: (sandbox: Sandbox) => Promise<TResult> | TResult,
+): Promise<TResult> {
+  const { command, ...runOptions } = options;
+  let lastError: Error | undefined;
+  let sandbox: Sandbox | undefined;
+
+  try {
+    for (let attempt = 0; attempt < SHARE_TOKEN_CREATE_ATTEMPTS; attempt++) {
+      sandbox = await client.run(command, { ...runOptions, waitUntilRunning: false });
+      const token = sandbox.endpointShareToken;
+      if (token !== undefined && token !== "") {
+        await sandbox.wait({
+          ...(runOptions.signal === undefined ? {} : { signal: runOptions.signal }),
+          ...(runOptions.timeoutMs === undefined ? {} : { timeoutMs: runOptions.timeoutMs }),
+        });
+        return await callback(sandbox);
+      }
+      lastError = new Error(SHARE_TOKEN_MISSING_ON_CREATE);
+      await sandbox.delete({ missingOk: true });
+      sandbox = undefined;
+    }
+    throw lastError ?? new Error(SHARE_TOKEN_MISSING_ON_CREATE);
+  } finally {
+    if (sandbox !== undefined) {
+      await sandbox.delete({ missingOk: true });
+    }
+  }
+}
+
 export function uniqueSmokeTag(): SandboxTag {
   return `cwsandbox-js-smoke-${Date.now()}-${Math.random().toString(36).slice(2, 10)}x`;
 }

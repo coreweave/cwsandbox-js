@@ -67,6 +67,7 @@ import {
   waitUntilListCondition,
   websocketEchoScript,
   withDedicatedTaggedSandbox,
+  withShareTokenHttpsSandbox,
   withStartedSandbox,
 } from "./helpers.js";
 
@@ -1025,7 +1026,7 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
       "serves a share-token HTTPS URL with the header or query and rejects unauthenticated GETs",
       async (ctx) => {
         try {
-          await withStartedSandbox(
+          await withShareTokenHttpsSandbox(
             client,
             {
               command: ["node", "/workspace/dual-http-server.js"],
@@ -1038,12 +1039,8 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
               timeoutMs: httpsEndpointWaitTimeoutMs,
             },
             async (sandbox) => {
-              const token = sandbox.endpointShareToken;
-              if (token === undefined || token === "") {
-                throw new Error(
-                  "Share-token URL/token missing on create. Delete and recreate; Get/fromId cannot recover the token.",
-                );
-              }
+              const token = sandbox.endpointShareToken ?? "";
+              expect(token.length).toBeGreaterThan(0);
 
               const service = await waitForServiceUrl(sandbox, 8000);
               expect(sandbox.endpointShareToken).toBe(token);

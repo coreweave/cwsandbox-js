@@ -447,7 +447,6 @@ test("public API types", async () => {
   const sandboxResourceSpec: SandboxResourceSpec = { cpu: "1", memory: "1Gi" };
   const sandboxMetadata: SandboxMetadata = {
     dnsEgressNames: ["pypi.org"],
-    endpointShareToken: "share-token",
     exposedPorts: [sandboxExposedPort],
     resourceLimits: sandboxResourceSpec,
     resourceRequests: sandboxResourceSpec,
@@ -465,7 +464,10 @@ test("public API types", async () => {
     ...sandboxMetadata,
     status: "running",
   };
-  const startSandboxResult: StartSandboxResult = sandboxMetadata;
+  const startSandboxResult: StartSandboxResult = {
+    ...sandboxMetadata,
+    endpointShareToken: "share-token",
+  };
   const networkOptions: NetworkOptions = {
     denyEgress: true,
   };
@@ -490,7 +492,13 @@ test("public API types", async () => {
   const sandbox = await client.run(["echo"]);
   expectTypeOf<EndpointAuth>().toEqualTypeOf<"open" | "share_token">();
   expectTypeOf(sandbox.status).toEqualTypeOf<SandboxStatus | undefined>();
+  expectTypeOf(startSandboxResult.endpointShareToken).toEqualTypeOf<string | undefined>();
+  expectTypeOf<StartSandboxResult>().toHaveProperty("endpointShareToken");
+  expectTypeOf<GetSandboxResult>().not.toHaveProperty("endpointShareToken");
+  expectTypeOf<SandboxInfo>().not.toHaveProperty("endpointShareToken");
+  expectTypeOf<SandboxMetadata>().not.toHaveProperty("endpointShareToken");
   expectTypeOf(sandbox.endpointShareToken).toEqualTypeOf<string | undefined>();
+  expectTypeOf(await sandbox.inspect()).not.toHaveProperty("endpointShareToken");
   expectTypeOf(sandbox.exitCode).toEqualTypeOf<number | undefined>();
   expectTypeOf(sandbox.startedAt).toEqualTypeOf<Date | undefined>();
   expectTypeOf(sandbox.runnerId).toEqualTypeOf<string | undefined>();

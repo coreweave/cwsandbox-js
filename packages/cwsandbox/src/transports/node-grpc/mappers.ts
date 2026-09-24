@@ -5,6 +5,7 @@
 import { randomUUID } from "node:crypto";
 
 import { DEFAULT_SCRATCH_VOLUME_NAME } from "../../defaults.js";
+import { CWSandboxValidationError } from "../../errors.js";
 import { commandForWorkingDirectory } from "../../internal/commands.js";
 import { normalizeFileContent, normalizeMountedFiles } from "../../internal/mounted-files.js";
 import { normalizeDnsName } from "../../internal/network.js";
@@ -31,6 +32,7 @@ import type {
   ListSandboxesResult,
   SandboxExposedPort,
   SandboxInfo,
+  SandboxMetadata,
   SandboxObjectStorageAccess,
   SandboxStatus,
   ScratchVolumeOptions,
@@ -440,13 +442,17 @@ function toProtoEndpoint(endpoint: Endpoint): {
   if (endpoint.kind === "tls_passthrough") {
     return { kind: EndpointKind.TLS_PASSTHROUGH };
   }
-  return {
-    auth: endpoint.auth === "share_token" ? EndpointAuth.SHARE_TOKEN : EndpointAuth.OPEN,
-    kind: EndpointKind.HTTPS,
-    ...(endpoint.requestTimeoutSeconds
-      ? { requestTimeoutSeconds: endpoint.requestTimeoutSeconds }
-      : {}),
-  };
+  const requestTimeout = endpoint.requestTimeoutSeconds
+    ? { requestTimeoutSeconds: endpoint.requestTimeoutSeconds }
+    : {};
+  switch (endpoint.auth.trim().toLowerCase()) {
+    case "share_token":
+      return { auth: EndpointAuth.SHARE_TOKEN, kind: EndpointKind.HTTPS, ...requestTimeout };
+    case "open":
+      return { auth: EndpointAuth.OPEN, kind: EndpointKind.HTTPS, ...requestTimeout };
+    default:
+      throw new CWSandboxValidationError("Service.endpoint.auth must be open or share_token");
+  }
 }
 
 function toProtoServiceProtocol(protocol: string | undefined): ServiceProtocol {
@@ -578,7 +584,12 @@ export function toSdkProcessResult(command: Command, response: ProtoExecResponse
 }
 
 export function toSdkStartSandboxResult(sandbox: ProtoSandboxMessage): StartSandboxResult {
-  return toSdkSandboxMetadata(sandbox);
+  const metadata = toSdkSandboxMetadata(sandbox);
+  const token = sandbox.endpointShareToken;
+  return {
+    ...metadata,
+    ...(token === undefined || token === "" ? {} : { endpointShareToken: token }),
+  };
 }
 
 export function toSdkGetSandboxResult(sandbox: ProtoSandboxMessage): GetSandboxResult {
@@ -605,7 +616,7 @@ export function toSdkSandboxInfo(sandbox: ProtoSandboxMessage): SandboxInfo {
   };
 }
 
-function toSdkSandboxMetadata(sandbox: ProtoSandboxMessage): StartSandboxResult {
+function toSdkSandboxMetadata(sandbox: ProtoSandboxMessage): SandboxMetadata {
   const status = sandbox.status;
   const exposedPorts = toSdkExposedPorts(status?.services);
   const serviceAddresses = toSdkServiceAddresses(status?.services);
@@ -622,9 +633,6 @@ function toSdkSandboxMetadata(sandbox: ProtoSandboxMessage): StartSandboxResult 
 
   return {
     ...(status?.exitCode === undefined ? {} : { exitCode: status.exitCode }),
-    ...(sandbox.endpointShareToken === undefined || sandbox.endpointShareToken === ""
-      ? {}
-      : { endpointShareToken: sandbox.endpointShareToken }),
     ...(dnsEgressNames === undefined ? {} : { dnsEgressNames }),
     ...(exposedPorts === undefined ? {} : { exposedPorts }),
     ...(resourceLimits === undefined ? {} : { resourceLimits }),

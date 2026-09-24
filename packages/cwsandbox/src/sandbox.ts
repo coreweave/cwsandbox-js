@@ -38,6 +38,7 @@ import type {
   SandboxResourceSpec,
   SandboxStatus,
   SandboxExposedPort,
+  StartSandboxResult,
   StopOptions,
   WaitOptions,
 } from "./public/sandbox.js";
@@ -62,7 +63,7 @@ const STOP_OPERATION = "Stop sandbox";
 interface SandboxOptions {
   readonly dataPlaneMode?: DataPlaneMode;
   readonly fileAdapter: FileAdapter;
-  readonly metadata?: SandboxMetadata;
+  readonly metadata?: SandboxMetadata | StartSandboxResult;
   readonly sandboxId: SandboxId;
   readonly scratchVolumeNames?: readonly string[];
   readonly transport: SandboxTransport;
@@ -77,12 +78,14 @@ export class Sandbox implements PublicSandbox {
   public readonly sandboxId: SandboxId;
 
   private metadata: SandboxMetadata;
+  private readonly retainedEndpointShareToken: string | undefined;
   private readonly runtime: SandboxRuntime;
   private stopPromise: Promise<void> | undefined;
 
   public constructor(options: SandboxOptions) {
     const dataPlaneMode = options.dataPlaneMode;
     this.sandboxId = options.sandboxId;
+    this.retainedEndpointShareToken = createTimeEndpointShareToken(options.metadata);
     this.metadata = {
       ...cloneMetadata(options.metadata),
       sandboxId: this.sandboxId,
@@ -113,7 +116,7 @@ export class Sandbox implements PublicSandbox {
   }
 
   public get endpointShareToken(): string | undefined {
-    return this.metadata.endpointShareToken;
+    return this.retainedEndpointShareToken;
   }
 
   public get exposedPorts(): readonly SandboxExposedPort[] | undefined {
@@ -475,6 +478,16 @@ function mergeServiceAddresses(
   return merged.length === 0 ? undefined : merged;
 }
 
+function createTimeEndpointShareToken(
+  metadata: SandboxMetadata | StartSandboxResult | undefined,
+): string | undefined {
+  if (metadata === undefined || !("endpointShareToken" in metadata)) {
+    return undefined;
+  }
+  const token = metadata.endpointShareToken;
+  return token === undefined || token === "" ? undefined : token;
+}
+
 function cloneMetadata(metadata: SandboxMetadata | undefined): Partial<SandboxMetadata> {
   if (metadata === undefined) {
     return {};
@@ -484,9 +497,6 @@ function cloneMetadata(metadata: SandboxMetadata | undefined): Partial<SandboxMe
     ...(metadata.dnsEgressNames === undefined
       ? {}
       : { dnsEgressNames: [...metadata.dnsEgressNames] }),
-    ...(metadata.endpointShareToken === undefined || metadata.endpointShareToken === ""
-      ? {}
-      : { endpointShareToken: metadata.endpointShareToken }),
     ...(metadata.exitCode === undefined ? {} : { exitCode: metadata.exitCode }),
     ...(metadata.resourceLimits === undefined
       ? {}

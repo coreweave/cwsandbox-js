@@ -398,7 +398,7 @@ describe("Sandbox", () => {
     const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
     const info = await sandbox.inspect();
 
-    expect(info.endpointShareToken).toBeUndefined();
+    expect(info).not.toHaveProperty("endpointShareToken");
     expect(sandbox.endpointShareToken).toBe("create-only-token");
     expect(sandbox.serviceUrls).toEqual([
       { name: "http", port: 8000, url: "https://sandbox.example.com" },
@@ -429,7 +429,7 @@ describe("Sandbox", () => {
 
     const info = await sandbox.inspect();
 
-    expect(info.endpointShareToken).toBeUndefined();
+    expect(info).not.toHaveProperty("endpointShareToken");
     expect(sandbox.endpointShareToken).toBeUndefined();
     expect(sandbox.serviceUrls).toEqual([
       { name: "http", port: 8000, url: "https://sandbox.example.com" },
