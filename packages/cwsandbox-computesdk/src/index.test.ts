@@ -462,6 +462,7 @@ function createTrackingClient(options: TrackingClientOptions = {}): TrackingClie
       },
       exec: async (command) => createProcessResult(normalizeCommand(command), { stdout: "ok" }),
       dnsEgressNames: undefined,
+      endpointShareToken: undefined,
       exitCode: undefined,
       exposedPorts: undefined,
       files,

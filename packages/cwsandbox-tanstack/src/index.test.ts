@@ -195,6 +195,7 @@ function createTrackingClient(): TrackingClient {
       },
       exitCode: undefined,
       dnsEgressNames: undefined,
+      endpointShareToken: undefined,
       exposedPorts: undefined,
       files,
       getStatus: async () => status,
