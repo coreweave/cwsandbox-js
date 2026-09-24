@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
-export type EndpointAuth = "open";
+export type EndpointAuth = "open" | "share_token";
 export type EndpointKind = "https" | "tls_passthrough";
 export type ServiceProtocol = "sctp" | "tcp" | "udp";
 export type ServiceVisibility = "custom" | "private" | "public";
@@ -82,7 +82,7 @@ export interface ServiceUrl {
  * `""` when the API suppresses the hostname (for example a terminal Get).
  */
 export interface HttpsEndpointStatus {
-  readonly auth: "open";
+  readonly auth: EndpointAuth;
   readonly kind: "https";
   readonly name: string;
   readonly port: number;

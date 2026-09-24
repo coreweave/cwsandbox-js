@@ -49,6 +49,7 @@ import {
   httpsGetExitCode,
   shouldSkipDnsEgress,
   shouldSkipHttpsRequestTimeouts,
+  shouldSkipHttpsShareToken,
   shouldSkipTlsPassthrough,
   startOptionsForDnsNameEgress,
   startOptionsForNoInternetNetwork,
@@ -66,6 +67,7 @@ import {
   waitUntilListCondition,
   websocketEchoScript,
   withDedicatedTaggedSandbox,
+  withShareTokenHttpsSandbox,
   withStartedSandbox,
 } from "./helpers.js";
 
@@ -1012,6 +1014,59 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
         } catch (error) {
           if (shouldSkipTlsPassthrough(error)) {
             ctx.skip(`fleet does not support TLS passthrough: ${String(error)}`);
+            return;
+          }
+          throw error;
+        }
+      },
+      httpsEndpointSmokeTimeoutMs,
+    );
+
+    it(
+      "serves a share-token HTTPS URL with the header or query and rejects unauthenticated GETs",
+      async (ctx) => {
+        try {
+          await withShareTokenHttpsSandbox(
+            client,
+            {
+              command: ["node", "/workspace/dual-http-server.js"],
+              containerImage: "node:22",
+              mountedFiles: {
+                "/workspace/dual-http-server.js": dualHttpServerScript,
+              },
+              services: [publicHttpsService(8000, "http", { auth: "share_token" })],
+              tags: [uniqueSmokeTag()],
+              timeoutMs: httpsEndpointWaitTimeoutMs,
+            },
+            async (sandbox) => {
+              const token = sandbox.endpointShareToken ?? "";
+              expect(token.length).toBeGreaterThan(0);
+
+              const service = await waitForServiceUrl(sandbox, 8000);
+              expect(sandbox.endpointShareToken).toBe(token);
+
+              const fetched = await client.fromId(sandbox.sandboxId);
+              expect(fetched.endpointShareToken).toBeUndefined();
+
+              const headerOk = await waitForHttpOk(service.url, {
+                headers: { "X-Sandbox-Share-Token": token },
+              });
+              expect(headerOk.status).toBe(200);
+              expect(await headerOk.text()).toContain("ok:8000");
+
+              const withQuery = new URL(service.url);
+              withQuery.searchParams.set("share_token", token);
+              const queryOk = await fetch(withQuery);
+              expect(queryOk.status).toBe(200);
+              expect(await queryOk.text()).toContain("ok:8000");
+
+              const denied = await fetch(service.url);
+              expect(denied.status).toBe(401);
+            },
+          );
+        } catch (error) {
+          if (shouldSkipHttpsShareToken(error)) {
+            ctx.skip(`fleet does not support HTTPS share-token auth: ${String(error)}`);
             return;
           }
           throw error;

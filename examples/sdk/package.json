@@ -27,6 +27,7 @@
     "run-from-template": "tsx run-from-template.ts",
     "run-from-file": "tsx run-from-file.ts",
     "https-endpoint": "tsx https-endpoint.ts",
+    "https-share-token": "tsx https-share-token.ts",
     "tls-passthrough": "tsx tls-passthrough.ts",
     "typecheck": "tsc --noEmit --project tsconfig.json"
   },

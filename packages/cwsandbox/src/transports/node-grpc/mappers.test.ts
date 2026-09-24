@@ -5,6 +5,7 @@
 import { BinaryReader } from "@protobuf-ts/runtime";
 import { describe, expect, it } from "vitest";
 
+import { CWSandboxValidationError } from "../../errors.js";
 import {
   EndpointAuth,
   EndpointKind,
@@ -272,6 +273,103 @@ describe("node transport mappers", () => {
         },
       ]);
       expect(request.sandbox?.spec?.services[0]?.endpoint?.requestTimeoutSeconds).toBe(0);
+    });
+
+    it("canonicalizes padded and mixed-case HTTPS auth onto proto EndpointAuth", () => {
+      const shareToken = toProtoCreateRequest({
+        command: ["python"],
+        services: [
+          {
+            endpoint: { auth: " SHARE_TOKEN " as never, kind: "https" },
+            name: "private",
+            port: 8001,
+            visibility: "public",
+          },
+        ],
+      });
+      const mixedCase = toProtoCreateRequest({
+        command: ["python"],
+        services: [
+          {
+            endpoint: { auth: "Share_Token" as never, kind: "https" },
+            name: "private",
+            port: 8001,
+            visibility: "public",
+          },
+        ],
+      });
+      const open = toProtoCreateRequest({
+        command: ["python"],
+        services: [
+          {
+            endpoint: { auth: " open " as never, kind: "https" },
+            name: "http",
+            port: 8000,
+            visibility: "public",
+          },
+        ],
+      });
+
+      expect(shareToken.sandbox?.spec?.services[0]?.endpoint?.auth).toBe(EndpointAuth.SHARE_TOKEN);
+      expect(mixedCase.sandbox?.spec?.services[0]?.endpoint?.auth).toBe(EndpointAuth.SHARE_TOKEN);
+      expect(open.sandbox?.spec?.services[0]?.endpoint?.auth).toBe(EndpointAuth.OPEN);
+    });
+
+    it("throws on unexpected HTTPS auth instead of defaulting to OPEN", () => {
+      expect(() =>
+        toProtoCreateRequest({
+          command: ["python"],
+          services: [
+            {
+              endpoint: { auth: "basic" as never, kind: "https" },
+              name: "http",
+              port: 8000,
+              visibility: "public",
+            },
+          ],
+        }),
+      ).toThrow(CWSandboxValidationError);
+      expect(() =>
+        toProtoCreateRequest({
+          command: ["python"],
+          services: [
+            {
+              endpoint: { auth: "basic" as never, kind: "https" },
+              name: "http",
+              port: 8000,
+              visibility: "public",
+            },
+          ],
+        }),
+      ).toThrow(/auth must be open or share_token/);
+    });
+
+    it("maps share-token HTTPS public services onto proto SHARE_TOKEN", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        services: [
+          {
+            endpoint: { auth: "share_token", kind: "https" },
+            name: "private",
+            port: 8001,
+            protocol: "tcp",
+            visibility: "public",
+          },
+        ],
+      });
+
+      expect(request.sandbox?.spec?.services).toMatchObject([
+        {
+          endpoint: {
+            auth: EndpointAuth.SHARE_TOKEN,
+            kind: EndpointKind.HTTPS,
+          },
+          name: "private",
+          port: 8001,
+          protocol: ServiceProtocol.TCP,
+          visibility: Visibility.PUBLIC,
+        },
+      ]);
     });
 
     it("copies a nonzero HTTPS request timeout onto proto EndpointSpec", () => {
@@ -1079,6 +1177,64 @@ describe("node transport mappers", () => {
       });
     });
 
+    it("copies a non-empty create-time endpointShareToken and omits Get/List tokens", () => {
+      const shareTokenService = {
+        endpoint: {
+          auth: EndpointAuth.SHARE_TOKEN,
+          kind: EndpointKind.HTTPS,
+          url: "https://assigned.example.com",
+        },
+        name: "http",
+        port: 8000,
+        visibility: Visibility.PUBLIC,
+      };
+      const created = toSdkStartSandboxResult(
+        ProtoSandbox.create({
+          endpointShareToken: "create-only-token",
+          sandboxId: "share-token-id",
+          status: {
+            services: [shareTokenService],
+            state: State.RUNNING,
+          },
+        }),
+      );
+      const getWithProtoToken = toSdkGetSandboxResult(
+        ProtoSandbox.create({
+          endpointShareToken: "should-not-leak",
+          sandboxId: "share-token-id",
+          status: {
+            services: [shareTokenService],
+            state: State.RUNNING,
+          },
+        }),
+      );
+      const listed = toSdkSandboxInfo(
+        ProtoSandbox.create({
+          endpointShareToken: "should-not-leak",
+          sandboxId: "share-token-id",
+          status: { state: State.RUNNING },
+        }),
+      );
+      const emptyToken = toSdkStartSandboxResult(
+        ProtoSandbox.create({
+          endpointShareToken: "",
+          sandboxId: "share-token-id",
+          status: { state: State.RUNNING },
+        }),
+      );
+
+      expect(created.endpointShareToken).toBe("create-only-token");
+      expect(created.serviceUrls).toEqual([
+        { name: "http", port: 8000, url: "https://assigned.example.com" },
+      ]);
+      expect(getWithProtoToken).not.toHaveProperty("endpointShareToken");
+      expect(getWithProtoToken.serviceUrls).toEqual([
+        { name: "http", port: 8000, url: "https://assigned.example.com" },
+      ]);
+      expect(listed).not.toHaveProperty("endpointShareToken");
+      expect(emptyToken.endpointShareToken).toBeUndefined();
+    });
+
     it("maps get responses to SDK sandbox metadata", () => {
       const result = toSdkGetSandboxResult(
         ProtoSandbox.create({
@@ -1465,6 +1621,41 @@ describe("node transport mappers", () => {
       expect(defaultTimeout.serviceEndpoints).toBeUndefined();
       expect(defaultTimeout.serviceUrls).toEqual([
         { name: "http", port: 8000, url: "https://assigned.example.com" },
+      ]);
+    });
+
+    it("echoes SHARE_TOKEN HTTPS status auth as share_token", () => {
+      const result = toSdkGetSandboxResult(
+        ProtoSandbox.create({
+          sandboxId: "https-id",
+          status: {
+            services: [
+              {
+                endpoint: {
+                  auth: EndpointAuth.SHARE_TOKEN,
+                  kind: EndpointKind.HTTPS,
+                  requestTimeoutSeconds: 120,
+                  url: "https://assigned.example.com",
+                },
+                name: "private",
+                port: 8001,
+                visibility: Visibility.PUBLIC,
+              },
+            ],
+            state: State.RUNNING,
+          },
+        }),
+      );
+
+      expect(result.serviceEndpoints).toEqual([
+        {
+          auth: "share_token",
+          kind: "https",
+          name: "private",
+          port: 8001,
+          requestTimeoutSeconds: 120,
+          url: "https://assigned.example.com",
+        },
       ]);
     });
 

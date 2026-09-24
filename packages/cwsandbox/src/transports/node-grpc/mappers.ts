@@ -5,6 +5,7 @@
 import { randomUUID } from "node:crypto";
 
 import { DEFAULT_SCRATCH_VOLUME_NAME } from "../../defaults.js";
+import { CWSandboxValidationError } from "../../errors.js";
 import { commandForWorkingDirectory } from "../../internal/commands.js";
 import { normalizeFileContent, normalizeMountedFiles } from "../../internal/mounted-files.js";
 import { normalizeDnsName } from "../../internal/network.js";
@@ -13,6 +14,7 @@ import { groupSecretsByStore, normalizeSecrets } from "../../internal/secrets.js
 import type { Command, ProcessResult } from "../../public/commands.js";
 import type {
   Endpoint,
+  EndpointAuth as SdkEndpointAuth,
   HttpsEndpointStatus,
   NetworkOptions,
   Service,
@@ -30,6 +32,7 @@ import type {
   ListSandboxesResult,
   SandboxExposedPort,
   SandboxInfo,
+  SandboxMetadata,
   SandboxObjectStorageAccess,
   SandboxStatus,
   ScratchVolumeOptions,
@@ -439,13 +442,17 @@ function toProtoEndpoint(endpoint: Endpoint): {
   if (endpoint.kind === "tls_passthrough") {
     return { kind: EndpointKind.TLS_PASSTHROUGH };
   }
-  return {
-    auth: EndpointAuth.OPEN,
-    kind: EndpointKind.HTTPS,
-    ...(endpoint.requestTimeoutSeconds
-      ? { requestTimeoutSeconds: endpoint.requestTimeoutSeconds }
-      : {}),
-  };
+  const requestTimeout = endpoint.requestTimeoutSeconds
+    ? { requestTimeoutSeconds: endpoint.requestTimeoutSeconds }
+    : {};
+  switch (endpoint.auth.trim().toLowerCase()) {
+    case "share_token":
+      return { auth: EndpointAuth.SHARE_TOKEN, kind: EndpointKind.HTTPS, ...requestTimeout };
+    case "open":
+      return { auth: EndpointAuth.OPEN, kind: EndpointKind.HTTPS, ...requestTimeout };
+    default:
+      throw new CWSandboxValidationError("Service.endpoint.auth must be open or share_token");
+  }
 }
 
 function toProtoServiceProtocol(protocol: string | undefined): ServiceProtocol {
@@ -577,7 +584,12 @@ export function toSdkProcessResult(command: Command, response: ProtoExecResponse
 }
 
 export function toSdkStartSandboxResult(sandbox: ProtoSandboxMessage): StartSandboxResult {
-  return toSdkSandboxMetadata(sandbox);
+  const metadata = toSdkSandboxMetadata(sandbox);
+  const token = sandbox.endpointShareToken;
+  return {
+    ...metadata,
+    ...(token === undefined || token === "" ? {} : { endpointShareToken: token }),
+  };
 }
 
 export function toSdkGetSandboxResult(sandbox: ProtoSandboxMessage): GetSandboxResult {
@@ -604,7 +616,7 @@ export function toSdkSandboxInfo(sandbox: ProtoSandboxMessage): SandboxInfo {
   };
 }
 
-function toSdkSandboxMetadata(sandbox: ProtoSandboxMessage): StartSandboxResult {
+function toSdkSandboxMetadata(sandbox: ProtoSandboxMessage): SandboxMetadata {
   const status = sandbox.status;
   const exposedPorts = toSdkExposedPorts(status?.services);
   const serviceAddresses = toSdkServiceAddresses(status?.services);
@@ -696,7 +708,7 @@ function toSdkServiceEndpoints(
     }
     return [
       {
-        auth: "open" as const,
+        auth: toSdkEndpointAuth(service.endpoint.auth),
         kind: "https" as const,
         name: service.name,
         port: service.port,
@@ -734,6 +746,10 @@ function toSdkServiceAddresses(
   });
 
   return addresses.length === 0 ? undefined : addresses;
+}
+
+function toSdkEndpointAuth(auth: EndpointAuth): SdkEndpointAuth {
+  return auth === EndpointAuth.SHARE_TOKEN ? "share_token" : "open";
 }
 
 function toSdkExposedPorts(

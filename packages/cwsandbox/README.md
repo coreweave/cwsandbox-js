@@ -803,7 +803,8 @@ console.log((await sandbox.inspect()).dnsEgressNames);
 ```
 
 Declare listen-only services, or request a public HTTPS assignment with
-`endpoint: { kind: "https", auth: "open" }` and `visibility: "public"`.
+`endpoint: { kind: "https", auth: "open" | "share_token" }` and
+`visibility: "public"`.
 Optional `requestTimeoutSeconds` is the server-side HTTPS request clock (504
 while the sandbox stays alive). Omit or `0` keeps the platform default (15s
 on serverless). This is not `timeoutMs` on `client.run` / RPCs:
@@ -827,6 +828,43 @@ const sandbox = await client.run(["python", "-m", "http.server", "8000"], {
 const info = await sandbox.inspect();
 console.log(info.serviceUrls?.[0]?.url);
 ```
+
+Use `auth: "share_token"` when the URL should require a platform credential.
+Create returns `endpointShareToken` once; Get, list, and `fromId` omit it. A
+live handle keeps a create-time token across `wait` / `inspect`. Send it as
+`X-Sandbox-Share-Token` (query `?share_token=` is a fallback for clients that
+cannot set headers). If create succeeds without both a URL and a token, delete
+and recreate — Get cannot recover the token. Log the URL only, never the raw
+token:
+
+```ts
+const sandbox = await client.run(["python", "-m", "http.server", "8000"], {
+  services: [
+    {
+      endpoint: { auth: "share_token", kind: "https" },
+      name: "http",
+      port: 8000,
+      visibility: "public",
+    },
+  ],
+});
+
+const url = sandbox.serviceUrls?.[0]?.url;
+const token = sandbox.endpointShareToken;
+if (!url || !token) {
+  throw new Error(
+    "Share-token URL/token missing on create. Delete and recreate; Get/fromId cannot recover the token.",
+  );
+}
+console.log(`URL: ${url}; share token: received`);
+
+const ok = await fetch(url, {
+  headers: { "X-Sandbox-Share-Token": token },
+});
+```
+
+A sandbox may mix open and share-token HTTPS rows. One token covers every
+share-token row. Open rows do not need it.
 
 A non-empty `serviceUrls` entry means the hostname was assigned. That is not
 the same as the application listening, and not the same as the edge being

@@ -8,6 +8,12 @@ SPDX-PackageName: cwsandbox
 
 ## Unreleased
 
+- Add HTTPS `auth: "share_token"`. Create returns `endpointShareToken` once
+  (and the live handle keeps it across `wait` / `inspect`). Get, list, and
+  `fromId` omit it. Callers send `X-Sandbox-Share-Token` themselves; the SDK
+  does not attach it. If create succeeds without a URL or token, delete and
+  recreate — Get cannot recover the token. Live smoke skips when the fleet
+  returns `CWSANDBOX_HTTPS_SHARE_TOKEN_NOT_SUPPORTED`.
 - Add `client.runFromFile(contents, options)` and
   `client.withSandboxFromFile(contents, callback, options)` to start a sandbox
   from pull-only Compose YAML. `contents` is a filesystem path or raw
