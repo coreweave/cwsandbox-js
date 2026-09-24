@@ -410,8 +410,8 @@ function toProtoEgress(
   return egress.map((rule) =>
     ProtoEgressRule.create({
       destination: {
-        oneofKind: "dnsName",
-        dnsName: normalizeDnsName(rule.dnsName),
+        oneofKind: "httpsHostname",
+        httpsHostname: normalizeDnsName(rule.dnsName),
       },
     }),
   );
@@ -651,10 +651,10 @@ function toSdkDnsEgressNames(
   }
 
   const names = rules.flatMap((rule) => {
-    if (rule.destination.oneofKind !== "dnsName") {
+    if (rule.destination.oneofKind !== "httpsHostname") {
       return [];
     }
-    const name = rule.destination.dnsName;
+    const name = rule.destination.httpsHostname;
     return name === "" ? [] : [name];
   });
 

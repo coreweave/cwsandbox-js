@@ -392,8 +392,8 @@ test("public API types", async () => {
   void timedEndpoint;
   const tlsEndpoint: TlsPassthroughEndpoint = { kind: "tls_passthrough" };
   void tlsEndpoint;
-  // @ts-expect-error TOKEN is not a supported EndpointAuth
-  const tokenEndpoint: Endpoint = { auth: "token", kind: "https" };
+  // @ts-expect-error share_token is not a supported EndpointAuth
+  const tokenEndpoint: Endpoint = { auth: "share_token", kind: "https" };
   const stringAuth: string = "open";
   // @ts-expect-error Endpoint.auth does not accept a widened string
   const stringEndpoint: Endpoint = { auth: stringAuth, kind: "https" };

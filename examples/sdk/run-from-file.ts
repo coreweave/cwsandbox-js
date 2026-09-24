@@ -34,7 +34,9 @@ const redisPing = `
 set -euo pipefail
 exec 3<>/dev/tcp/cache/6379
 printf 'PING\\r\\n' >&3
-cat <&3
+IFS= read -r -u 3 reply
+printf '%s\\n' "$reply"
+exec 3<&- 3>&-
 `;
 
 async function main(): Promise<void> {

@@ -38,11 +38,15 @@ exec 3<>/dev/tcp/api/8080
 printf 'GET /health HTTP/1.0\\r\\nHost: api\\r\\n\\r\\n' >&3
 cat <&3
 `;
+// Redis keeps the TCP connection open after +PONG; `cat` would hang until the
+// exec deadline. Read one RESP line, then close the fd.
 const redisPing = `
 set -euo pipefail
 exec 3<>/dev/tcp/cache/6379
 printf 'PING\\r\\n' >&3
-cat <&3
+IFS= read -r -u 3 reply
+printf '%s\\n' "$reply"
+exec 3<&- 3>&-
 `;
 
 if (!smokeConfig.hasCredentials) {
