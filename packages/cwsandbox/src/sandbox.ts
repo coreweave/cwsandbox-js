@@ -112,6 +112,10 @@ export class Sandbox implements PublicSandbox {
       : [...this.metadata.dnsEgressNames];
   }
 
+  public get endpointShareToken(): string | undefined {
+    return this.metadata.endpointShareToken;
+  }
+
   public get exposedPorts(): readonly SandboxExposedPort[] | undefined {
     return this.metadata.exposedPorts?.map((port) => ({ ...port }));
   }
@@ -480,6 +484,9 @@ function cloneMetadata(metadata: SandboxMetadata | undefined): Partial<SandboxMe
     ...(metadata.dnsEgressNames === undefined
       ? {}
       : { dnsEgressNames: [...metadata.dnsEgressNames] }),
+    ...(metadata.endpointShareToken === undefined || metadata.endpointShareToken === ""
+      ? {}
+      : { endpointShareToken: metadata.endpointShareToken }),
     ...(metadata.exitCode === undefined ? {} : { exitCode: metadata.exitCode }),
     ...(metadata.resourceLimits === undefined
       ? {}

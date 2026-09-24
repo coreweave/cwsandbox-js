@@ -42,6 +42,7 @@ SDK patterns; use `weave/` / `tanstack/` for integrations with extra dependencie
 | `sdk/run-from-template.ts`      | `async function main()` | `withSandboxFromTemplate`        |
 | `sdk/run-from-file.ts`          | `async function main()` | `withSandboxFromFile`            |
 | `sdk/https-endpoint.ts`         | `async function main()` | public HTTPS + request timeout   |
+| `sdk/https-share-token.ts`      | `async function main()` | share-token HTTPS + header fetch |
 | `sdk/tls-passthrough.ts`        | `async function main()` | public TLS passthrough + SNI GET |
 
 ## Running

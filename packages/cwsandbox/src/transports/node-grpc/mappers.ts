@@ -13,6 +13,7 @@ import { groupSecretsByStore, normalizeSecrets } from "../../internal/secrets.js
 import type { Command, ProcessResult } from "../../public/commands.js";
 import type {
   Endpoint,
+  EndpointAuth as SdkEndpointAuth,
   HttpsEndpointStatus,
   NetworkOptions,
   Service,
@@ -440,7 +441,7 @@ function toProtoEndpoint(endpoint: Endpoint): {
     return { kind: EndpointKind.TLS_PASSTHROUGH };
   }
   return {
-    auth: EndpointAuth.OPEN,
+    auth: endpoint.auth === "share_token" ? EndpointAuth.SHARE_TOKEN : EndpointAuth.OPEN,
     kind: EndpointKind.HTTPS,
     ...(endpoint.requestTimeoutSeconds
       ? { requestTimeoutSeconds: endpoint.requestTimeoutSeconds }
@@ -621,6 +622,9 @@ function toSdkSandboxMetadata(sandbox: ProtoSandboxMessage): StartSandboxResult 
 
   return {
     ...(status?.exitCode === undefined ? {} : { exitCode: status.exitCode }),
+    ...(sandbox.endpointShareToken === undefined || sandbox.endpointShareToken === ""
+      ? {}
+      : { endpointShareToken: sandbox.endpointShareToken }),
     ...(dnsEgressNames === undefined ? {} : { dnsEgressNames }),
     ...(exposedPorts === undefined ? {} : { exposedPorts }),
     ...(resourceLimits === undefined ? {} : { resourceLimits }),
@@ -696,7 +700,7 @@ function toSdkServiceEndpoints(
     }
     return [
       {
-        auth: "open" as const,
+        auth: toSdkEndpointAuth(service.endpoint.auth),
         kind: "https" as const,
         name: service.name,
         port: service.port,
@@ -734,6 +738,10 @@ function toSdkServiceAddresses(
   });
 
   return addresses.length === 0 ? undefined : addresses;
+}
+
+function toSdkEndpointAuth(auth: EndpointAuth): SdkEndpointAuth {
+  return auth === EndpointAuth.SHARE_TOKEN ? "share_token" : "open";
 }
 
 function toSdkExposedPorts(

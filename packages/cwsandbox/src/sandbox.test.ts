@@ -286,6 +286,28 @@ describe("Sandbox", () => {
     expect(sandbox.resourceRequests).toEqual({ cpu: "1", memory: "1Gi" });
     expect(sandbox.resourceLimits).toEqual({ cpu: "4", memory: "8Gi" });
     expect(sandbox.dnsEgressNames).toBeUndefined();
+    expect(sandbox.endpointShareToken).toBeUndefined();
+  });
+
+  it("exposes a create-time endpointShareToken on the handle", async () => {
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          endpointShareToken: "create-only-token",
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
+          status: "running",
+        };
+      },
+    };
+
+    const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
+
+    expect(sandbox.endpointShareToken).toBe("create-only-token");
+    expect(sandbox.serviceUrls).toEqual([
+      { name: "http", port: 8000, url: "https://sandbox.example.com" },
+    ]);
   });
 
   it("refreshes cached metadata when status is fetched", async () => {
@@ -351,6 +373,67 @@ describe("Sandbox", () => {
     expect(sandbox.serviceUrls).toBeUndefined();
     expect(sandbox.exposedPorts).toEqual(ports);
     expect(sandbox.status).toBe("completed");
+  });
+
+  it("retains a create-time endpointShareToken when inspect Get omits it", async () => {
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          endpointShareToken: "create-only-token",
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
+          status: "running",
+        };
+      },
+      async get(request) {
+        return {
+          sandboxId: request.sandboxId,
+          serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
+          status: "running",
+        };
+      },
+    };
+
+    const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
+    const info = await sandbox.inspect();
+
+    expect(info.endpointShareToken).toBeUndefined();
+    expect(sandbox.endpointShareToken).toBe("create-only-token");
+    expect(sandbox.serviceUrls).toEqual([
+      { name: "http", port: 8000, url: "https://sandbox.example.com" },
+    ]);
+  });
+
+  it("does not invent endpointShareToken when create omitted it and Get later has a URL", async () => {
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          status: "creating",
+        };
+      },
+      async get(request) {
+        return {
+          sandboxId: request.sandboxId,
+          serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
+          status: "running",
+        };
+      },
+    };
+
+    const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
+    expect(sandbox.endpointShareToken).toBeUndefined();
+    expect(sandbox.serviceUrls).toBeUndefined();
+
+    const info = await sandbox.inspect();
+
+    expect(info.endpointShareToken).toBeUndefined();
+    expect(sandbox.endpointShareToken).toBeUndefined();
+    expect(sandbox.serviceUrls).toEqual([
+      { name: "http", port: 8000, url: "https://sandbox.example.com" },
+    ]);
   });
 
   it("retains exposedPorts when inspect returns an empty list", async () => {
@@ -867,6 +950,37 @@ describe("Sandbox", () => {
     expect(fetched.serviceAddresses).toBeUndefined();
   });
 
+  it("leaves endpointShareToken unset on fromId", async () => {
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          endpointShareToken: "create-only-token",
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
+          status: "running",
+        };
+      },
+      async get(request) {
+        return {
+          sandboxId: request.sandboxId,
+          serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
+          status: "running",
+        };
+      },
+    };
+
+    const client = createClient(transport);
+    const created = await client.run(["echo"], { waitUntilRunning: false });
+    expect(created.endpointShareToken).toBe("create-only-token");
+
+    const fetched = await client.fromId(created.sandboxId);
+    expect(fetched.endpointShareToken).toBeUndefined();
+    expect(fetched.serviceUrls).toEqual([
+      { name: "http", port: 8000, url: "https://sandbox.example.com" },
+    ]);
+  });
+
   it("caches inspect exitCode including zero", async () => {
     const transport: SandboxTransport = {
       ...createFakeTransport(),
@@ -916,5 +1030,35 @@ describe("Sandbox", () => {
 
     expect(sandbox.status).toBe("running");
     expect(sandbox.runnerId).toBe("runner-id");
+  });
+
+  it("retains a create-time endpointShareToken while waiting", async () => {
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async start(request) {
+        return {
+          endpointShareToken: "create-only-token",
+          sandboxId: `sandbox-for-${request.command[0]}`,
+          status: "creating",
+        };
+      },
+      async get(request) {
+        return {
+          sandboxId: request.sandboxId,
+          serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
+          status: "running",
+        };
+      },
+    };
+
+    const sandbox = await createClient(transport).run(["echo"], { waitUntilRunning: false });
+    expect(sandbox.endpointShareToken).toBe("create-only-token");
+    await sandbox.wait({ initialIntervalMs: 1, timeoutMs: 10 } as WaitOptions);
+
+    expect(sandbox.status).toBe("running");
+    expect(sandbox.endpointShareToken).toBe("create-only-token");
+    expect(sandbox.serviceUrls).toEqual([
+      { name: "http", port: 8000, url: "https://sandbox.example.com" },
+    ]);
   });
 });

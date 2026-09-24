@@ -22,7 +22,7 @@
     "test:package": "vitest run --config vitest.package.config.ts",
     "test:pack": "vitest run --config vitest.pack.config.ts",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
-    "smoke": "pnpm test:e2e",
+    "smoke": "turbo run //#test:e2e --force --",
     "smoke:stress": "tsx scripts/stress-smoke.ts",
     "knip": "knip",
     "proto:update": "turbo run proto:update --filter=@coreweave/cwsandbox",

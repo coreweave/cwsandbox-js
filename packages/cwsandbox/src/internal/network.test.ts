@@ -103,6 +103,37 @@ describe("validateNetworkOptions endpoint requestTimeoutSeconds", () => {
   });
 });
 
+describe("validateNetworkOptions endpoint auth", () => {
+  const publicHttps = {
+    port: 8080,
+    visibility: "public" as const,
+  };
+
+  it("accepts open and share_token", () => {
+    expect(() =>
+      validateNetworkOptions(
+        [{ ...publicHttps, endpoint: { auth: "open", kind: "https" } }],
+        undefined,
+      ),
+    ).not.toThrow();
+    expect(() =>
+      validateNetworkOptions(
+        [{ ...publicHttps, endpoint: { auth: "share_token", kind: "https" } }],
+        undefined,
+      ),
+    ).not.toThrow();
+  });
+
+  it("rejects unknown auth", () => {
+    expect(() =>
+      validateNetworkOptions(
+        [{ ...publicHttps, endpoint: { auth: "basic", kind: "https" } as never }],
+        undefined,
+      ),
+    ).toThrow(/auth must be open or share_token/);
+  });
+});
+
 describe("validateNetworkOptions TLS passthrough", () => {
   const publicTls = {
     endpoint: { kind: "tls_passthrough" as const },

@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import {
   CWSandboxTransportError,
   type CommandInput,
+  type EndpointAuth,
   type ExecOptions,
   type LogResumeCursor,
   type ProcessResult,
@@ -299,6 +300,13 @@ export function shouldSkipTlsPassthrough(error: unknown): boolean {
   );
 }
 
+export function shouldSkipHttpsShareToken(error: unknown): boolean {
+  return (
+    error instanceof CWSandboxTransportError &&
+    error.reason === "CWSANDBOX_HTTPS_SHARE_TOKEN_NOT_SUPPORTED"
+  );
+}
+
 export function uniqueSmokeTag(): SandboxTag {
   return `cwsandbox-js-smoke-${Date.now()}-${Math.random().toString(36).slice(2, 10)}x`;
 }
@@ -315,11 +323,11 @@ export function publicTlsPassthroughService(port: number, name?: string): Servic
 export function publicHttpsService(
   port: number,
   name?: string,
-  options: { readonly requestTimeoutSeconds?: number } = {},
+  options: { readonly auth?: EndpointAuth; readonly requestTimeoutSeconds?: number } = {},
 ): Service {
   return {
     endpoint: {
-      auth: "open",
+      auth: options.auth ?? "open",
       kind: "https",
       ...(options.requestTimeoutSeconds === undefined
         ? {}
@@ -489,7 +497,7 @@ function tlsGetOnce(host: string, port: number): Promise<string> {
 
 export async function waitForHttpOk(
   url: string,
-  options: { readonly timeoutMs?: number } = {},
+  options: { readonly headers?: HeadersInit; readonly timeoutMs?: number } = {},
 ): Promise<Response> {
   const timeoutMs = options.timeoutMs ?? serviceUrlWaitTimeoutMs;
   const deadline = Date.now() + timeoutMs;
@@ -497,7 +505,10 @@ export async function waitForHttpOk(
 
   while (Date.now() < deadline) {
     try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+      const response = await fetch(url, {
+        ...(options.headers === undefined ? {} : { headers: options.headers }),
+        signal: AbortSignal.timeout(10_000),
+      });
       if (response.status === 200) {
         return response;
       }

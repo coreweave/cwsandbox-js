@@ -374,6 +374,12 @@ export type SandboxResourceSpec = ResourceSpec;
 
 export interface SandboxMetadata {
   readonly dnsEgressNames?: readonly string[];
+  /**
+   * Create-only share token for `auth: "share_token"` HTTPS URLs. Get, list,
+   * and `fromId` omit it. A live handle keeps a create-time value across
+   * `wait` / `inspect`.
+   */
+  readonly endpointShareToken?: string;
   readonly exitCode?: number;
   readonly exposedPorts?: readonly SandboxExposedPort[];
   readonly resourceLimits?: SandboxResourceSpec;
@@ -411,6 +417,7 @@ export interface Sandbox {
   readonly logs: SandboxLogs;
   readonly sandboxId: SandboxId;
   readonly dnsEgressNames: readonly string[] | undefined;
+  readonly endpointShareToken: string | undefined;
   readonly exitCode: number | undefined;
   readonly exposedPorts: readonly SandboxExposedPort[] | undefined;
   readonly resourceLimits: SandboxResourceSpec | undefined;

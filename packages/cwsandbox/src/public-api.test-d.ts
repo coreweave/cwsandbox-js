@@ -38,6 +38,7 @@ import {
   type MountedFileContent,
   type MountedFiles,
   type Endpoint,
+  type EndpointAuth,
   type HttpsEndpoint,
   type HttpsEndpointStatus,
   type TlsPassthroughEndpoint,
@@ -390,10 +391,12 @@ test("public API types", async () => {
   const endpoint: Endpoint = { auth: "open", kind: "https" };
   const timedEndpoint: HttpsEndpoint = { auth: "open", kind: "https", requestTimeoutSeconds: 120 };
   void timedEndpoint;
+  const shareTokenEndpoint: Endpoint = { auth: "share_token", kind: "https" };
+  void shareTokenEndpoint;
   const tlsEndpoint: TlsPassthroughEndpoint = { kind: "tls_passthrough" };
   void tlsEndpoint;
-  // @ts-expect-error share_token is not a supported EndpointAuth
-  const tokenEndpoint: Endpoint = { auth: "share_token", kind: "https" };
+  // @ts-expect-error unknown auth is not a supported EndpointAuth
+  const tokenEndpoint: Endpoint = { auth: "basic", kind: "https" };
   const stringAuth: string = "open";
   // @ts-expect-error Endpoint.auth does not accept a widened string
   const stringEndpoint: Endpoint = { auth: stringAuth, kind: "https" };
@@ -428,6 +431,15 @@ test("public API types", async () => {
     requestTimeoutSeconds: 120,
     url: "https://sandbox.example.com",
   };
+  const shareTokenStatus: HttpsEndpointStatus = {
+    auth: "share_token",
+    kind: "https",
+    name: "private",
+    port: 8001,
+    requestTimeoutSeconds: 120,
+    url: "https://private.example.com",
+  };
+  void shareTokenStatus;
   void httpsStatus;
   const sandboxAnnotations: SandboxAnnotations = { team: "platform" };
   const sandboxTag: SandboxTag = "project-demo";
@@ -435,6 +447,7 @@ test("public API types", async () => {
   const sandboxResourceSpec: SandboxResourceSpec = { cpu: "1", memory: "1Gi" };
   const sandboxMetadata: SandboxMetadata = {
     dnsEgressNames: ["pypi.org"],
+    endpointShareToken: "share-token",
     exposedPorts: [sandboxExposedPort],
     resourceLimits: sandboxResourceSpec,
     resourceRequests: sandboxResourceSpec,
@@ -475,7 +488,9 @@ test("public API types", async () => {
   expectTypeOf(egressRule).toExtend<EgressRule>();
 
   const sandbox = await client.run(["echo"]);
+  expectTypeOf<EndpointAuth>().toEqualTypeOf<"open" | "share_token">();
   expectTypeOf(sandbox.status).toEqualTypeOf<SandboxStatus | undefined>();
+  expectTypeOf(sandbox.endpointShareToken).toEqualTypeOf<string | undefined>();
   expectTypeOf(sandbox.exitCode).toEqualTypeOf<number | undefined>();
   expectTypeOf(sandbox.startedAt).toEqualTypeOf<Date | undefined>();
   expectTypeOf(sandbox.runnerId).toEqualTypeOf<string | undefined>();

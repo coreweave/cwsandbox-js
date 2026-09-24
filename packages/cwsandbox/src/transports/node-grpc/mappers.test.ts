@@ -274,6 +274,34 @@ describe("node transport mappers", () => {
       expect(request.sandbox?.spec?.services[0]?.endpoint?.requestTimeoutSeconds).toBe(0);
     });
 
+    it("maps share-token HTTPS public services onto proto SHARE_TOKEN", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        services: [
+          {
+            endpoint: { auth: "share_token", kind: "https" },
+            name: "private",
+            port: 8001,
+            protocol: "tcp",
+            visibility: "public",
+          },
+        ],
+      });
+
+      expect(request.sandbox?.spec?.services).toMatchObject([
+        {
+          endpoint: {
+            auth: EndpointAuth.SHARE_TOKEN,
+            kind: EndpointKind.HTTPS,
+          },
+          name: "private",
+          port: 8001,
+          protocol: ServiceProtocol.TCP,
+          visibility: Visibility.PUBLIC,
+        },
+      ]);
+    });
+
     it("copies a nonzero HTTPS request timeout onto proto EndpointSpec", () => {
       const request = toProtoCreateRequest({
         command: ["python"],
@@ -1079,6 +1107,67 @@ describe("node transport mappers", () => {
       });
     });
 
+    it("copies a non-empty create-time endpointShareToken and omits empty Get tokens", () => {
+      const created = toSdkStartSandboxResult(
+        ProtoSandbox.create({
+          endpointShareToken: "create-only-token",
+          sandboxId: "share-token-id",
+          status: {
+            services: [
+              {
+                endpoint: {
+                  auth: EndpointAuth.SHARE_TOKEN,
+                  kind: EndpointKind.HTTPS,
+                  url: "https://assigned.example.com",
+                },
+                name: "http",
+                port: 8000,
+                visibility: Visibility.PUBLIC,
+              },
+            ],
+            state: State.RUNNING,
+          },
+        }),
+      );
+      const getOnlyUrl = toSdkGetSandboxResult(
+        ProtoSandbox.create({
+          sandboxId: "share-token-id",
+          status: {
+            services: [
+              {
+                endpoint: {
+                  auth: EndpointAuth.SHARE_TOKEN,
+                  kind: EndpointKind.HTTPS,
+                  url: "https://assigned.example.com",
+                },
+                name: "http",
+                port: 8000,
+                visibility: Visibility.PUBLIC,
+              },
+            ],
+            state: State.RUNNING,
+          },
+        }),
+      );
+      const emptyToken = toSdkStartSandboxResult(
+        ProtoSandbox.create({
+          endpointShareToken: "",
+          sandboxId: "share-token-id",
+          status: { state: State.RUNNING },
+        }),
+      );
+
+      expect(created.endpointShareToken).toBe("create-only-token");
+      expect(created.serviceUrls).toEqual([
+        { name: "http", port: 8000, url: "https://assigned.example.com" },
+      ]);
+      expect(getOnlyUrl.endpointShareToken).toBeUndefined();
+      expect(getOnlyUrl.serviceUrls).toEqual([
+        { name: "http", port: 8000, url: "https://assigned.example.com" },
+      ]);
+      expect(emptyToken.endpointShareToken).toBeUndefined();
+    });
+
     it("maps get responses to SDK sandbox metadata", () => {
       const result = toSdkGetSandboxResult(
         ProtoSandbox.create({
@@ -1465,6 +1554,41 @@ describe("node transport mappers", () => {
       expect(defaultTimeout.serviceEndpoints).toBeUndefined();
       expect(defaultTimeout.serviceUrls).toEqual([
         { name: "http", port: 8000, url: "https://assigned.example.com" },
+      ]);
+    });
+
+    it("echoes SHARE_TOKEN HTTPS status auth as share_token", () => {
+      const result = toSdkGetSandboxResult(
+        ProtoSandbox.create({
+          sandboxId: "https-id",
+          status: {
+            services: [
+              {
+                endpoint: {
+                  auth: EndpointAuth.SHARE_TOKEN,
+                  kind: EndpointKind.HTTPS,
+                  requestTimeoutSeconds: 120,
+                  url: "https://assigned.example.com",
+                },
+                name: "private",
+                port: 8001,
+                visibility: Visibility.PUBLIC,
+              },
+            ],
+            state: State.RUNNING,
+          },
+        }),
+      );
+
+      expect(result.serviceEndpoints).toEqual([
+        {
+          auth: "share_token",
+          kind: "https",
+          name: "private",
+          port: 8001,
+          requestTimeoutSeconds: 120,
+          url: "https://assigned.example.com",
+        },
       ]);
     });
 

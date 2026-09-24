@@ -5,7 +5,7 @@
 import { CWSandboxValidationError } from "../errors.js";
 import type { EgressRule, Endpoint, NetworkOptions, Service } from "../public/network.js";
 
-const ENDPOINT_AUTHS = new Set(["open"]);
+const ENDPOINT_AUTHS = new Set(["open", "share_token"]);
 const ENDPOINT_KINDS = new Set(["https", "tls_passthrough"]);
 const SERVICE_PROTOCOLS = new Set(["sctp", "tcp", "udp", "unspecified"]);
 const SERVICE_VISIBILITIES = new Set(["custom", "private", "public", "unspecified"]);
@@ -163,7 +163,7 @@ function validateEndpoint(
 function validateHttpsEndpoint(endpoint: Endpoint): void {
   const auth = normalizeEnum("auth" in endpoint ? endpoint.auth : undefined);
   if (auth === undefined || !ENDPOINT_AUTHS.has(auth)) {
-    throw new CWSandboxValidationError("Service.endpoint.auth must be open");
+    throw new CWSandboxValidationError("Service.endpoint.auth must be open or share_token");
   }
   validateRequestTimeoutSeconds(
     "requestTimeoutSeconds" in endpoint ? endpoint.requestTimeoutSeconds : undefined,
