@@ -171,8 +171,9 @@ export class Sandbox implements PublicSandbox {
     validateRequestOptions(options);
 
     const result = await this.runtime.transport.get({
-      ...options,
       sandboxId: this.sandboxId,
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+      ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
     });
 
     this.updateMetadata(result);
@@ -233,19 +234,33 @@ export class Sandbox implements PublicSandbox {
   }
 
   private async runSharedStop(options: StopOptions): Promise<void> {
-    const status = await this.getStatus();
+    // The status check and the stop RPC each retry a hinted transient
+    // UNAVAILABLE (up to 3 calls each). Neither gets the waiter's timeout or
+    // signal: one caller giving up must not cancel the shared stop.
+    const current = await this.runtime.transport.get({
+      sandboxId: this.sandboxId,
+      retryHintedUnavailable: true,
+    });
+    this.updateMetadata(current);
+    const status = current.status;
 
     if (TERMINAL_STATUSES.has(status)) {
       return;
     }
 
     if (status !== "terminating") {
-      await this.runtime.transport.stop({
+      const outcome = await this.runtime.transport.stop({
         sandboxId: this.sandboxId,
         gracefulShutdownSeconds:
           options.gracefulShutdownSeconds ?? DEFAULT_GRACEFUL_SHUTDOWN_SECONDS,
         ...(options.missingOk === true ? { allowMissing: true } : {}),
       });
+      if (outcome?.alreadyGone === true) {
+        // A retried stop found the sandbox gone: it is stopped, and polling for
+        // a terminal status would only report it missing.
+        this.updateMetadata({ sandboxId: this.sandboxId, status: "terminated" });
+        return;
+      }
     }
 
     await waitForSandbox(

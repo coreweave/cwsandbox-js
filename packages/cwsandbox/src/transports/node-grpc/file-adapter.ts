@@ -42,6 +42,7 @@ import {
   SandboxDataPermission,
   WriteFileRequest as ProtoWriteFileRequest,
 } from "./generated/coreweave/sandbox/v1/sandbox.js";
+import { HINTED_RETRY_MAX_ATTEMPTS, retryHintedUnavailable } from "./retry-hinted-unavailable.js";
 import { toRpcOptions, withGrpcErrorMapping } from "./rpc.js";
 
 /**
@@ -149,7 +150,7 @@ async function selectedReadFile(
     directDataPlane,
     request,
     SandboxDataPermission.READ_FILE,
-    (client) => grpcReadFile(client, request),
+    (client, gatewayAttempts) => grpcReadFile(client, request, gatewayAttempts),
   );
 }
 
@@ -221,13 +222,20 @@ async function withRetiringFileRetry<TResult>(
   directDataPlane: DirectDataPlane | undefined,
   request: ReadFileRequest | WriteFileRequest,
   permission: SandboxDataPermission,
-  run: (client: UnaryFileClient) => Promise<TResult>,
+  run: (client: UnaryFileClient, gatewayAttempts: number | undefined) => Promise<TResult>,
 ): Promise<TResult> {
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const lease = await acquireFileLease(directDataPlane, request, permission);
     let discard = false;
     try {
-      return await run(lease?.client ?? gatewayClient);
+      // Only a Gateway ReadFile retries a hinted transient UNAVAILABLE. A
+      // direct shard-retirement failure on the first pass uses up one of the
+      // 3 calls. Writes and direct calls stay one call per pass.
+      const gatewayAttempts =
+        lease === undefined && permission === SandboxDataPermission.READ_FILE
+          ? HINTED_RETRY_MAX_ATTEMPTS - attempt
+          : undefined;
+      return await run(lease?.client ?? gatewayClient, gatewayAttempts);
     } catch (error) {
       if (lease !== undefined && isGrpcUnavailable(error)) {
         discard = true;
@@ -280,17 +288,30 @@ async function grpcWriteFile(client: UnaryFileClient, request: WriteFileRequest)
 async function grpcReadFile(
   client: UnaryFileClient,
   request: ReadFileRequest,
+  gatewayAttempts?: number,
 ): Promise<ReadFileResult> {
+  const call = async (timeoutMs: number | undefined) =>
+    client.readFile(
+      ProtoReadFileRequest.create({
+        path: request.path,
+        sandboxId: request.sandboxId,
+      }),
+      toRpcOptions({
+        ...(request.signal === undefined ? {} : { signal: request.signal }),
+        ...(timeoutMs === undefined ? {} : { timeoutMs }),
+      }),
+    ).response;
   const response = await withGrpcErrorMapping(
     "Read file",
     () =>
-      client.readFile(
-        ProtoReadFileRequest.create({
-          path: request.path,
-          sandboxId: request.sandboxId,
-        }),
-        toRpcOptions(request),
-      ).response,
+      gatewayAttempts === undefined
+        ? call(request.timeoutMs)
+        : retryHintedUnavailable(call, {
+            operation: "Read file",
+            maxAttempts: gatewayAttempts,
+            ...(request.signal === undefined ? {} : { signal: request.signal }),
+            ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+          }),
     { filepath: request.path, sandboxId: request.sandboxId },
   );
 

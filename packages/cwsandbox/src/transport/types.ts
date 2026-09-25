@@ -76,6 +76,11 @@ export interface StartSandboxFromTemplateRequest extends RequestOptions {
 
 export interface GetSandboxRequest extends RequestOptions {
   readonly sandboxId: SandboxId;
+  /**
+   * Internal: retry a hinted transient UNAVAILABLE. Set only by stop()'s
+   * status check; public getters build requests without it.
+   */
+  readonly retryHintedUnavailable?: true;
 }
 
 export interface ExecRequest extends Omit<ExecOptions, "check"> {
@@ -105,6 +110,15 @@ export interface StreamLogsRequest extends LogStreamOptions {
 export interface StopSandboxRequest extends Omit<StopOptions, "missingOk"> {
   readonly allowMissing?: boolean;
   readonly sandboxId: SandboxId;
+}
+
+/**
+ * Returned by `SandboxTransport.stop` when a retried stop found the sandbox
+ * already gone: an earlier attempt likely stopped it before its response was
+ * lost, so there is nothing left to wait for.
+ */
+export interface StopSandboxAlreadyGone {
+  readonly alreadyGone: true;
 }
 
 export interface DeleteSandboxRequest extends RequestOptions {

@@ -244,6 +244,14 @@ work for other waiters, and aborting does not undo a Stop that already succeeded
 After a successful Stop, a brief `NotFound` race is retried (~2s). If terminal status is
 still unobservable, `stop()` throws `CWSandboxTerminalStateUnavailableError`.
 
+`stop()`'s status check and its Stop RPC each retry a transient `UNAVAILABLE` that carries
+a server `RetryInfo` delay of at most 10s: up to 3 calls per step, so up to 6 calls and
+about 48s of backoff before polling starts. These shared steps get no deadline, and a
+waiter's `timeoutMs` / `signal` still only bound that waiter. If a retried Stop finds the
+sandbox gone, it is already stopped: `stop()` resolves with `status` `terminated` and
+does not poll. If the shared stop operation still fails, that failure is cached on the
+handle; retry with a fresh handle from `client.fromId()` or use `delete()`.
+
 To watch an already-stopping sandbox without sending Stop:
 
 ```ts
@@ -1112,6 +1120,16 @@ Transport failures may also carry AIP-193 fields when the backend includes
 - `domain` — namespace; reason→class mapping only applies for `cwsandbox.com`
 - `metadata` — ErrorInfo metadata map (always an object; empty when absent)
 - `retryDelayMs` — optional RetryInfo hint
+
+`delete()` and `files.read()` through the Gateway retry a transient failure before
+throwing, but only when the server sends gRPC `UNAVAILABLE` with a `RetryInfo` delay of
+at most 10s. Each makes up to 3 calls, waiting the server's delay plus up to 20%. With a
+`timeoutMs`, the retries stay within it and need at least 5s left for the next call;
+without one, no new deadline is added. Aborting the `signal` during a wait stops further
+calls. A not-found answer on a retried delete counts as deleted. `stop()` applies the
+same retry to its status check and Stop RPC, without the caller's timeout or signal (see
+the stop section above). Other operations (exec, streams, writes, create, list, and other
+gets) do not add this retry. When the retries run out, the last error is thrown.
 
 ```ts
 import { CWSANDBOX_FILE_TOO_LARGE } from "@coreweave/cwsandbox";
