@@ -31,6 +31,7 @@ import type {
   StartCommandRequest,
   StartShellRequest,
   StartSandboxRequest,
+  StopSandboxAlreadyGone,
   StopSandboxRequest,
   StreamLogsRequest,
 } from "../../transport/types.js";
@@ -59,6 +60,7 @@ import {
   toSdkProcessResult,
   toSdkStartSandboxResult,
 } from "./mappers.js";
+import { isRawSandboxNotFound, retryHintedUnavailable } from "./retry-hinted-unavailable.js";
 import { toRpcOptions, withGrpcErrorMapping } from "./rpc.js";
 import { startGrpcShell } from "./terminal-stream.js";
 
@@ -119,15 +121,26 @@ export class GrpcSandboxTransport implements SandboxTransport {
   }
 
   public async get(request: GetSandboxRequest): Promise<GetSandboxResult> {
+    const call = async (timeoutMs: number | undefined) =>
+      this.client.getSandbox(
+        {
+          sandboxId: request.sandboxId,
+        },
+        toRpcOptions({
+          ...(request.signal === undefined ? {} : { signal: request.signal }),
+          ...(timeoutMs === undefined ? {} : { timeoutMs }),
+        }),
+      ).response;
     const response = await withGrpcErrorMapping(
       "Get sandbox",
       () =>
-        this.client.getSandbox(
-          {
-            sandboxId: request.sandboxId,
-          },
-          toRpcOptions(request),
-        ).response,
+        request.retryHintedUnavailable === true
+          ? retryHintedUnavailable(call, {
+              operation: "Get sandbox",
+              ...(request.signal === undefined ? {} : { signal: request.signal }),
+              ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+            })
+          : call(request.timeoutMs),
       request.sandboxId,
     );
 
@@ -148,8 +161,7 @@ export class GrpcSandboxTransport implements SandboxTransport {
   public async delete(request: DeleteSandboxRequest): Promise<void> {
     await withGrpcErrorMapping(
       "Delete sandbox",
-      () =>
-        this.client.deleteSandbox(toProtoDeleteRequest(request), toRpcOptions(request)).response,
+      () => this.deleteWithRetry(request, "Delete sandbox"),
       request.sandboxId,
     );
     this.directDataPlane.discardSandbox(request.sandboxId);
@@ -327,14 +339,52 @@ export class GrpcSandboxTransport implements SandboxTransport {
     }
   }
 
-  public async stop(request: StopSandboxRequest): Promise<void> {
-    await withGrpcErrorMapping(
+  public async stop(request: StopSandboxRequest): Promise<void | StopSandboxAlreadyGone> {
+    const alreadyGone = await withGrpcErrorMapping(
       "Stop sandbox",
-      () =>
-        this.client.deleteSandbox(toProtoDeleteRequest(request), toRpcOptions(request)).response,
+      () => this.deleteWithRetry(request, "Stop sandbox"),
       request.sandboxId,
     );
     this.directDataPlane.discardSandbox(request.sandboxId);
+    return alreadyGone ? { alreadyGone: true } : undefined;
+  }
+
+  /**
+   * DeleteSandbox, retried on a hinted transient UNAVAILABLE. Resolves true when
+   * a retry found the sandbox already gone: an earlier attempt likely deleted it
+   * before its response was lost, which is what the caller asked for. A
+   * not-found on the first call is rethrown as before.
+   */
+  private async deleteWithRetry(
+    request: DeleteSandboxRequest | StopSandboxRequest,
+    operation: string,
+  ): Promise<boolean> {
+    let attempts = 0;
+    try {
+      await retryHintedUnavailable(
+        async (timeoutMs) => {
+          attempts += 1;
+          await this.client.deleteSandbox(
+            toProtoDeleteRequest(request),
+            toRpcOptions({
+              ...(request.signal === undefined ? {} : { signal: request.signal }),
+              ...(timeoutMs === undefined ? {} : { timeoutMs }),
+            }),
+          ).response;
+        },
+        {
+          operation,
+          ...(request.signal === undefined ? {} : { signal: request.signal }),
+          ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+        },
+      );
+      return false;
+    } catch (error) {
+      if (attempts > 1 && isRawSandboxNotFound(error)) {
+        return true;
+      }
+      throw error;
+    }
   }
 
   private acquireDirectLease(

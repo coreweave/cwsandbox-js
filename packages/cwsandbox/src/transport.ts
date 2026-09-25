@@ -31,6 +31,7 @@ import type {
   StartCommandRequest,
   StartShellRequest,
   StreamLogsRequest,
+  StopSandboxAlreadyGone,
   StopSandboxRequest,
 } from "./transport/types.js";
 
@@ -57,5 +58,5 @@ export interface SandboxTransport {
   startCommand(request: StartCommandRequest): Promise<CommandProcess | CommandProcessWithStdin>;
   startShell(request: StartShellRequest): Promise<TerminalSession>;
   streamLogs(request: StreamLogsRequest): Promise<LogEntryStream | LogRawStream | LogStream>;
-  stop(request: StopSandboxRequest): Promise<void>;
+  stop(request: StopSandboxRequest): Promise<void | StopSandboxAlreadyGone>;
 }
