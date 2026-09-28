@@ -112,11 +112,7 @@ export interface StopSandboxRequest extends Omit<StopOptions, "missingOk"> {
   readonly sandboxId: SandboxId;
 }
 
-/**
- * Returned by `SandboxTransport.stop` when a retried stop found the sandbox
- * already gone: an earlier attempt likely stopped it before its response was
- * lost, so there is nothing left to wait for.
- */
+/** A retried stop established absence; skip terminal-status polling. */
 export interface StopSandboxAlreadyGone {
   readonly alreadyGone: true;
 }

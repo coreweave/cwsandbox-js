@@ -234,9 +234,8 @@ export class Sandbox implements PublicSandbox {
   }
 
   private async runSharedStop(options: StopOptions): Promise<void> {
-    // The status check and the stop RPC each retry a hinted transient
-    // UNAVAILABLE (up to 3 calls each). Neither gets the waiter's timeout or
-    // signal: one caller giving up must not cancel the shared stop.
+    // Do not forward a waiter's timeout or signal to either shared RPC:
+    // one waiter giving up must not cancel the shared stop.
     const current = await this.runtime.transport.get({
       sandboxId: this.sandboxId,
       retryHintedUnavailable: true,

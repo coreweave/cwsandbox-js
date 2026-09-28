@@ -228,9 +228,7 @@ async function withRetiringFileRetry<TResult>(
     const lease = await acquireFileLease(directDataPlane, request, permission);
     let discard = false;
     try {
-      // Only a Gateway ReadFile retries a hinted transient UNAVAILABLE. A
-      // direct shard-retirement failure on the first pass uses up one of the
-      // 3 calls. Writes and direct calls stay one call per pass.
+      // Count a retired direct call against the same limit as Gateway retries.
       const gatewayAttempts =
         lease === undefined && permission === SandboxDataPermission.READ_FILE
           ? HINTED_RETRY_MAX_ATTEMPTS - attempt

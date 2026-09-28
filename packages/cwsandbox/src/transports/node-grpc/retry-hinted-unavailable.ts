@@ -10,14 +10,13 @@ import { parseStatusDetailsFromMetadata } from "./error-info.js";
 
 /** Total calls, first try included. */
 export const HINTED_RETRY_MAX_ATTEMPTS = 3;
-/** A server hint above this is raised rather than slept or clamped. */
+/** Above this hint, rethrow the RPC error rather than clamp the delay. */
 export const HINTED_RETRY_MAX_DELAY_MS = 10_000;
 /** Upward-only jitter on the server's delay: never sleep less than asked. */
 export const HINTED_RETRY_JITTER = 0.2;
 /**
- * With a finite timeout, a retry needs at least this much of it left after the
- * backoff, so a starved last call cannot fail with DEADLINE_EXCEEDED and hide
- * the server's UNAVAILABLE reason.
+ * With a timeout, reserve this much after backoff to avoid masking
+ * UNAVAILABLE with a deadline error from a starved retry.
  */
 export const HINTED_RETRY_MIN_ATTEMPT_MS = 5_000;
 
@@ -40,13 +39,8 @@ interface Hint {
 }
 
 /**
- * The server's retry hint when `error` is a raw gRPC `UNAVAILABLE` carrying a
- * usable, non-negative AIP-193 `RetryInfo` delay; otherwise undefined.
- *
- * Checked on the raw status, not the mapped error class: the SDK also maps
- * bare `UNAVAILABLE` (proxy, dead connection) and non-UNAVAILABLE statuses
- * with an unavailable reason to `CWSandboxUnavailableError`, and neither is
- * retried here.
+ * Inspect raw status: CWSandboxUnavailableError also covers bare UNAVAILABLE
+ * and unavailable reasons on other statuses, neither of which qualifies.
  */
 function hintOf(error: unknown): Hint | undefined {
   if (!(error instanceof RpcError) || error.code !== "UNAVAILABLE") {
@@ -73,25 +67,14 @@ export function isRawSandboxNotFound(error: unknown): boolean {
 }
 
 /**
- * Run one idempotent unary call, retrying only when the server says it is
- * transiently unavailable and says how long to wait.
+ * Retry an idempotent unary operation only on UNAVAILABLE with RetryInfo.
+ * `attempt` must make one call and propagate unmapped `RpcError`s.
+ * Wrap this helper in `withGrpcErrorMapping`; exhaustion preserves the last
+ * error, while backoff cancellation produces a CANCELLED `RpcError`.
  *
- * `attempt(timeoutMs)` makes exactly one raw call and lets the raw `RpcError`
- * escape; call it inside `withGrpcErrorMapping` so the final error is mapped
- * as before. A failure is retried only when fewer than `maxAttempts` calls
- * have been made, the error carries a hint (see `hintOf`) of at most
- * `HINTED_RETRY_MAX_DELAY_MS`, and, when `timeoutMs` is set, at least
- * `HINTED_RETRY_MIN_ATTEMPT_MS` of it remains after the backoff. Otherwise the
- * last raw error is rethrown. Aborting during the backoff throws a
- * `CANCELLED` `RpcError`, the same shape as cancelling an in-flight call.
- *
- * This reads `RetryInfo` differently from `retryTransientRpc` on purpose;
- * keep both in mind when changing either. That helper retries every
- * transient error with or without a hint, so it clamps a long hint and treats
- * a zero hint as missing and uses its own backoff. This one retries only
- * because the server supplied the hint, so it never sleeps less than the
- * hint: a zero hint retries at once, and a hint above the cap is raised
- * rather than clamped.
+ * Hints authorize retries here: zero adds no backoff; oversized hints stop
+ * retries. `retryTransientRpc` instead clamps hints and uses its own backoff
+ * for missing/zero hints. Review both when changing hint handling.
  */
 export async function retryHintedUnavailable<T>(
   attempt: (timeoutMs: number | undefined) => Promise<T>,
