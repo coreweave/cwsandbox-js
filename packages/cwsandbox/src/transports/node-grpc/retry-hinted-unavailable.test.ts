@@ -393,6 +393,31 @@ describe("GrpcSandboxTransport hinted retry", () => {
     expect(discard).toHaveBeenCalledWith("sbx");
   });
 
+  it.each(["stop", "delete"] as const)(
+    "%s with allowMissing detects an absent sandbox on a retry",
+    async (method) => {
+      const sent: boolean[] = [];
+      let calls = 0;
+      const deleteSandbox: Unary = (request) => {
+        const allowMissing = (request as { allowMissing: boolean }).allowMissing;
+        sent.push(allowMissing);
+        calls += 1;
+        if (calls === 1) {
+          return { response: Promise.reject(hinted()) };
+        }
+        // Gateway: an absent sandbox is an empty success with allow_missing,
+        // NOT_FOUND without it.
+        return {
+          response: allowMissing ? Promise.resolve({}) : Promise.reject(notFound()),
+        };
+      };
+      const { transport } = transportWith({ deleteSandbox });
+      const result = await transport[method]({ allowMissing: true, sandboxId: "sbx" });
+      expect(sent).toEqual([true, false]);
+      expect(result).toEqual(method === "stop" ? { alreadyGone: true } : undefined);
+    },
+  );
+
   it("stop resolves undefined on ordinary success", async () => {
     const del = unary(hinted(), {});
     const { transport } = transportWith({ deleteSandbox: del.fn });
@@ -547,6 +572,51 @@ describe("file adapter hinted retry", () => {
 });
 
 describe("stop() through the gRPC transport", () => {
+  it("stop({ missingOk: true }) resolves terminated when a retry finds the sandbox absent", async () => {
+    const hintedErr = new RpcError(
+      "unavailable",
+      "UNAVAILABLE",
+      statusDetailsMeta({
+        errorInfos: [{ reason: "CWSANDBOX_RUNNER_UNAVAILABLE" }],
+        retryInfos: [{ retrySeconds: 0, retryNanos: 1_000_000 }],
+      }),
+    );
+    const running = { sandboxId: "sbx", status: { state: State.RUNNING } };
+    const gets: unknown[] = [running, running];
+    let deletes = 0;
+    const transport = new GrpcSandboxTransport({ apiKey: "test", baseUrl: "http://127.0.0.1:1" });
+    Object.defineProperty(transport, "client", {
+      value: {
+        deleteSandbox: (request: { allowMissing: boolean }) => {
+          deletes += 1;
+          if (deletes === 1) {
+            return { response: Promise.reject(hintedErr) };
+          }
+          return {
+            response: request.allowMissing
+              ? Promise.resolve({})
+              : Promise.reject(new RpcError("gone", "NOT_FOUND")),
+          };
+        },
+        getSandbox: () => {
+          const outcome = gets.shift();
+          return {
+            response:
+              outcome === undefined
+                ? Promise.reject(new RpcError("gone", "NOT_FOUND"))
+                : Promise.resolve(outcome),
+          };
+        },
+      },
+    });
+    const client = new SandboxClient({ fileAdapter: {} as never, transport });
+    const sandbox = await client.fromId("sbx");
+
+    await expect(sandbox.stop({ missingOk: true })).resolves.toBeUndefined();
+    expect(sandbox.status).toBe("terminated");
+    expect(deletes).toBe(2);
+  });
+
   it("does not count a retried status check toward the stop RPC's retry", async () => {
     const hinted = new RpcError(
       "unavailable",

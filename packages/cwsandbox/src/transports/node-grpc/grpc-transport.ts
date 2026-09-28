@@ -351,9 +351,9 @@ export class GrpcSandboxTransport implements SandboxTransport {
 
   /**
    * DeleteSandbox, retried on a hinted transient UNAVAILABLE. Resolves true when
-   * a retry found the sandbox already gone: an earlier attempt likely deleted it
-   * before its response was lost, which is what the caller asked for. A
-   * not-found on the first call is rethrown as before.
+   * a retry found the sandbox already gone, which is what the caller asked for,
+   * with or without allowMissing. A not-found on the first call is rethrown as
+   * before (allowMissing on the first call still suppresses it server-side).
    */
   private async deleteWithRetry(
     request: DeleteSandboxRequest | StopSandboxRequest,
@@ -364,8 +364,14 @@ export class GrpcSandboxTransport implements SandboxTransport {
       await retryHintedUnavailable(
         async (timeoutMs) => {
           attempts += 1;
+          // A retry never sends allowMissing: an absent sandbox must come back
+          // as NOT_FOUND so it is recognised as already gone below, instead of
+          // an empty success that would send stop() on to terminal polling.
+          // Safe only while this request carries no snapshot volumes: for a
+          // snapshot-on-delete the server treats allowMissing as part of the
+          // request's identity.
           await this.client.deleteSandbox(
-            toProtoDeleteRequest(request),
+            toProtoDeleteRequest(attempts > 1 ? { ...request, allowMissing: false } : request),
             toRpcOptions({
               ...(request.signal === undefined ? {} : { signal: request.signal }),
               ...(timeoutMs === undefined ? {} : { timeoutMs }),
