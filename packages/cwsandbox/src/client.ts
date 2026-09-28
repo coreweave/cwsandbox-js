@@ -197,7 +197,11 @@ export class SandboxClient implements SandboxClientInterface {
 
   public async get(sandboxId: SandboxId, options: RequestOptions = {}): Promise<GetSandboxResult> {
     validateRequestOptions(options);
-    return this.transport.get({ ...options, sandboxId });
+    return this.transport.get({
+      sandboxId,
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+      ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+    });
   }
 
   public async fromId(sandboxId: SandboxId, options: FromIdOptions = {}): Promise<PublicSandbox> {

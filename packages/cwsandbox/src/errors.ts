@@ -228,6 +228,16 @@ export class CWSandboxTimeoutError extends CWSandboxTransportError {
   }
 }
 
+/**
+ * The sandbox service is transiently unavailable (gRPC `UNAVAILABLE` or an
+ * unavailable AIP-193 reason).
+ *
+ * `delete()`, Gateway `files.read()`, and each of `stop()`'s status check and
+ * Stop RPC already retry it (up to 3 calls each) when the server sent gRPC
+ * `UNAVAILABLE` with a `RetryInfo` delay of at most 10s; when thrown from
+ * those, it is the last call's error. Wait polling and snapshot operations
+ * have their own retry. Other operations add no retry for it.
+ */
 export class CWSandboxUnavailableError extends CWSandboxTransportError {
   public constructor(message: string, options?: CWSandboxTransportErrorOptions) {
     super(message, options, "unavailable");
