@@ -33,14 +33,14 @@
     "@coreweave/cwsandbox-computesdk": "workspace:*",
     "@coreweave/cwsandbox-tanstack": "workspace:*",
     "@tanstack/ai-sandbox": "^0.5.17",
-    "@types/node": "^26.6.3",
+    "@types/node": "catalog:",
     "knip": "^6.38.0",
     "oxfmt": "^0.71.0",
     "oxlint": "^1.86.0",
-    "tsx": "^4.23.15",
+    "tsx": "catalog:",
     "turbo": "^2.11.5",
-    "typescript": "^7.0.2",
-    "vitest": "^5.0.2"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=22"

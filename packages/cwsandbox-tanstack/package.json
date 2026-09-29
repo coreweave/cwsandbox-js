@@ -32,7 +32,7 @@
   "devDependencies": {
     "@tanstack/ai": "^0.63.0",
     "@tanstack/ai-sandbox": "^0.5.17",
-    "vitest": "^5.0.2"
+    "vitest": "catalog:"
   },
   "peerDependencies": {
     "@tanstack/ai-sandbox": "^0.5.17"

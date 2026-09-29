@@ -68,11 +68,11 @@
   },
   "devDependencies": {
     "@bufbuild/buf": "^1.73.0",
-    "@types/node": "^26.6.3",
+    "@types/node": "catalog:",
     "tsdown": "^0.23.0",
-    "tsx": "^4.23.15",
-    "typescript": "^7.0.2",
-    "vitest": "^5.0.2"
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=22"
