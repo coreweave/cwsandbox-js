@@ -14,10 +14,6 @@ const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const packageRoot = join(repoRoot, "packages", "cwsandbox");
 const packageManifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as {
   version?: string;
-  devDependencies?: {
-    typescript?: string;
-    "@types/node"?: string;
-  };
 };
 const packageVersion = packageManifest.version;
 if (packageVersion === undefined || packageVersion === "") {
@@ -57,13 +53,7 @@ describe("packed package consumers", () => {
         const tarballPath = packPackage(packDir);
         assertTarballHygiene(tarballPath);
 
-        const typescript = packageManifest.devDependencies?.typescript;
-        const typesNode = packageManifest.devDependencies?.["@types/node"];
-        if (typescript === undefined || typesNode === undefined) {
-          throw new Error(
-            "packages/cwsandbox/package.json must declare typescript and @types/node devDependencies for the pack consumer fixture.",
-          );
-        }
+        const { typescript, typesNode } = readPackedDevDependencies(tarballPath);
 
         writeProjectFile(
           fixtureDir,
@@ -253,6 +243,41 @@ function packPackage(packDir: string): string {
     throw new Error(`pnpm pack did not produce ${tarballPath}.`);
   }
   return tarballPath;
+}
+
+function readPackedDevDependencies(tarballPath: string): {
+  typescript: string;
+  typesNode: string;
+} {
+  const packed = spawnSync("tar", ["-xOf", tarballPath, "package/package.json"], {
+    encoding: "utf8",
+  });
+  if (packed.status !== 0) {
+    throw new Error(packed.stdout + packed.stderr);
+  }
+
+  const packedManifest = JSON.parse(packed.stdout) as {
+    devDependencies?: {
+      typescript?: string;
+      "@types/node"?: string;
+    };
+  };
+  const typescript = packedManifest.devDependencies?.typescript;
+  const typesNode = packedManifest.devDependencies?.["@types/node"];
+  if (
+    typescript === undefined ||
+    typescript === "" ||
+    typescript.startsWith("catalog:") ||
+    typesNode === undefined ||
+    typesNode === "" ||
+    typesNode.startsWith("catalog:")
+  ) {
+    throw new Error(
+      "packed package/package.json must rewrite typescript and @types/node catalog: specs to concrete ranges.",
+    );
+  }
+
+  return { typescript, typesNode };
 }
 
 function assertTarballHygiene(tarballPath: string): void {

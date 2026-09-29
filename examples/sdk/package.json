@@ -35,8 +35,8 @@
     "@coreweave/cwsandbox": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^22.20.4",
-    "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "@types/node": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:"
   }
 }

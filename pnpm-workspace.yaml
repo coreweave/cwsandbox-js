@@ -2,4 +2,10 @@ packages:
   - packages/*
   - examples/*
 
+catalog:
+  "@types/node": "^22.20.4"
+  typescript: "^7.0.2"
+  vitest: "^5.0.2"
+  tsx: "^4.23.15"
+
 minimumReleaseAge: 1440
