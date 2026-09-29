@@ -51,10 +51,10 @@
     "@coreweave/cwsandbox": "workspace:*"
   },
   "devDependencies": {
-    "@computesdk/provider": "^2.1.7",
-    "@types/node": "^22.20.4",
+    "@computesdk/provider": "^2.1.9",
+    "@types/node": "^26.6.3",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.1"
+    "vitest": "^5.0.2"
   },
   "peerDependencies": {
     "@computesdk/provider": "^2.1.0"

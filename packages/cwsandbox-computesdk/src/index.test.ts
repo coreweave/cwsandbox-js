@@ -140,7 +140,7 @@ describe("coreweave ComputeSDK provider", () => {
     // ComputeSDK owns callback streaming via daemond; getUrl alone does not enable
     // callbacks. Our adapter must not treat onStdout as a signal to use commands.start.
     await expect(sandbox.runCommand("printf ok", { onStdout: () => undefined })).rejects.toThrow(
-      /not valid JSON/,
+      /expected JSON|not valid JSON/,
     );
     expect(tracking.startCommands).toHaveLength(0);
     expect(tracking.execCommands.length).toBeGreaterThan(0);

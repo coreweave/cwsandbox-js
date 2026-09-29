@@ -32,15 +32,15 @@
     "@coreweave/cwsandbox": "workspace:*",
     "@coreweave/cwsandbox-computesdk": "workspace:*",
     "@coreweave/cwsandbox-tanstack": "workspace:*",
-    "@tanstack/ai-sandbox": "^0.5.9",
-    "@types/node": "^22.20.4",
-    "knip": "^6.37.0",
-    "oxfmt": "^0.68.0",
-    "oxlint": "^1.83.0",
+    "@tanstack/ai-sandbox": "^0.5.17",
+    "@types/node": "^26.6.3",
+    "knip": "^6.38.0",
+    "oxfmt": "^0.71.0",
+    "oxlint": "^1.86.0",
     "tsx": "^4.23.15",
-    "turbo": "^2.11.2",
+    "turbo": "^2.11.5",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.1"
+    "vitest": "^5.0.2"
   },
   "engines": {
     "node": ">=22"
