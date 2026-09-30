@@ -5,9 +5,12 @@
 import { BinaryReader, WireType, base64decode } from "@protobuf-ts/runtime";
 import type { RpcMetadata } from "@protobuf-ts/runtime-rpc";
 
+import type { FieldViolation } from "../../errors.js";
+
 const STATUS_DETAILS_KEY = "grpc-status-details-bin";
 const ERROR_INFO_TYPE_URL_SUFFIX = "google.rpc.ErrorInfo";
 const RETRY_INFO_TYPE_URL_SUFFIX = "google.rpc.RetryInfo";
+const BAD_REQUEST_TYPE_URL_SUFFIX = "google.rpc.BadRequest";
 const MAX_SAFE_DELAY_SECONDS = Number.MAX_SAFE_INTEGER / 1000;
 
 export interface ParsedStatusDetails {
@@ -15,6 +18,7 @@ export interface ParsedStatusDetails {
   readonly domain: string;
   readonly metadata: Readonly<Record<string, string>>;
   readonly retryDelayMs?: number;
+  readonly fieldViolations?: readonly FieldViolation[];
 }
 
 /**
@@ -73,6 +77,7 @@ function parseStatusMessage(statusBytes: Uint8Array): ParsedStatusDetails | unde
     let domain = "";
     let metadata: Readonly<Record<string, string>> = {};
     let retryDelayMs: number | undefined;
+    const fieldViolations: FieldViolation[] = [];
 
     const reader = new BinaryReader(statusBytes);
     while (reader.pos < reader.len) {
@@ -90,17 +95,15 @@ function parseStatusMessage(statusBytes: Uint8Array): ParsedStatusDetails | unde
           metadata = detail.metadata;
         } else if (detail.kind === "retryInfo" && retryDelayMs === undefined) {
           retryDelayMs = detail.retryDelayMs;
-        }
-
-        if (reason !== undefined && retryDelayMs !== undefined) {
-          break;
+        } else if (detail.kind === "badRequest") {
+          fieldViolations.push(...detail.fieldViolations);
         }
         continue;
       }
       reader.skip(wireType);
     }
 
-    if (reason === undefined && retryDelayMs === undefined) {
+    if (reason === undefined && retryDelayMs === undefined && fieldViolations.length === 0) {
       return undefined;
     }
 
@@ -109,6 +112,7 @@ function parseStatusMessage(statusBytes: Uint8Array): ParsedStatusDetails | unde
       metadata,
       ...(reason === undefined ? {} : { reason }),
       ...(retryDelayMs === undefined ? {} : { retryDelayMs }),
+      ...(fieldViolations.length === 0 ? {} : { fieldViolations }),
     };
   } catch {
     return undefined;
@@ -125,6 +129,10 @@ type ParsedAnyDetail =
   | {
       readonly kind: "retryInfo";
       readonly retryDelayMs: number;
+    }
+  | {
+      readonly kind: "badRequest";
+      readonly fieldViolations: readonly FieldViolation[];
     };
 
 function parseAnyDetail(anyBytes: Uint8Array): ParsedAnyDetail | undefined {
@@ -154,6 +162,9 @@ function parseAnyDetail(anyBytes: Uint8Array): ParsedAnyDetail | undefined {
   }
   if (typeUrl.endsWith(RETRY_INFO_TYPE_URL_SUFFIX)) {
     return parseRetryInfoMessage(value);
+  }
+  if (typeUrl.endsWith(BAD_REQUEST_TYPE_URL_SUFFIX)) {
+    return parseBadRequestMessage(value);
   }
 
   return undefined;
@@ -219,6 +230,74 @@ function parseRetryInfoMessage(bytes: Uint8Array): ParsedAnyDetail | undefined {
   }
 
   return { kind: "retryInfo", retryDelayMs };
+}
+
+function parseBadRequestMessage(bytes: Uint8Array): ParsedAnyDetail {
+  const fieldViolations: FieldViolation[] = [];
+
+  const reader = new BinaryReader(bytes);
+  while (reader.pos < reader.len) {
+    const [fieldNo, wireType] = reader.tag();
+    if (fieldNo === 1 && wireType === WireType.LengthDelimited) {
+      const violation = parseFieldViolationMessage(reader.bytes());
+      if (violation.field.length > 0 || violation.description.length > 0) {
+        fieldViolations.push(violation);
+      }
+      continue;
+    }
+    reader.skip(wireType);
+  }
+
+  return { kind: "badRequest", fieldViolations };
+}
+
+function parseFieldViolationMessage(bytes: Uint8Array): FieldViolation {
+  let field = "";
+  let description = "";
+  let reason = "";
+  let localizedMessage = "";
+
+  const reader = new BinaryReader(bytes);
+  while (reader.pos < reader.len) {
+    const [fieldNo, wireType] = reader.tag();
+    if (fieldNo === 1 && wireType === WireType.LengthDelimited) {
+      field = reader.string();
+      continue;
+    }
+    if (fieldNo === 2 && wireType === WireType.LengthDelimited) {
+      description = reader.string();
+      continue;
+    }
+    if (fieldNo === 3 && wireType === WireType.LengthDelimited) {
+      reason = reader.string();
+      continue;
+    }
+    if (fieldNo === 4 && wireType === WireType.LengthDelimited) {
+      localizedMessage = parseLocalizedMessageText(reader.bytes());
+      continue;
+    }
+    reader.skip(wireType);
+  }
+
+  // Same fallback order as the Python SDK: description, localized message, reason.
+  const text = description || localizedMessage || reason;
+  return { field, description: text };
+}
+
+function parseLocalizedMessageText(bytes: Uint8Array): string {
+  let message = "";
+
+  const reader = new BinaryReader(bytes);
+  while (reader.pos < reader.len) {
+    const [fieldNo, wireType] = reader.tag();
+    if (fieldNo === 2 && wireType === WireType.LengthDelimited) {
+      message = reader.string();
+      continue;
+    }
+    reader.skip(wireType);
+  }
+
+  return message;
 }
 
 function durationToMs(bytes: Uint8Array): number | undefined {

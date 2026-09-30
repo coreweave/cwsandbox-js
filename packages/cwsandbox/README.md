@@ -1115,12 +1115,13 @@ await Promise.all(sandboxes.map((sandbox) => sandbox.delete({ missingOk: true })
 
 All SDK errors extend `CWSandboxError` and expose a stable `code` string.
 Transport failures may also carry AIP-193 fields when the backend includes
-`google.rpc.ErrorInfo` / `RetryInfo` in gRPC status details:
+`google.rpc.ErrorInfo` / `RetryInfo` / `BadRequest` in gRPC status details:
 
 - `reason` — branch key (e.g. `CWSANDBOX_SANDBOX_NOT_FOUND`)
 - `domain` — namespace; reason→class mapping only applies for `cwsandbox.com`
 - `metadata` — ErrorInfo metadata map (always an object; empty when absent)
 - `retryDelayMs` — optional RetryInfo hint
+- `fieldViolations` — BadRequest `{ field, description }` entries (always an array; empty when absent)
 
 `delete()` and `files.read()` through the Gateway retry a transient failure before
 throwing, but only when the server sends gRPC `UNAVAILABLE` with a `RetryInfo` delay of

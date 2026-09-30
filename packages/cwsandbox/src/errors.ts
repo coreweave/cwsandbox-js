@@ -21,11 +21,24 @@ export type CWSandboxErrorCode =
 
 export type CWSandboxTransportKind = "fetch" | "grpc" | "http";
 
+/**
+ * One `google.rpc.BadRequest.FieldViolation`. `description` falls back to the
+ * violation's localized message, then its reason, when the server leaves it empty.
+ */
+export interface FieldViolation {
+  readonly field: string;
+  readonly description: string;
+}
+
 export interface CWSandboxTransportErrorOptions extends ErrorOptions {
   /**
    * AIP-193 `ErrorInfo.domain` when present on the transport failure.
    */
   readonly domain?: string;
+  /**
+   * Field violations from `google.rpc.BadRequest` details, in server order.
+   */
+  readonly fieldViolations?: readonly FieldViolation[];
   /**
    * Path involved in a file operation. Caller-supplied values win over
    * `metadata.filepath` when constructing `CWSandboxFileError`.
@@ -74,6 +87,11 @@ export class CWSandboxConfigurationError extends CWSandboxError {
 export class CWSandboxNotImplementedError extends CWSandboxError {
   public readonly domain: string | undefined;
   /**
+   * `google.rpc.BadRequest` field violations. Always present; empty when the
+   * failure carried none.
+   */
+  public readonly fieldViolations: readonly FieldViolation[];
+  /**
    * AIP-193 `ErrorInfo.metadata` map. Always present; empty when the failure
    * carried no ErrorInfo metadata.
    */
@@ -89,6 +107,7 @@ export class CWSandboxNotImplementedError extends CWSandboxError {
     super(message, "not_implemented", options);
     this.name = "CWSandboxNotImplementedError";
     this.domain = options.domain;
+    this.fieldViolations = options.fieldViolations ?? [];
     this.metadata = options.metadata ?? {};
     this.operation = options.operation;
     this.reason = options.reason;
@@ -167,6 +186,11 @@ export class CWSandboxStreamTruncatedError extends CWSandboxExecutionError {
 export class CWSandboxTransportError extends CWSandboxError {
   public readonly domain: string | undefined;
   /**
+   * `google.rpc.BadRequest` field violations. Always present; empty when the
+   * failure carried none.
+   */
+  public readonly fieldViolations: readonly FieldViolation[];
+  /**
    * AIP-193 `ErrorInfo.metadata` map. Always present; empty when the failure
    * carried no ErrorInfo metadata.
    */
@@ -186,6 +210,7 @@ export class CWSandboxTransportError extends CWSandboxError {
     super(message, code, options);
     this.name = "CWSandboxTransportError";
     this.domain = options.domain;
+    this.fieldViolations = options.fieldViolations ?? [];
     this.metadata = options.metadata ?? {};
     this.operation = options.operation;
     this.reason = options.reason;
