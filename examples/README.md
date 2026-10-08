@@ -58,6 +58,7 @@ One workspace package with self-contained scripts (same deps). Typecheck is part
 | `https-endpoint.ts`         | public HTTPS + request timeout                | `pnpm --dir examples/sdk https-endpoint`                     |
 | `https-share-token.ts`      | share-token HTTPS + header fetch              | `pnpm --dir examples/sdk https-share-token`                  |
 | `tls-passthrough.ts`        | public TLS passthrough + SNI GET              | `pnpm --dir examples/sdk tls-passthrough`                    |
+| `network-config.ts`         | live network update + reusable NetworkConfig  | `pnpm --dir examples/sdk network-config`                     |
 
 Typecheck (also covered by root `pnpm check`):
 

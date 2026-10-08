@@ -168,6 +168,9 @@ pnpm --dir examples/tanstack typecheck
 - `sandbox.snapshot()` archives the scratch volume and waits until READY (default 600s).
   Snapshots outlive sandbox stop/delete; `client.deleteSnapshot(id, { missingOk: true })`
   removes them.
+- `sandbox.updateNetwork(network)` changes a running sandbox's network rules.
+  `client.createNetworkConfig` / `getNetworkConfig` / `listNetworkConfigs` /
+  `updateNetworkConfig` / `deleteNetworkConfig` manage reusable NetworkConfigs.
 
 ## Direct sandbox connections
 
@@ -1124,6 +1127,77 @@ console.log(sandbox.statusUpdatedAt?.toISOString());
 console.log(sandbox.execStats); // { execCount, execCompletedOk, execCompletedNonzero, execFailures }
 ```
 
+### Network Updates
+
+Each sandbox is bound to one NetworkConfig that holds its desired rules.
+`sandbox.updateNetwork(...)` updates it and applies the change to the running
+sandbox before returning. Only the fields you set change, so granting a
+hostname leaves the deny flags alone. `egress` replaces the whole hostname
+list; `egress: []` clears it back to the policy default:
+
+```ts
+const sandbox = await client.create({
+  network: { egress: [{ dnsName: "pypi.org" }] },
+});
+
+await sandbox.updateNetwork({
+  egress: [{ dnsName: "pypi.org" }, { dnsName: "files.pythonhosted.org" }],
+});
+console.log(sandbox.dnsEgressNames);
+
+await sandbox.updateNetwork({ egress: [] });
+```
+
+Pass `updateMask` to choose fields explicitly; a named field you leave unset
+is cleared. Pass `etag` from an earlier read to reject the write if someone
+else changed the config in between (`CWSandboxEtagMismatchError`; read again
+and retry). When an update writes `egress`, the SDK reads the config first and
+uses its etag. It also refuses the write if the stored list holds rules this
+SDK cannot show, such as address ranges; `unsupportedFields` on the result
+lists those. A sandbox that is still starting is waited on, bounded by
+`timeoutMs`. Adding the first hostname to a sandbox created without any may
+be rejected if the sandbox's runner can't add hostnames to a running sandbox;
+create a new sandbox in that case.
+
+`dnsEgress` controls port-53 DNS to the platform resolver, separately from
+hostname grants. `"deny"` blocks DNS lookups while HTTPS to granted hostnames
+keeps working. Leave it unset on an update to keep the current mode;
+`updateMask: ["dnsEgress"]` with no value resets it to the policy default.
+`sandbox.effectiveDnsEgress` shows the mode in effect:
+
+```ts
+await sandbox.updateNetwork({ dnsEgress: "deny" });
+console.log(sandbox.effectiveDnsEgress); // "deny"
+```
+
+This SDK updates hostname egress, the deny flags, and `dnsEgress`. Address,
+tenant, and selector egress rules are not modeled yet, and `network.ingress`
+can be set on create but not changed with `updateNetwork`; the Python SDK
+supports both.
+
+`create` without `networkConfigId` makes a config for that sandbox and
+deletes it when the sandbox ends (`platformManaged: true`). To keep rules
+across sandboxes, create one yourself and bind it with `networkConfigId`
+(not together with `network`). A config binds to one running sandbox at a
+time; `CWSandboxNetworkConfigInUseError` means another sandbox holds it:
+
+```ts
+await client.createNetworkConfig("agent-net", {
+  network: { egress: [{ dnsName: "pypi.org" }] },
+});
+
+const bound = await client.create({ networkConfigId: "agent-net" });
+console.log(bound.networkConfigId);
+await bound.stop();
+
+const config = await client.getNetworkConfig("agent-net");
+console.log(config.network, config.sandboxId, config.etag);
+await client.updateNetworkConfig("agent-net", { denyIngress: true });
+await client.deleteNetworkConfig("agent-net", { missingOk: true });
+```
+
+`runFromTemplate` accepts `networkConfigId` too; `runFromFile` does not.
+
 ### Placement Selectors
 
 Pin a sandbox to specific CKS runners with `runnerIds`. Profile selectors are
@@ -1385,6 +1459,8 @@ than 1s of `timeoutMs` is left.
 
 ```ts
 import { CWSANDBOX_FILE_TOO_LARGE } from "@coreweave/cwsandbox";
+import { CWSandboxEtagMismatchError } from "@coreweave/cwsandbox";
+import { CWSandboxNetworkConfigInUseError } from "@coreweave/cwsandbox";
 import { CWSandboxNotFoundError } from "@coreweave/cwsandbox";
 import { CWSandboxStreamBackpressureError } from "@coreweave/cwsandbox";
 import { CWSandboxTimeoutError } from "@coreweave/cwsandbox";
@@ -1402,6 +1478,10 @@ try {
     console.error("Sandbox service is temporarily unavailable.");
   } else if (error instanceof CWSandboxNotFoundError) {
     console.error("Sandbox no longer exists.");
+  } else if (error instanceof CWSandboxEtagMismatchError) {
+    console.error("NetworkConfig changed since it was read; read it again and retry.");
+  } else if (error instanceof CWSandboxNetworkConfigInUseError) {
+    console.error("Another running sandbox is bound to that NetworkConfig.");
   } else if (error instanceof CWSandboxStreamBackpressureError) {
     console.error("Drain streams faster or use files.readStream / writeStream.");
   } else if (
