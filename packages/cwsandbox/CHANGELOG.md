@@ -28,7 +28,7 @@ SPDX-PackageName: cwsandbox
 ## 0.5.0-beta.0
 
 - Add create-time TLS passthrough product endpoints (`endpoint.kind:
-"tls_passthrough"` on a PUBLIC service). `auth` and `requestTimeoutSeconds`
+  "tls_passthrough"` on a PUBLIC service). `auth` and `requestTimeoutSeconds`
   must be omitted. Create, Get, list, and `fromId` fill `serviceAddresses`
   as `{ port, name, kind, address }` where `address` is `host:port`. Use the
   host as TLS SNI; the workload owns certs. TLS stays off `serviceUrls`. On a
