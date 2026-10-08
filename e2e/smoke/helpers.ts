@@ -268,7 +268,10 @@ export async function httpsGetExitCode(
     [
       "python",
       "-c",
-      "import sys, urllib.request; urllib.request.urlopen(sys.argv[1], timeout=float(sys.argv[2]))",
+      // urlopen's timeout applies per resolved address, so a blocked host with
+      // several addresses can outlast the exec deadline. The alarm caps the
+      // whole probe, DNS lookup included.
+      "import signal, sys, urllib.request; t = float(sys.argv[2]); signal.alarm(int(t) + 2); urllib.request.urlopen(sys.argv[1], timeout=t)",
       url,
       String(timeoutSeconds),
     ],
