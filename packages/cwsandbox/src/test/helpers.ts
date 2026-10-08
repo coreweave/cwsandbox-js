@@ -14,6 +14,7 @@ import type {
   LogRawStream,
   LogStream,
   LogStreamMode,
+  NetworkConfigResult,
   ProcessResult,
   SandboxStatus,
   TerminalSession,
@@ -32,6 +33,20 @@ export function createFakeSnapshot(
     snapshotId,
     state: "ready",
     trigger: "unspecified",
+    ...overrides,
+  };
+}
+
+export function createFakeNetworkConfig(
+  networkConfigId: string,
+  overrides: Partial<NetworkConfigResult> = {},
+): NetworkConfigResult {
+  return {
+    networkConfigId,
+    network: {},
+    etag: "etag-1",
+    platformManaged: false,
+    unsupportedFields: [],
     ...overrides,
   };
 }
@@ -244,6 +259,24 @@ export function createFakeTransport(
       return { snapshots: [] };
     },
     async deleteFileSystemSnapshot() {
+      return undefined;
+    },
+    async createNetworkConfig(request) {
+      return createFakeNetworkConfig(request.networkConfigId, { network: request.network ?? {} });
+    },
+    async getNetworkConfig(request) {
+      return createFakeNetworkConfig(request.networkConfigId);
+    },
+    async listNetworkConfigs() {
+      return { networkConfigs: [] };
+    },
+    async updateNetworkConfig(request) {
+      return createFakeNetworkConfig(request.networkConfigId, {
+        etag: "etag-2",
+        network: request.network,
+      });
+    },
+    async deleteNetworkConfig() {
       return undefined;
     },
     async exec(request) {

@@ -22,6 +22,14 @@ import type { CommandInput } from "./public/commands.js";
 import type { RequestOptions } from "./public/common.js";
 import type { DataPlaneMode } from "./public/data-plane.js";
 import type {
+  CreateNetworkConfigOptions,
+  DeleteNetworkConfigOptions,
+  ListNetworkConfigsOptions,
+  NetworkConfigResult,
+  UpdateNetworkConfigOptions,
+} from "./public/network-config.js";
+import type { NetworkOptions } from "./public/network.js";
+import type {
   DeleteOptions,
   DeleteSnapshotOptions,
   FileSystemSnapshotResult,
@@ -39,6 +47,13 @@ import type {
   SandboxRunFromTemplateOptions,
   SandboxRunOptions,
 } from "./public/sandbox.js";
+import {
+  createNetworkConfigRecord,
+  deleteNetworkConfigRecord,
+  getNetworkConfigRecord,
+  listNetworkConfigRecords,
+  updateNetworkConfigRecord,
+} from "./runtime/network-config.js";
 import { SandboxList } from "./runtime/sandbox-list.js";
 import { getSnapshotRecord, listSnapshotRecords } from "./runtime/snapshot-inspect.js";
 import { Sandbox as SandboxImpl } from "./sandbox.js";
@@ -302,6 +317,41 @@ export class SandboxClient implements SandboxClientInterface {
     options: ListSnapshotsOptions = {},
   ): Promise<readonly FileSystemSnapshotResult[]> {
     return listSnapshotRecords(this.transport, options);
+  }
+
+  public async createNetworkConfig(
+    networkConfigId: string,
+    options: CreateNetworkConfigOptions = {},
+  ): Promise<NetworkConfigResult> {
+    return createNetworkConfigRecord(this.transport, networkConfigId, options);
+  }
+
+  public async getNetworkConfig(
+    networkConfigId: string,
+    options: RequestOptions = {},
+  ): Promise<NetworkConfigResult> {
+    return getNetworkConfigRecord(this.transport, networkConfigId, options);
+  }
+
+  public async listNetworkConfigs(
+    options: ListNetworkConfigsOptions = {},
+  ): Promise<readonly NetworkConfigResult[]> {
+    return listNetworkConfigRecords(this.transport, options);
+  }
+
+  public async updateNetworkConfig(
+    networkConfigId: string,
+    network: NetworkOptions,
+    options: UpdateNetworkConfigOptions = {},
+  ): Promise<NetworkConfigResult> {
+    return updateNetworkConfigRecord(this.transport, networkConfigId, network, options);
+  }
+
+  public async deleteNetworkConfig(
+    networkConfigId: string,
+    options: DeleteNetworkConfigOptions = {},
+  ): Promise<void> {
+    await deleteNetworkConfigRecord(this.transport, networkConfigId, options);
   }
 
   public async withSandbox<TResult>(

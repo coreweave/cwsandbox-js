@@ -817,7 +817,7 @@ interface MockDuplex {
 
 function createStreamingHarness(): {
   readonly calls: MockDuplex[];
-  readonly clients: GrpcClients;
+  readonly clients: Pick<GrpcClients, "client">;
   onCall(index: number, setup: (duplex: MockDuplex) => void): void;
 } {
   const setups = new Map<number, (duplex: MockDuplex) => void>();

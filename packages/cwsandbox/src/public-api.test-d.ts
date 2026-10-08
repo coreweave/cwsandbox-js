@@ -48,7 +48,11 @@ import {
   type ImagePullCredentials,
   type TlsPassthroughEndpoint,
   type TlsPassthroughEndpointStatus,
+  type NetworkConfigResult,
+  type NetworkConfigUnsupportedField,
+  type NetworkConfigUpdateField,
   type NetworkOptions,
+  type DnsEgressMode,
   type EffectiveEgressRule,
   type EffectiveIngressRule,
   type EgressRule,
@@ -798,6 +802,43 @@ test("public API types", async () => {
 
   // @ts-expect-error listSnapshots does not accept pageSize.
   client.listSnapshots({ pageSize: 10 });
+
+  expectTypeOf(
+    client.createNetworkConfig("agent-net", { network: { egress: [{ dnsName: "pypi.org" }] } }),
+  ).toEqualTypeOf<Promise<NetworkConfigResult>>();
+  expectTypeOf(client.getNetworkConfig("agent-net")).toEqualTypeOf<Promise<NetworkConfigResult>>();
+  expectTypeOf(client.listNetworkConfigs({ platformManaged: false })).toEqualTypeOf<
+    Promise<readonly NetworkConfigResult[]>
+  >();
+  expectTypeOf(
+    client.updateNetworkConfig("agent-net", { egress: [] }, { etag: "e", updateMask: ["egress"] }),
+  ).toEqualTypeOf<Promise<NetworkConfigResult>>();
+  expectTypeOf(client.deleteNetworkConfig("agent-net", { missingOk: true })).toEqualTypeOf<
+    Promise<void>
+  >();
+  expectTypeOf(sandbox.networkConfigId).toEqualTypeOf<string | undefined>();
+  expectTypeOf(sandbox.updateNetwork({ denyIngress: true })).toEqualTypeOf<
+    Promise<NetworkConfigResult>
+  >();
+  expectTypeOf<NetworkConfigResult["unsupportedFields"]>().toEqualTypeOf<
+    readonly NetworkConfigUnsupportedField[]
+  >();
+  expectTypeOf<NetworkConfigUpdateField>().toEqualTypeOf<
+    "denyEgress" | "denyIngress" | "dnsEgress" | "egress"
+  >();
+  expectTypeOf<NetworkConfigUnsupportedField>().toEqualTypeOf<"egress" | "ingress">();
+  expectTypeOf<NetworkOptions["dnsEgress"]>().toEqualTypeOf<DnsEgressMode | undefined>();
+  expectTypeOf(sandbox.effectiveDnsEgress).toEqualTypeOf<DnsEgressMode | undefined>();
+  expectTypeOf<SandboxRunOptions["networkConfigId"]>().toEqualTypeOf<string | undefined>();
+  expectTypeOf<SandboxRunFromTemplateOptions["networkConfigId"]>().toEqualTypeOf<
+    string | undefined
+  >();
+
+  // @ts-expect-error updateMask is limited to fields NetworkOptions can express.
+  client.updateNetworkConfig("agent-net", {}, { updateMask: ["ingress"] });
+
+  // @ts-expect-error runFromFile cannot bind a NetworkConfig.
+  client.runFromFile(composeBytes, { networkConfigId: "agent-net", primaryService: "main" });
 
   expectTypeOf(sandbox.stop({ gracefulShutdownSeconds: 5 })).toEqualTypeOf<Promise<void>>();
   // @ts-expect-error ports is not supported in v1.

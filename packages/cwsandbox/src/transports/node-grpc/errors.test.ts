@@ -8,7 +8,9 @@ import { describe, expect, it } from "vitest";
 import {
   CWSandboxAuthenticationError,
   CWSandboxError,
+  CWSandboxEtagMismatchError,
   CWSandboxFileError,
+  CWSandboxNetworkConfigInUseError,
   CWSandboxNotFoundError,
   CWSandboxNotImplementedError,
   CWSandboxResourceExhaustedError,
@@ -25,6 +27,11 @@ import {
 import {
   CWSANDBOX_BACKEND_UNAVAILABLE,
   CWSANDBOX_COMMAND_TIMEOUT,
+  CWSANDBOX_DNS_EGRESS_UNAVAILABLE,
+  CWSANDBOX_ETAG_MISMATCH,
+  CWSANDBOX_NETWORK_CONFIG_IN_USE,
+  CWSANDBOX_NETWORK_CONFIG_NOT_FOUND,
+  CWSANDBOX_RUNNER_UNAVAILABLE,
   CWSANDBOX_ERROR_DOMAIN,
   CWSANDBOX_FILE_NOT_FOUND,
   CWSANDBOX_FILE_TOO_LARGE,
@@ -383,6 +390,53 @@ describe("mapGrpcError", () => {
       expect(error.code).toBe("transport_error");
       expect(error.reason).toBe(reason);
       expect(error.domain).toBe(CWSANDBOX_ERROR_DOMAIN);
+    },
+  );
+
+  it.each([
+    {
+      reason: CWSANDBOX_NETWORK_CONFIG_NOT_FOUND,
+      code: "NOT_FOUND",
+      ErrorClass: CWSandboxNotFoundError,
+    },
+    {
+      reason: CWSANDBOX_NETWORK_CONFIG_IN_USE,
+      code: "FAILED_PRECONDITION",
+      ErrorClass: CWSandboxNetworkConfigInUseError,
+    },
+    { reason: CWSANDBOX_ETAG_MISMATCH, code: "ABORTED", ErrorClass: CWSandboxEtagMismatchError },
+    {
+      reason: CWSANDBOX_DNS_EGRESS_UNAVAILABLE,
+      code: "UNAVAILABLE",
+      ErrorClass: CWSandboxUnavailableError,
+    },
+    {
+      reason: CWSANDBOX_RUNNER_UNAVAILABLE,
+      code: "UNAVAILABLE",
+      ErrorClass: CWSandboxUnavailableError,
+    },
+  ] as const)("maps trusted network config $reason on $code", ({ reason, code, ErrorClass }) => {
+    const cause = new RpcError("refused", code, statusDetailsMeta({ errorInfos: [{ reason }] }));
+
+    const error = mapGrpcError(cause, { operation: "Update network config" });
+
+    expect(error).toBeInstanceOf(ErrorClass);
+    expect(error.reason).toBe(reason);
+  });
+
+  it.each([CWSANDBOX_NETWORK_CONFIG_IN_USE, CWSANDBOX_ETAG_MISMATCH])(
+    "does not remap network config %s under an untrusted domain",
+    (reason) => {
+      const cause = new RpcError(
+        "spoof",
+        "INTERNAL",
+        statusDetailsMeta({ errorInfos: [{ domain: "example.com", reason }] }),
+      );
+
+      const error = mapGrpcError(cause, { operation: "Update network config" });
+
+      expect(error).not.toBeInstanceOf(CWSandboxNetworkConfigInUseError);
+      expect(error).not.toBeInstanceOf(CWSandboxEtagMismatchError);
     },
   );
 

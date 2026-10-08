@@ -113,6 +113,12 @@ export interface IngressRule {
   /** Ports this rule applies to. Empty or omitted means all CUSTOM ports. */
   readonly ports?: readonly PortRange[];
 }
+/**
+ * Port-53 DNS to the platform resolver (UDP/TCP). Separate from `egress`
+ * hostname grants: `"deny"` blocks DNS lookups but HTTPS to a granted
+ * hostname still works.
+ */
+export type DnsEgressMode = "allow" | "deny";
 
 export interface NetworkOptions {
   /**
@@ -138,6 +144,11 @@ export interface NetworkOptions {
    * true.
    */
   readonly ingress?: readonly IngressRule[];
+  /**
+   * Port-53 DNS mode. Omitted inherits the runner policy on create and keeps
+   * the current mode on update.
+   */
+  readonly dnsEgress?: DnsEgressMode;
 }
 
 export interface ServiceUrl {

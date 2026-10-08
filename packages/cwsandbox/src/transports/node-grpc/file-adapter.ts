@@ -129,7 +129,7 @@ type UnaryFileRetry = Pick<HintedRetryOptions, "maxAttempts" | "retryable">;
 type StreamExecClient = Pick<SandboxServiceClient, "streamExec">;
 
 export function createGrpcFileAdapter(
-  clients: GrpcClients,
+  clients: Pick<GrpcClients, "client">,
   directDataPlane?: DirectDataPlane,
 ): FileAdapter {
   return {
