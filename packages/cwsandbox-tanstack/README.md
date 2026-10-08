@@ -29,8 +29,8 @@ TanStack AI version.
 ## Usage
 
 ```ts
-import { defineSandbox } from "@tanstack/ai-sandbox";
 import { cwsandboxTanStackProvider } from "@coreweave/cwsandbox-tanstack";
+import { defineSandbox } from "@tanstack/ai-sandbox";
 
 const sandbox = defineSandbox({
   id: "cwsandbox-agent",
