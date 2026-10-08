@@ -8,9 +8,10 @@ SPDX-PackageName: cwsandbox
 
 TypeScript SDK for CoreWeave Sandbox.
 
-> **Beta:** public API may still change. Ecosystem adapters are developed in this
-> monorepo and are intended to publish in lockstep after their initial releases.
-> TanStack and ComputeSDK publishing is currently deferred; Vercel AI is planned.
+> This package is the stable Sandbox **v1** TypeScript SDK. Ecosystem adapters
+> are developed in this monorepo and are intended to publish in lockstep after
+> their initial releases. TanStack and ComputeSDK publishing is currently
+> deferred; Vercel AI is planned.
 >
 > This package speaks Sandbox **v1**. Use `services`, `network.denyEgress` /
 > `network.denyIngress`, `network.egress`, `runnerIds`, and `showTerminated`.
@@ -28,14 +29,14 @@ Node.js 22 and 24 (LTS) plus Node.js 26 (Current). The matrix adds each new
 Current release, retains active LTS releases, and removes versions at Node EOL.
 
 ```bash
-npm install @coreweave/cwsandbox@beta
+npm install @coreweave/cwsandbox
 ```
 
 Other package managers:
 
 ```bash
-pnpm add @coreweave/cwsandbox@beta
-yarn add @coreweave/cwsandbox@beta
+pnpm add @coreweave/cwsandbox
+yarn add @coreweave/cwsandbox
 ```
 
 Use an API key with the Node gRPC client:
@@ -151,7 +152,7 @@ pnpm --dir examples/tanstack typecheck
 
 - Construct clients only through the Node/W&B factories (`createSandboxClient`,
   `createSandboxClientFromEnv`). Direct construction and transport replacement are not
-  supported public APIs in this beta.
+  supported public APIs.
 - `SandboxClient` creates, reconnects, lists, and deletes sandboxes.
 - `createSandboxClientFromEnv()` in `@coreweave/cwsandbox/node` wires the Node gRPC transport from environment variables.
 - `client.withSandbox(callback, options)` runs short-lived work in a ready sandbox with automatic cleanup.

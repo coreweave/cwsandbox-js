@@ -8,6 +8,8 @@ SPDX-PackageName: cwsandbox
 
 ## Unreleased
 
+## 1.0.0
+
 - Add HTTPS `auth: "share_token"`. Create returns `endpointShareToken` once
   (and the live handle keeps it across `wait` / `inspect`). Get, list, and
   `fromId` omit it. Callers send `X-Sandbox-Share-Token` themselves; the SDK
@@ -24,6 +26,11 @@ SPDX-PackageName: cwsandbox
   container overlays are rejected; those callers use `create` / `run`. A
   rejected readiness wait after accept best-effort `stop`s the sandbox and
   rethrows the original error.
+- Retry `client.delete()`, `sandbox.delete()`, Gateway `files.read()`, and
+  `sandbox.stop()`'s status check and Stop RPC when the call fails with gRPC
+  `UNAVAILABLE` and a `RetryInfo` delay of 0–10s. At most 3 calls per RPC.
+  Bare `UNAVAILABLE` and other RPCs are unchanged. A not-found on a retry of
+  delete or stop counts as done.
 
 ## 0.5.0-beta.0
 
