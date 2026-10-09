@@ -8,6 +8,10 @@ SPDX-PackageName: cwsandbox
 
 ## Unreleased
 
+- Decode `google.rpc.BadRequest` from gRPC status details. Transport errors
+  expose `fieldViolations` (`{ field, description }[]`, empty when absent),
+  matching the Python SDK's `field_violations`.
+
 ## 1.0.0
 
 - Add HTTPS `auth: "share_token"`. Create returns `endpointShareToken` once

@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
+import { RpcError } from "@protobuf-ts/runtime-rpc";
 import { describe, expect, it } from "vitest";
 
+import { CWSandboxTransportError } from "../../errors.js";
 import {
   CWSANDBOX_BACKEND_UNAVAILABLE,
   CWSANDBOX_ERROR_DOMAIN,
@@ -12,6 +14,7 @@ import {
   CWSANDBOX_SANDBOX_NOT_FOUND,
 } from "../../internal/error-info.js";
 import { parseStatusDetailsFromMetadata } from "./error-info.js";
+import { mapGrpcError } from "./errors.js";
 import { statusDetailsMeta } from "./test/status-details.js";
 
 describe("parseStatusDetailsFromMetadata", () => {
@@ -99,6 +102,51 @@ describe("parseStatusDetailsFromMetadata", () => {
     );
 
     expect(parsed?.retryDelayMs).toBe(0);
+  });
+
+  it("surfaces BadRequest field violations alongside ErrorInfo on mapped errors", () => {
+    const cause = new RpcError(
+      "invalid request",
+      "INVALID_ARGUMENT",
+      statusDetailsMeta({
+        errorInfos: [{ reason: "CWSANDBOX_INVALID_REQUEST" }],
+        badRequests: [
+          {
+            fieldViolations: [
+              { field: "resources.cpu", description: "must be at most 64" },
+              { field: "resources.memory", localizedMessage: "too large" },
+              { field: "", description: "" },
+            ],
+          },
+          { fieldViolations: [{ field: "image", reason: "IMAGE_REQUIRED" }] },
+        ],
+      }),
+    );
+
+    const error = mapGrpcError(cause, { operation: "Start sandbox" });
+
+    expect(error).toBeInstanceOf(CWSandboxTransportError);
+    const transportError = error as CWSandboxTransportError;
+    expect(transportError.reason).toBe("CWSANDBOX_INVALID_REQUEST");
+    expect(transportError.fieldViolations).toEqual([
+      { field: "resources.cpu", description: "must be at most 64" },
+      { field: "resources.memory", description: "too large" },
+      { field: "image", description: "IMAGE_REQUIRED" },
+    ]);
+  });
+
+  it("parses BadRequest without ErrorInfo or RetryInfo", () => {
+    const parsed = parseStatusDetailsFromMetadata(
+      statusDetailsMeta({
+        badRequests: [{ fieldViolations: [{ field: "name", description: "required" }] }],
+      }),
+    );
+
+    expect(parsed).toEqual({
+      domain: "",
+      metadata: {},
+      fieldViolations: [{ field: "name", description: "required" }],
+    });
   });
 
   it("returns undefined for malformed details", () => {

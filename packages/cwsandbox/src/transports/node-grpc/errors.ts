@@ -148,6 +148,7 @@ function grpcErrorOptions(
     ...(domain === undefined ? {} : { domain }),
     ...(parsed?.reason === undefined ? {} : { reason: parsed.reason }),
     ...(parsed?.retryDelayMs === undefined ? {} : { retryDelayMs: parsed.retryDelayMs }),
+    ...(parsed?.fieldViolations === undefined ? {} : { fieldViolations: parsed.fieldViolations }),
     transport: "grpc",
     transportCode: error.code,
   };

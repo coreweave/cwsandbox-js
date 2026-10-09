@@ -34,6 +34,7 @@ export {
   type CWSandboxTransportKind,
   CWSandboxUnavailableError,
   CWSandboxValidationError,
+  type FieldViolation,
 } from "./errors.js";
 export {
   CWSANDBOX_BACKEND_UNAVAILABLE,

@@ -8,6 +8,7 @@ import { CWSANDBOX_ERROR_DOMAIN } from "../../../internal/error-info.js";
 
 const ERROR_INFO_TYPE_URL = "type.googleapis.com/google.rpc.ErrorInfo";
 const RETRY_INFO_TYPE_URL = "type.googleapis.com/google.rpc.RetryInfo";
+const BAD_REQUEST_TYPE_URL = "type.googleapis.com/google.rpc.BadRequest";
 
 export interface PackErrorInfoOptions {
   /**
@@ -29,6 +30,17 @@ export interface PackRetryInfoOptions {
   readonly retryNanos?: number;
 }
 
+export interface PackFieldViolationOptions {
+  readonly field?: string;
+  readonly description?: string;
+  readonly reason?: string;
+  readonly localizedMessage?: string;
+}
+
+export interface PackBadRequestOptions {
+  readonly fieldViolations?: readonly PackFieldViolationOptions[];
+}
+
 export interface PackStatusDetailsOptions {
   /** Defaults to `2` (UNKNOWN), matching Python fixtures. */
   readonly code?: number;
@@ -36,10 +48,11 @@ export interface PackStatusDetailsOptions {
   readonly message?: string;
   readonly errorInfos?: readonly PackErrorInfoOptions[];
   readonly retryInfos?: readonly PackRetryInfoOptions[];
+  readonly badRequests?: readonly PackBadRequestOptions[];
 }
 
 /**
- * Serialize a `google.rpc.Status` with ErrorInfo / RetryInfo details.
+ * Serialize a `google.rpc.Status` with ErrorInfo / RetryInfo / BadRequest details.
  *
  * Test-only helper mirroring Python `_pack_status` / `_pack_error_info_detail`.
  */
@@ -60,6 +73,11 @@ export function packStatusDetailsBytes(options: PackStatusDetailsOptions = {}): 
     writer
       .tag(3, WireType.LengthDelimited)
       .bytes(packAny(RETRY_INFO_TYPE_URL, packRetryInfo(retryInfo)));
+  }
+  for (const badRequest of options.badRequests ?? []) {
+    writer
+      .tag(3, WireType.LengthDelimited)
+      .bytes(packAny(BAD_REQUEST_TYPE_URL, packBadRequest(badRequest)));
   }
 
   return writer.finish();
@@ -131,6 +149,34 @@ function packDuration(seconds: number, nanos: number): Uint8Array {
   // is represented (empty Duration bytes still parse as 0ms).
   if (seconds === 0 && nanos === 0) {
     writer.tag(1, WireType.Varint).int64(0);
+  }
+  return writer.finish();
+}
+
+function packBadRequest(options: PackBadRequestOptions): Uint8Array {
+  const writer = new BinaryWriter();
+  for (const violation of options.fieldViolations ?? []) {
+    writer.tag(1, WireType.LengthDelimited).bytes(packFieldViolation(violation));
+  }
+  return writer.finish();
+}
+
+function packFieldViolation(options: PackFieldViolationOptions): Uint8Array {
+  const writer = new BinaryWriter();
+  if (options.field !== undefined) {
+    writer.tag(1, WireType.LengthDelimited).string(options.field);
+  }
+  if (options.description !== undefined) {
+    writer.tag(2, WireType.LengthDelimited).string(options.description);
+  }
+  if (options.reason !== undefined) {
+    writer.tag(3, WireType.LengthDelimited).string(options.reason);
+  }
+  if (options.localizedMessage !== undefined) {
+    const localized = new BinaryWriter();
+    localized.tag(1, WireType.LengthDelimited).string("en-US");
+    localized.tag(2, WireType.LengthDelimited).string(options.localizedMessage);
+    writer.tag(4, WireType.LengthDelimited).bytes(localized.finish());
   }
   return writer.finish();
 }
