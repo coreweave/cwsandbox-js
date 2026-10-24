@@ -456,6 +456,8 @@ function createTrackingClient(options: TrackingClientOptions = {}): TrackingClie
     };
 
     const sandbox: Sandbox = {
+      createdAt: undefined,
+      tags: [],
       commands,
       delete: async () => {
         deletedSandboxIds.push(sandboxId);

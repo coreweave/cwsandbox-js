@@ -22,6 +22,9 @@ export {
   CWSandboxNotImplementedError,
   CWSandboxResourceExhaustedError,
   CWSandboxSnapshotBucketMismatchError,
+  CWSandboxSnapshotBucketProvisioningError,
+  CWSandboxSnapshotError,
+  isSnapshotError,
   CWSandboxSnapshotQuotaExceededError,
   CWSandboxSnapshotSizeExceededError,
   CWSandboxStreamBackpressureError,
@@ -126,6 +129,8 @@ export type {
   ResourceSpec,
 } from "./public/resources.js";
 export type {
+  CreateRetryOptions,
+  SnapshotOptions,
   DeleteOptions,
   DeleteSnapshotOptions,
   EnvironmentVariables,

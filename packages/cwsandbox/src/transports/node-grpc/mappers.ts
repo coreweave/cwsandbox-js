@@ -629,9 +629,12 @@ function toSdkSandboxMetadata(sandbox: ProtoSandboxMessage): SandboxMetadata {
     status?.effectiveResourceRequirements?.requests ?? status?.effectiveResources,
   );
   const startedAt = toDate(status?.startTime);
+  const createdAt = toDate(status?.createTime);
   const dnsEgressNames = toSdkDnsEgressNames(status?.effectiveEgress);
 
   return {
+    ...(sandbox.spec === undefined ? {} : { tags: [...sandbox.spec.tags] }),
+    ...(createdAt === undefined ? {} : { createdAt }),
     ...(status?.exitCode === undefined ? {} : { exitCode: status.exitCode }),
     ...(dnsEgressNames === undefined ? {} : { dnsEgressNames }),
     ...(exposedPorts === undefined ? {} : { exposedPorts }),

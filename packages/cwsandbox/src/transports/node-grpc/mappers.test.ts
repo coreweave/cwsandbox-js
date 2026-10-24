@@ -1957,3 +1957,21 @@ function overrideFieldNumbers(request: CreateSandboxFromTemplateRequest): number
   }
   return fields;
 }
+
+describe("sandbox discovery metadata", () => {
+  it.each([toSdkGetSandboxResult, toSdkStartSandboxResult, toSdkSandboxInfo])(
+    "maps tags and creation time",
+    (map) => {
+      const proto = ProtoSandbox.create({
+        sandboxId: "metadata-test",
+        spec: { tags: ["team:ml"] },
+        status: { state: State.RUNNING, createTime: { seconds: "1700000000", nanos: 123000000 } },
+      });
+      const result = map(proto);
+      expect(result.tags).toEqual(["team:ml"]);
+      expect(result.createdAt).toEqual(new Date(1700000000123));
+      proto.spec?.tags.push("changed");
+      expect(result.tags).toEqual(["team:ml"]);
+    },
+  );
+});

@@ -284,6 +284,19 @@ code. Poll pacing and retry budget are not public options — bound waits with
 `timeoutMs` / `signal` / `targetStatus` (the former fixed `intervalMs` wait option
 is removed in beta; Python has no wait poll-interval knob either).
 
+Create helpers (`create`, `run`, `runFromTemplate`, `runFromFile`) accept
+`createRetryBudgetMs`, defaulting to `0` (disabled). With a positive budget, the
+Node transport retries only definite runner capacity or overload rejections,
+using the same request body and ID. It honors server retry hints (capped at 10s)
+or uses jittered backoff. Quota, authentication, and ambiguous transport failures
+are not retried. The budget starts at the first capacity rejection; `timeoutMs`,
+when supplied, also bounds the complete create RPC sequence. Readiness waiting
+keeps its separate timeout.
+
+```ts
+const sandbox = await client.create({ createRetryBudgetMs: 60_000 });
+```
+
 Modern runtimes can also use explicit resource management:
 
 ```ts
@@ -649,6 +662,37 @@ sandbox stops; call `deleteSnapshot`. Inspect without waiting with
 `client.getSnapshot(snapshotId)` and `client.listSnapshots({ sourceSandboxId, state })`.
 `listSnapshots` collects every page and filters client-side (it does not send
 `sourceSandboxId` on the List RPC).
+
+Snapshot creation retries transient failures for 30 seconds by default. Set
+`retryBudgetMs` to extend this budget for first-use storage provisioning, or `0`
+to disable retries. The archive deadline still bounds the retry sequence.
+A create RPC deadline failure is not automatically retried. Keep the sandbox
+alive after a failed snapshot so its data remains available for another attempt.
+Supply the same `requestId` when reattempting the same snapshot after an ambiguous
+failure; use a new ID for a new capture.
+
+```ts
+import { randomUUID } from "node:crypto";
+
+import { isSnapshotError } from "@coreweave/cwsandbox";
+
+const requestId = randomUUID(); // Retain this key if this capture must be retried.
+try {
+  const snapshot = await sandbox.snapshot({ requestId, retryBudgetMs: 120_000 });
+  console.log(snapshot.snapshotId);
+} catch (error) {
+  if (isSnapshotError(error)) {
+    console.error("Snapshot failed:", error.reason, error.message);
+  }
+  throw error;
+}
+```
+
+`isSnapshotError` recognizes snapshot-specific failures across existing error
+classes; it does not mean a failure is retryable. Provisioning errors have the
+specific `CWSandboxSnapshotBucketProvisioningError` type and remain instances of
+`CWSandboxUnavailableError`. Authentication and generic transport errors retain
+their existing classification.
 
 `fileSystemSnapshot` and `volumes` cannot be used together. For a named mount
 or more than one scratch, pass `volumes`. `snapshot()` cannot choose among
@@ -1056,6 +1100,11 @@ await Promise.all(sandboxes.map((sandbox) => sandbox.delete()));
 ```
 
 `listAll()` is an alias of `listSandboxes(...).collect()`. Both return `Sandbox` instances built from list metadata (no extra RPCs until you call methods on a handle). `list()` returns one page of `SandboxInfo` metadata plus an optional `nextPageToken` if you are managing pagination yourself. On the helpers, `timeoutMs` is a wall-clock budget across all pages (default 300 seconds), not a per-page RPC timeout.
+
+Create, get, and list metadata include `tags` and optional `createdAt` (server
+creation time, distinct from container `startedAt`). Sandbox handles expose tags
+as readonly arrays and return copies of arrays and dates, so caller mutations do
+not change cached metadata. `inspect()` refreshes the handle's metadata.
 
 Stream sandboxes as pages arrive:
 

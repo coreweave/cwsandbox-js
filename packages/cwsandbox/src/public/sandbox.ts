@@ -10,7 +10,7 @@ import type {
   ShellOptions,
   TerminalSession,
 } from "./commands.js";
-import type { RequestOptions, Seconds } from "./common.js";
+import type { Milliseconds, RequestOptions, Seconds } from "./common.js";
 import type { DataPlaneOptions } from "./data-plane.js";
 import type { MountedFiles, SandboxFiles } from "./files.js";
 import type { SandboxLogs } from "./logs.js";
@@ -146,7 +146,19 @@ export interface DeleteSnapshotOptions extends RequestOptions {
   readonly missingOk?: boolean;
 }
 
-export interface SandboxRunOptions extends RequestOptions, DataPlaneOptions {
+export interface CreateRetryOptions {
+  /** Retry definite pool-capacity rejections for this many milliseconds. Default 0 (disabled). */
+  readonly createRetryBudgetMs?: Milliseconds;
+}
+
+export interface SnapshotOptions extends RequestOptions {
+  /** Transient snapshot-create retry budget. Default 30,000ms; zero disables retries. */
+  readonly retryBudgetMs?: Milliseconds;
+  /** Reuse this key when reattempting the same snapshot after an ambiguous failure. */
+  readonly requestId?: string;
+}
+
+export interface SandboxRunOptions extends RequestOptions, DataPlaneOptions, CreateRetryOptions {
   readonly annotations?: SandboxAnnotations;
   readonly containerImage?: string;
   readonly environmentVariables?: EnvironmentVariables;
@@ -188,7 +200,8 @@ export interface SandboxRunOptions extends RequestOptions, DataPlaneOptions {
  * inherit, not clear, except `network: {}`, which replaces the template
  * network. See each property.
  */
-export interface SandboxRunFromTemplateOptions extends RequestOptions, DataPlaneOptions {
+export interface SandboxRunFromTemplateOptions
+  extends RequestOptions, DataPlaneOptions, CreateRetryOptions {
   /**
    * Non-empty input replaces the complete template map; it does not merge
    * keys. Empty `{}` means inherit, not clear.
@@ -285,7 +298,8 @@ export interface SandboxRunFromTemplateOptions extends RequestOptions, DataPlane
  * files, and container/image overlays are not fields here; those callers use
  * `create` / `run`.
  */
-export interface SandboxRunFromFileOptions extends RequestOptions, DataPlaneOptions {
+export interface SandboxRunFromFileOptions
+  extends RequestOptions, DataPlaneOptions, CreateRetryOptions {
   /**
    * Compose service that is the sandbox primary. Required. Must name a
    * service in `contents`.
@@ -373,6 +387,9 @@ export interface SandboxExposedPort {
 export type SandboxResourceSpec = ResourceSpec;
 
 export interface SandboxMetadata {
+  /** Server creation time, distinct from the container start time. */
+  readonly createdAt?: Date;
+  readonly tags?: readonly SandboxTag[];
   readonly dnsEgressNames?: readonly string[];
   readonly exitCode?: number;
   readonly exposedPorts?: readonly SandboxExposedPort[];
@@ -417,6 +434,8 @@ export interface Sandbox {
   readonly files: SandboxFiles;
   readonly logs: SandboxLogs;
   readonly sandboxId: SandboxId;
+  readonly createdAt: Date | undefined;
+  readonly tags: readonly SandboxTag[];
   readonly dnsEgressNames: readonly string[] | undefined;
   readonly endpointShareToken?: string | undefined;
   readonly exitCode: number | undefined;
@@ -448,7 +467,7 @@ export interface Sandbox {
    * overlay) can infer the volume. Multiple inherited scratches are a backend
    * error.
    */
-  snapshot(options?: RequestOptions): Promise<FileSystemSnapshotResult>;
+  snapshot(options?: SnapshotOptions): Promise<FileSystemSnapshotResult>;
   stop(options?: StopOptions): Promise<void>;
   delete(options?: DeleteOptions): Promise<void>;
   [Symbol.asyncDispose](): Promise<void>;

@@ -40,6 +40,7 @@ import type {
   SandboxExposedPort,
   StartSandboxResult,
   StopOptions,
+  SnapshotOptions,
   WaitOptions,
 } from "./public/sandbox.js";
 import { createSandboxCommands, execCommand } from "./runtime/commands.js";
@@ -103,6 +104,14 @@ export class Sandbox implements PublicSandbox {
     this.commands = createSandboxCommands(this.runtime);
     this.files = createSandboxFiles(fileTransfer);
     this.logs = createSandboxLogs(this.runtime);
+  }
+
+  public get tags(): readonly string[] {
+    return [...(this.metadata.tags ?? [])];
+  }
+
+  public get createdAt(): Date | undefined {
+    return this.metadata.createdAt === undefined ? undefined : new Date(this.metadata.createdAt);
   }
 
   public get exitCode(): number | undefined {
@@ -201,7 +210,7 @@ export class Sandbox implements PublicSandbox {
     return this;
   }
 
-  public async snapshot(options: RequestOptions = {}): Promise<FileSystemSnapshotResult> {
+  public async snapshot(options: SnapshotOptions = {}): Promise<FileSystemSnapshotResult> {
     return captureFileSystemSnapshot(
       this.runtime,
       options as CaptureFileSystemSnapshotOptions,
@@ -304,6 +313,7 @@ export class Sandbox implements PublicSandbox {
     this.metadata = {
       ...previousWithoutDns,
       ...incomingWithoutDns,
+      tags: [...(metadata.tags ?? [])],
       sandboxId: this.sandboxId,
       ...cloneServiceDerivedFields(metadataWithoutAddresses),
       ...(exposedPorts === undefined ? {} : { exposedPorts }),
@@ -511,6 +521,8 @@ function cloneMetadata(metadata: SandboxMetadata | undefined): Partial<SandboxMe
     ...(metadata.dnsEgressNames === undefined
       ? {}
       : { dnsEgressNames: [...metadata.dnsEgressNames] }),
+    ...(metadata.tags === undefined ? {} : { tags: [...metadata.tags] }),
+    ...(metadata.createdAt === undefined ? {} : { createdAt: new Date(metadata.createdAt) }),
     ...(metadata.exitCode === undefined ? {} : { exitCode: metadata.exitCode }),
     ...(metadata.resourceLimits === undefined
       ? {}
