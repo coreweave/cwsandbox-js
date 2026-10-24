@@ -8,7 +8,7 @@ import { DEFAULT_SNAPSHOT_TIMEOUT_MS, SNAPSHOT_OBSERVATION_SLACK_MS } from "../d
 import {
   type CWSandboxError,
   CWSandboxTimeoutError,
-  CWSandboxTransportError,
+  CWSandboxSnapshotError,
   CWSandboxValidationError,
 } from "../errors.js";
 import {
@@ -16,13 +16,17 @@ import {
   DEFAULT_POLL_BACKOFF_FACTOR,
   DEFAULT_POLL_INTERVAL_MS,
   DEFAULT_POLL_RETRY_BUDGET_MS,
+  DEFAULT_POLL_RPC_TIMEOUT_MS,
   retryTransientRpc,
   sleep as defaultSleep,
   throwIfAborted,
 } from "../internal/retry-transient-rpc.js";
-import { validateRequestOptions } from "../internal/validation/index.js";
-import type { RequestOptions } from "../public/common.js";
-import type { FileSystemSnapshotResult, GetSandboxResult } from "../public/sandbox.js";
+import { validateSnapshotOptions } from "../internal/validation/index.js";
+import type {
+  FileSystemSnapshotResult,
+  GetSandboxResult,
+  SnapshotOptions,
+} from "../public/sandbox.js";
 import type { SandboxTransport } from "../transport.js";
 import type { SandboxRuntime } from "./context.js";
 import { waitForSandbox } from "./wait.js";
@@ -30,7 +34,7 @@ import { waitForSandbox } from "./wait.js";
 const SNAPSHOT_OPERATION = "Create file-system snapshot";
 const GET_SNAPSHOT_OPERATION = "Get file-system snapshot";
 
-export interface CaptureFileSystemSnapshotOptions extends RequestOptions {
+export interface CaptureFileSystemSnapshotOptions extends SnapshotOptions {
   /**
    * Initial happy-path poll interval in ms. Defaults to Python-parity 200ms and
    * backs off toward 2s. Test-only escape hatch — not part of public RequestOptions.
@@ -96,7 +100,7 @@ export async function captureFileSystemSnapshot(
   options: CaptureFileSystemSnapshotOptions = {},
   onStatus?: (metadata: GetSandboxResult) => void,
 ): Promise<FileSystemSnapshotResult> {
-  validateRequestOptions(options);
+  validateSnapshotOptions(options);
   rejectMultipleScratchVolumes(runtime.scratchVolumeNames);
 
   const now = options.now ?? Date.now;
@@ -118,7 +122,7 @@ export async function captureFileSystemSnapshot(
 
   const deadline =
     now() + (options.timeoutMs ?? DEFAULT_SNAPSHOT_TIMEOUT_MS) + SNAPSHOT_OBSERVATION_SLACK_MS;
-  const requestId = randomUUID();
+  const requestId = options.requestId ?? randomUUID();
   const created = await createSnapshot(runtime, requestId, options, now, deadline);
   return waitForSnapshotReady(runtime, created.snapshotId, options, now, sleepFn, deadline);
 }
@@ -140,11 +144,14 @@ async function createSnapshot(
         runtime.transport.createFileSystemSnapshot({
           requestId,
           sandboxId: runtime.sandboxId,
-          timeoutMs,
+          timeoutMs:
+            options.retryBudgetMs === 0
+              ? Math.min(DEFAULT_POLL_RPC_TIMEOUT_MS, deadline - now())
+              : timeoutMs,
           ...(options.signal === undefined ? {} : { signal: options.signal }),
         }),
       {
-        budgetMs: DEFAULT_POLL_RETRY_BUDGET_MS,
+        budgetMs: options.retryBudgetMs ?? DEFAULT_POLL_RETRY_BUDGET_MS,
         deadline,
         nonRetryable: [CWSandboxTimeoutError],
         operation: SNAPSHOT_OPERATION,
@@ -187,7 +194,7 @@ async function waitForSnapshotReady(
     }
     if (record.state === "failed") {
       const reason = record.stateReason === undefined ? "" : `: ${record.stateReason}`;
-      throw new CWSandboxTransportError(`File-system snapshot '${snapshotId}' failed${reason}.`, {
+      throw new CWSandboxSnapshotError(`File-system snapshot '${snapshotId}' failed${reason}.`, {
         operation: SNAPSHOT_OPERATION,
         sandboxId: runtime.sandboxId,
         ...(record.stateReason === undefined ? {} : { reason: record.stateReason }),
@@ -239,6 +246,8 @@ function throwSnapshotTimeout(sandboxId: string, snapshotId?: string): never {
     {
       operation: SNAPSHOT_OPERATION,
       sandboxId,
+      domain: "cwsandbox.com",
+      reason: "CWSANDBOX_FSS_WAIT_TIMEOUT",
     },
   );
 }

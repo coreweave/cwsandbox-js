@@ -17,6 +17,7 @@ import type {
   SandboxRunFromTemplateOptions,
   SandboxRunOptions,
   StopOptions,
+  SnapshotOptions,
   WaitOptions,
 } from "../../public/sandbox.js";
 import { normalizeCommand } from "../commands.js";
@@ -33,6 +34,12 @@ import { validateTags } from "./tags.js";
 
 export function validateRequestOptions(options: RequestOptions): void {
   validateNonNegativeFinite(options.timeoutMs, "timeoutMs");
+}
+
+export function validateSnapshotOptions(options: SnapshotOptions): void {
+  validateRequestOptions(options);
+  validateNonNegativeFinite(options.retryBudgetMs, "retryBudgetMs");
+  validateOptionalNonBlankString(options.requestId, "requestId");
 }
 
 export function validateExecOptions(options: ExecOptions): void {
@@ -73,6 +80,7 @@ export function validateSandboxRunOptions(options: SandboxRunOptions): void {
     rejectRemovedKeys(options.network, ["egressMode", "exposedPorts", "ingressMode"]);
   }
   validateRequestOptions(options);
+  validateNonNegativeFinite(options.createRetryBudgetMs, "createRetryBudgetMs");
   validateAnnotations(options.annotations);
   validateNonNegativeFinite(options.maxLifetimeSeconds, "maxLifetimeSeconds");
   validateMountedFiles(options.mountedFiles);
@@ -117,6 +125,7 @@ export function validateSandboxRunFromTemplateOptions(
     rejectRemovedKeys(options.network, ["egressMode", "exposedPorts", "ingressMode"]);
   }
   validateRequestOptions(options);
+  validateNonNegativeFinite(options.createRetryBudgetMs, "createRetryBudgetMs");
   if (options.containerImage === undefined) {
     for (const field of CONTAINER_OVERRIDE_FIELDS) {
       if (isContainerOverride(options, field)) {
@@ -184,6 +193,7 @@ export function validateSandboxRunFromFileOptions(
     throw new CWSandboxValidationError('fileType must be "compose".');
   }
   validateRequestOptions(options);
+  validateNonNegativeFinite(options.createRetryBudgetMs, "createRetryBudgetMs");
   validateAnnotations(options.annotations);
   validateNonNegativeFinite(options.maxLifetimeSeconds, "maxLifetimeSeconds");
   validateObjectStorageAccess(options.objectStorageAccess);

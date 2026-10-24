@@ -13,6 +13,9 @@ import {
   CWSandboxNotImplementedError,
   CWSandboxResourceExhaustedError,
   CWSandboxSnapshotBucketMismatchError,
+  CWSandboxSnapshotBucketProvisioningError,
+  CWSandboxSnapshotError,
+  isSnapshotError,
   CWSandboxSnapshotQuotaExceededError,
   CWSandboxSnapshotSizeExceededError,
   CWSandboxTimeoutError,
@@ -427,5 +430,54 @@ describe("mapGrpcError", () => {
     expect(error).not.toBeInstanceOf(CWSandboxSnapshotQuotaExceededError);
     expect(error).not.toBeInstanceOf(CWSandboxSnapshotBucketMismatchError);
     expect(error.reason).toBe("CWSANDBOX_FSS_RESTORE_FAILED");
+  });
+});
+
+describe("snapshot failure classification", () => {
+  it("keeps provisioning errors catchable as unavailable", () => {
+    const error = mapGrpcError(
+      new RpcError(
+        "provisioning",
+        "UNAVAILABLE",
+        statusDetailsMeta({
+          errorInfos: [{ reason: "CWSANDBOX_FSS_BUCKET_PROVISIONING" }],
+          retryInfos: [{ retrySeconds: 5 }],
+        }),
+      ),
+      { operation: "Create file-system snapshot" },
+    );
+    expect(error).toBeInstanceOf(CWSandboxSnapshotBucketProvisioningError);
+    expect(error).toBeInstanceOf(CWSandboxUnavailableError);
+    expect(error.retryDelayMs).toBe(5_000);
+    expect(isSnapshotError(error)).toBe(true);
+  });
+  it.each([
+    "CWSANDBOX_FSS_BACKEND_THROTTLED",
+    "CWSANDBOX_FSS_WAIT_TIMEOUT",
+    "CWSANDBOX_FSS_NOT_FOUND",
+    "CWSANDBOX_FSS_NOT_SUPPORTED",
+  ])("classifies trusted %s without replacing its existing class", (reason) => {
+    const error = mapGrpcErrorImpl(
+      new RpcError("snapshot error", "UNKNOWN", statusDetailsMeta({ errorInfos: [{ reason }] })),
+      { operation: "snapshot" },
+    );
+    expect(isSnapshotError(error)).toBe(true);
+  });
+  it("rejects foreign domains and generic transport errors", () => {
+    const error = mapGrpcError(
+      new RpcError(
+        "untrusted",
+        "UNAVAILABLE",
+        statusDetailsMeta({
+          errorInfos: [
+            { reason: "CWSANDBOX_FSS_BUCKET_PROVISIONING", domain: "untrusted.example" },
+          ],
+        }),
+      ),
+      { operation: "snapshot" },
+    );
+    expect(isSnapshotError(error)).toBe(false);
+    expect(isSnapshotError(new CWSandboxUnavailableError("network"))).toBe(false);
+    expect(isSnapshotError(new CWSandboxSnapshotError("archive failed"))).toBe(true);
   });
 });

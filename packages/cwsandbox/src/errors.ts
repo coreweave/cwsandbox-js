@@ -369,3 +369,38 @@ export class CWSandboxTerminatedError extends CWSandboxError {
     this.sandboxId = options.sandboxId;
   }
 }
+
+/** A snapshot reached a failed state. Existing transport error catches still apply. */
+export class CWSandboxSnapshotError extends CWSandboxTransportError {
+  public constructor(message: string, options: CWSandboxTransportErrorOptions = {}) {
+    super(message, options);
+    this.name = "CWSandboxSnapshotError";
+  }
+}
+
+/** First-use snapshot storage is still being provisioned. */
+export class CWSandboxSnapshotBucketProvisioningError extends CWSandboxUnavailableError {
+  public constructor(message: string, options: CWSandboxTransportErrorOptions = {}) {
+    super(message, options);
+    this.name = "CWSandboxSnapshotBucketProvisioningError";
+  }
+}
+
+/**
+ * Recognize snapshot failures without changing existing unavailable, timeout,
+ * or not-found inheritance. This does not imply that a failure is retryable.
+ */
+export function isSnapshotError(
+  error: unknown,
+): error is CWSandboxTransportError | CWSandboxNotImplementedError {
+  return (
+    error instanceof CWSandboxSnapshotError ||
+    error instanceof CWSandboxSnapshotBucketProvisioningError ||
+    error instanceof CWSandboxSnapshotSizeExceededError ||
+    error instanceof CWSandboxSnapshotQuotaExceededError ||
+    error instanceof CWSandboxSnapshotBucketMismatchError ||
+    ((error instanceof CWSandboxTransportError || error instanceof CWSandboxNotImplementedError) &&
+      error.domain === "cwsandbox.com" &&
+      error.reason?.startsWith("CWSANDBOX_FSS_") === true)
+  );
+}

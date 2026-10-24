@@ -60,6 +60,7 @@ import {
   toSdkProcessResult,
   toSdkStartSandboxResult,
 } from "./mappers.js";
+import { retryCreateCapacity } from "./retry-create-capacity.js";
 import { isRawSandboxNotFound, retryHintedUnavailable } from "./retry-hinted-unavailable.js";
 import { toRpcOptions, withGrpcErrorMapping } from "./rpc.js";
 import { startGrpcShell } from "./terminal-stream.js";
@@ -83,10 +84,20 @@ export class GrpcSandboxTransport implements SandboxTransport {
   }
 
   public async start(request: StartSandboxRequest): Promise<StartSandboxResult> {
-    const response = await withGrpcErrorMapping(
-      "Start sandbox",
-      () =>
-        this.client.createSandbox(toProtoCreateRequest(request), toRpcOptions(request)).response,
+    // Build once so all capacity retries reuse the same body and request ID.
+    const body = toProtoCreateRequest(request);
+    const response = await withGrpcErrorMapping("Start sandbox", () =>
+      retryCreateCapacity(
+        (timeoutMs) =>
+          this.client.createSandbox(
+            body,
+            toRpcOptions({
+              ...(request.signal === undefined ? {} : { signal: request.signal }),
+              ...(timeoutMs === undefined ? {} : { timeoutMs }),
+            }),
+          ).response,
+        request,
+      ),
     );
 
     return toSdkStartSandboxResult(response);
@@ -95,26 +106,40 @@ export class GrpcSandboxTransport implements SandboxTransport {
   public async startFromTemplate(
     request: StartSandboxFromTemplateRequest,
   ): Promise<StartSandboxResult> {
-    const response = await withGrpcErrorMapping(
-      "Create sandbox from template",
-      () =>
-        this.client.createSandboxFromTemplate(
-          toProtoCreateFromTemplateRequest(request),
-          toRpcOptions(request),
-        ).response,
+    // Build once so all capacity retries reuse the same body and request ID.
+    const body = toProtoCreateFromTemplateRequest(request);
+    const response = await withGrpcErrorMapping("Create sandbox from template", () =>
+      retryCreateCapacity(
+        (timeoutMs) =>
+          this.client.createSandboxFromTemplate(
+            body,
+            toRpcOptions({
+              ...(request.signal === undefined ? {} : { signal: request.signal }),
+              ...(timeoutMs === undefined ? {} : { timeoutMs }),
+            }),
+          ).response,
+        request,
+      ),
     );
 
     return toSdkStartSandboxResult(response);
   }
 
   public async startFromFile(request: StartSandboxFromFileRequest): Promise<StartSandboxResult> {
-    const response = await withGrpcErrorMapping(
-      "Create sandbox from file",
-      () =>
-        this.client.createSandboxFromFile(
-          toProtoCreateFromFileRequest(request),
-          toRpcOptions(request),
-        ).response,
+    // Build once so all capacity retries reuse the same body and request ID.
+    const body = toProtoCreateFromFileRequest(request);
+    const response = await withGrpcErrorMapping("Create sandbox from file", () =>
+      retryCreateCapacity(
+        (timeoutMs) =>
+          this.client.createSandboxFromFile(
+            body,
+            toRpcOptions({
+              ...(request.signal === undefined ? {} : { signal: request.signal }),
+              ...(timeoutMs === undefined ? {} : { timeoutMs }),
+            }),
+          ).response,
+        request,
+      ),
     );
 
     return toSdkStartSandboxResult(response);

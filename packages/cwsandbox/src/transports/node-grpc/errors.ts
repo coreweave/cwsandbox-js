@@ -12,6 +12,7 @@ import {
   CWSandboxNotImplementedError,
   CWSandboxResourceExhaustedError,
   CWSandboxSnapshotBucketMismatchError,
+  CWSandboxSnapshotBucketProvisioningError,
   CWSandboxSnapshotQuotaExceededError,
   CWSandboxSnapshotSizeExceededError,
   CWSandboxTimeoutError,
@@ -23,6 +24,7 @@ import {
   CWSANDBOX_COMMAND_TIMEOUT,
   CWSANDBOX_ERROR_DOMAIN,
   CWSANDBOX_FSS_BUCKET_MISMATCH,
+  CWSANDBOX_FSS_BUCKET_PROVISIONING,
   CWSANDBOX_FSS_NOT_FOUND,
   CWSANDBOX_FSS_NOT_SUPPORTED,
   CWSANDBOX_FSS_QUOTA_EXCEEDED,
@@ -72,6 +74,9 @@ export function mapGrpcError(error: unknown, context: GrpcErrorContext): CWSandb
       }
       if (reason === CWSANDBOX_FSS_BUCKET_MISMATCH) {
         return new CWSandboxSnapshotBucketMismatchError(message, details);
+      }
+      if (reason === CWSANDBOX_FSS_BUCKET_PROVISIONING) {
+        return new CWSandboxSnapshotBucketProvisioningError(message, details);
       }
       if (UNAVAILABLE_REASONS.has(reason)) {
         return new CWSandboxUnavailableError(message, details);

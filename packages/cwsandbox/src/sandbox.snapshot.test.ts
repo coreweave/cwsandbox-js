@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isSnapshotError,
   CWSandboxTimeoutError,
   CWSandboxTransportError,
   CWSandboxUnavailableError,
@@ -174,6 +175,7 @@ describe("sandbox.snapshot", () => {
       (caught: unknown) => caught,
     );
 
+    expect(isSnapshotError(error)).toBe(true);
     expect(error).toBeInstanceOf(CWSandboxTransportError);
     expect(error).not.toBeInstanceOf(CWSandboxTimeoutError);
     expect((error as CWSandboxTransportError).message).toContain("snap-fail");
@@ -302,4 +304,101 @@ describe("sandbox.snapshot", () => {
     await sandbox.snapshot({ timeoutMs: 60_000 });
     expect(getTimeouts[0]).toBe(15_000);
   });
+});
+
+describe("snapshot retry options", () => {
+  it("extends provisioning retries beyond 30 seconds with one request key", async () => {
+    const clock = fakeClock();
+    const requests: string[] = [];
+    const transport: SandboxTransport = {
+      ...createFakeTransport(["running"]),
+      async createFileSystemSnapshot(request) {
+        requests.push(request.requestId);
+        if (clock.now() < 40_000) {
+          throw new CWSandboxUnavailableError("provisioning", { retryDelayMs: 10_000 });
+        }
+        return createFakeSnapshot("snapshot-test");
+      },
+    };
+    await captureFileSystemSnapshot(
+      { sandboxId: "sandbox-test", transport },
+      {
+        ...clock,
+        retryBudgetMs: 60_000,
+        requestId: "snapshot-request",
+      },
+    );
+    expect(requests).toEqual(Array.from({ length: 5 }, () => "snapshot-request"));
+  });
+
+  it("zero disables retries without shortening the first RPC to 1ms", async () => {
+    const timeouts: (number | undefined)[] = [];
+    const transport: SandboxTransport = {
+      ...createFakeTransport(["running"]),
+      async createFileSystemSnapshot(request) {
+        timeouts.push(request.timeoutMs);
+        throw new CWSandboxUnavailableError("provisioning");
+      },
+    };
+    const sandbox = await createClient(transport).fromId("sandbox-test");
+    await expect(sandbox.snapshot({ retryBudgetMs: 0 })).rejects.toThrow(CWSandboxUnavailableError);
+    expect(timeouts).toEqual([15_000]);
+  });
+
+  it.each([-1, NaN, Infinity, -Infinity])(
+    "rejects invalid retry budget %s",
+    async (retryBudgetMs) => {
+      const sandbox = await createClient().fromId("sandbox-test");
+      await expect(sandbox.snapshot({ retryBudgetMs })).rejects.toThrow(CWSandboxValidationError);
+    },
+  );
+
+  it("preserves an explicit request ID across separate snapshot calls", async () => {
+    const requests: string[] = [];
+    const transport: SandboxTransport = {
+      ...createFakeTransport(["running"]),
+      async createFileSystemSnapshot(request) {
+        requests.push(request.requestId);
+        if (requests.length === 1) {
+          throw new CWSandboxTimeoutError("ambiguous deadline");
+        }
+        return createFakeSnapshot("snapshot-test");
+      },
+    };
+    const sandbox = await createClient(transport).fromId("sandbox-test");
+    await expect(sandbox.snapshot({ requestId: "same-request" })).rejects.toThrow(
+      CWSandboxTimeoutError,
+    );
+    await sandbox.snapshot({ requestId: "same-request" });
+    expect(requests).toEqual(["same-request", "same-request"]);
+  });
+});
+
+it("rejects an empty snapshot idempotency key", async () => {
+  const sandbox = await createClient().fromId("sandbox-test");
+  await expect(sandbox.snapshot({ requestId: " " })).rejects.toThrow(CWSandboxValidationError);
+});
+
+it("caps custom snapshot retries at the archive deadline", async () => {
+  const timer = fakeClock();
+  let calls = 0;
+  const transport: SandboxTransport = {
+    ...createFakeTransport(["running"]),
+    async createFileSystemSnapshot() {
+      calls += 1;
+      throw new CWSandboxUnavailableError("provisioning", { retryDelayMs: 10_000 });
+    },
+  };
+  const error: unknown = await captureFileSystemSnapshot(
+    { sandboxId: "sandbox-test", transport },
+    {
+      ...timer,
+      retryBudgetMs: 120_000,
+      timeoutMs: 1_000,
+    },
+  ).catch((caught: unknown) => caught);
+  expect(error).toBeInstanceOf(CWSandboxTimeoutError);
+  expect(isSnapshotError(error)).toBe(true);
+  expect(calls).toBe(1);
+  expect(timer.now()).toBe(6_000); // Includes the existing 5s observation slack.
 });

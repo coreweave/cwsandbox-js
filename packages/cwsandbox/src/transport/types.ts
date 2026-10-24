@@ -15,6 +15,7 @@ import type { LogStreamMode, LogStreamOptions } from "../public/logs.js";
 import type { NetworkOptions, Service } from "../public/network.js";
 import type { ResourceOptions } from "../public/resources.js";
 import type {
+  CreateRetryOptions,
   EnvironmentVariables,
   FileSystemSnapshotOptions,
   FileSystemSnapshotResult,
@@ -42,7 +43,7 @@ export interface StartSandboxRequest extends Omit<SandboxRunOptions, "waitUntilR
   readonly command: Command;
 }
 
-export interface StartSandboxFromFileRequest extends RequestOptions {
+export interface StartSandboxFromFileRequest extends RequestOptions, CreateRetryOptions {
   readonly contents: Uint8Array;
   readonly primaryService: string;
   readonly fileType?: SandboxFileType;
@@ -56,7 +57,7 @@ export interface StartSandboxFromFileRequest extends RequestOptions {
   readonly tags?: readonly SandboxTag[];
 }
 
-export interface StartSandboxFromTemplateRequest extends RequestOptions {
+export interface StartSandboxFromTemplateRequest extends RequestOptions, CreateRetryOptions {
   readonly templateId: string;
   readonly annotations?: SandboxAnnotations;
   readonly containerImage?: string;
