@@ -33,6 +33,7 @@ import type {
   FileSystemSnapshotResult,
   GetSandboxResult,
   Sandbox as PublicSandbox,
+  SandboxControl,
   SandboxId,
   SandboxMetadata,
   SandboxResourceSpec,
@@ -112,6 +113,10 @@ export class Sandbox implements PublicSandbox {
 
   public get createdAt(): Date | undefined {
     return this.metadata.createdAt === undefined ? undefined : new Date(this.metadata.createdAt);
+  }
+
+  public get control(): SandboxControl | undefined {
+    return this.metadata.control;
   }
 
   public get exitCode(): number | undefined {
@@ -518,6 +523,7 @@ function cloneMetadata(metadata: SandboxMetadata | undefined): Partial<SandboxMe
   }
 
   return {
+    ...(metadata.control === undefined ? {} : { control: metadata.control }),
     ...(metadata.dnsEgressNames === undefined
       ? {}
       : { dnsEgressNames: [...metadata.dnsEgressNames] }),

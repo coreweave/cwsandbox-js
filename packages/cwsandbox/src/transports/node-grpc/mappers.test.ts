@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import { CWSandboxValidationError } from "../../errors.js";
 import {
+  Control,
   EndpointAuth,
   EndpointKind,
   FileSystemSnapshot,
@@ -1137,9 +1138,79 @@ describe("node transport mappers", () => {
       expect(request.network?.denyEgress).toBe(true);
       expect(request.objectStorageAccess?.buckets).toEqual(["example-bucket"]);
     });
+
+    it("leaves control and image pull credentials unset by default", () => {
+      const request = toProtoCreateFromFileRequest({
+        contents: compose,
+        primaryService: "main",
+      });
+
+      expect(request.control).toBe(Control.UNSPECIFIED);
+      expect(request.imagePullCredentials).toEqual([]);
+    });
+
+    it("maps container engine control without a primary service", () => {
+      const request = toProtoCreateFromFileRequest({
+        contents: compose,
+        control: "container_engine",
+      });
+
+      expect(request.control).toBe(Control.CONTAINER_ENGINE);
+      expect(request.primaryService).toBe("");
+    });
+
+    it("maps explicit platform control", () => {
+      const request = toProtoCreateFromFileRequest({
+        contents: compose,
+        control: "platform",
+        primaryService: "main",
+      });
+
+      expect(request.control).toBe(Control.PLATFORM);
+      expect(request.primaryService).toBe("main");
+    });
+
+    it("maps image pull credentials in order", () => {
+      const request = toProtoCreateFromFileRequest({
+        contents: compose,
+        control: "container_engine",
+        imagePullCredentials: [
+          { field: "token", name: "ghcr-creds", registry: "ghcr.io", store: "wandb" },
+          { name: "hub-creds", registry: "registry-1.docker.io", store: "wandb" },
+        ],
+      });
+
+      expect(request.imagePullCredentials).toEqual([
+        {
+          credentials: { field: "token", path: "ghcr-creds", storeName: "wandb" },
+          registry: "ghcr.io",
+        },
+        {
+          credentials: { field: "", path: "hub-creds", storeName: "wandb" },
+          registry: "registry-1.docker.io",
+        },
+      ]);
+    });
   });
 
   describe("create and get responses", () => {
+    it("maps reported control and omits the unspecified value", () => {
+      const sandbox = (control: Control): ReturnType<typeof ProtoSandbox.create> =>
+        ProtoSandbox.create({
+          control,
+          sandboxId: "sandbox-123",
+          status: { state: State.RUNNING },
+        });
+
+      expect(toSdkStartSandboxResult(sandbox(Control.CONTAINER_ENGINE)).control).toBe(
+        "container_engine",
+      );
+      expect(toSdkGetSandboxResult(sandbox(Control.PLATFORM)).control).toBe("platform");
+      expect(toSdkSandboxInfo(sandbox(Control.CONTAINER_ENGINE)).control).toBe("container_engine");
+      expect(toSdkGetSandboxResult(sandbox(Control.UNSPECIFIED))).not.toHaveProperty("control");
+      expect(toSdkGetSandboxResult(sandbox(99 as Control)).control).toBe("unspecified");
+    });
+
     it("maps create responses to SDK sandbox metadata", () => {
       const result = toSdkStartSandboxResult(
         ProtoSandbox.create({

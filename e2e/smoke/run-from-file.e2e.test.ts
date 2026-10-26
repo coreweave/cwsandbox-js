@@ -8,6 +8,9 @@
  * Redis + Python API + Ubuntu primary: running means the health chain passed.
  * Exec from main resolves service hostnames on loopback, PINGs Redis, and
  * fetches /health on the api hostname (PONG from Redis).
+ *
+ * Container engine mode runs a two-service file under Docker Compose and
+ * checks that stopping one service leaves the other running and reachable.
  */
 
 import { dirname, join } from "node:path";
@@ -28,6 +31,20 @@ const composePath = join(
 );
 const fromFileWaitTimeoutMs = 150_000;
 const fromFileTestTimeoutMs = 180_000;
+const engineWaitTimeoutMs = 540_000;
+const engineTestTimeoutMs = 600_000;
+const engineCompose = new TextEncoder().encode(`services:
+  main:
+    image: alpine:3.20
+    command: ["sleep", "3600"]
+  helper:
+    image: alpine:3.20
+    command: ["sh", "-c", "echo ready > /tmp/evidence && exec sleep 3600"]
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/evidence"]
+      interval: 2s
+      retries: 30
+`);
 const defaultResources = {
   limits: { cpu: "500m", memory: "256Mi" },
   requests: { cpu: "500m", memory: "256Mi" },
@@ -151,6 +168,67 @@ describeWithCredentials("live runFromFile smoke", { sequential: true }, () => {
       }
     },
     fromFileTestTimeoutMs,
+  );
+
+  it(
+    "runs Compose under the container engine and stops services independently",
+    async () => {
+      const startedAt = Date.now();
+      logFromFileSmoke("runFromFile container_engine");
+      let sandbox: Sandbox | undefined;
+      try {
+        sandbox = await client.runFromFile(engineCompose, {
+          control: "container_engine",
+          defaultResources,
+          maxLifetimeSeconds: 600,
+          tags: [uniqueSmokeTag()],
+          timeoutMs: engineWaitTimeoutMs,
+        });
+        logFromFileSmoke("sandbox started", {
+          elapsedMs: Date.now() - startedAt,
+          sandboxId: sandbox.sandboxId,
+        });
+        expect(sandbox.status).toBe("running");
+        expect(sandbox.control).toBe("container_engine");
+
+        const stop = await sandbox.commands.run(["docker", "compose", "stop", "-t", "1", "main"]);
+        logProcessResult("docker compose stop main", stop);
+        expect(stop.exitCode).toBe(0);
+
+        const running = await sandbox.commands.run([
+          "docker",
+          "compose",
+          "ps",
+          "--services",
+          "--status",
+          "running",
+        ]);
+        logProcessResult("docker compose ps running", running);
+        expect(running.exitCode).toBe(0);
+        expect(running.stdout.split(/\s+/).filter(Boolean)).toEqual(["helper"]);
+
+        const evidence = await sandbox.commands.run([
+          "docker",
+          "compose",
+          "exec",
+          "-T",
+          "helper",
+          "cat",
+          "/tmp/evidence",
+        ]);
+        logProcessResult("docker compose exec helper", evidence);
+        expect(evidence.exitCode).toBe(0);
+        expect(evidence.stdout.trim()).toBe("ready");
+      } catch (error) {
+        logCaughtError(`${LOG_PREFIX} container engine path`, error);
+        throw error;
+      } finally {
+        logFromFileSmoke("delete sandbox", { sandboxId: sandbox?.sandboxId ?? null });
+        await sandbox?.delete({ missingOk: true });
+        logFromFileSmoke("done", { elapsedMs: Date.now() - startedAt });
+      }
+    },
+    engineTestTimeoutMs,
   );
 });
 

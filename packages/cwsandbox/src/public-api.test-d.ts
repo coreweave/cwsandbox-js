@@ -41,6 +41,7 @@ import {
   type EndpointAuth,
   type HttpsEndpoint,
   type HttpsEndpointStatus,
+  type ImagePullCredentials,
   type TlsPassthroughEndpoint,
   type TlsPassthroughEndpointStatus,
   type NetworkOptions,
@@ -51,6 +52,7 @@ import {
   type Sandbox,
   type SandboxAnnotations,
   type SandboxClient,
+  type SandboxControl,
   type SandboxExposedPort,
   type SandboxInfo,
   type SandboxList,
@@ -205,8 +207,27 @@ test("public API types", async () => {
     buildContexts: { main: new Uint8Array() },
     primaryService: "main",
   });
-  // @ts-expect-error primaryService is required
-  void client.runFromFile(composeBytes, {});
+  const sandboxControl: SandboxControl = "container_engine";
+  const imagePullCredentials: ImagePullCredentials = {
+    name: "ghcr-creds",
+    registry: "ghcr.io",
+    store: "wandb",
+  };
+  expectTypeOf(
+    client.runFromFile(composeBytes, {
+      control: sandboxControl,
+      imagePullCredentials: [imagePullCredentials],
+    }),
+  ).toEqualTypeOf<ReturnType<SandboxClient["runFromFile"]>>();
+  // @ts-expect-error control is a closed set of values
+  void client.runFromFile(composeBytes, { control: "docker" });
+  void client.runFromFile(composeBytes, {
+    control: "container_engine",
+    // @ts-expect-error imagePullCredentials is a list
+    imagePullCredentials,
+  });
+  expectTypeOf<Sandbox["control"]>().toEqualTypeOf<SandboxControl | undefined>();
+  expectTypeOf<SandboxMetadata["control"]>().toEqualTypeOf<SandboxControl | undefined>();
   // @ts-expect-error unspecified is not a supported file type
   void client.runFromFile(composeBytes, { fileType: "unspecified", primaryService: "main" });
   expectTypeOf<SandboxMetadata>().not.toHaveProperty("sourceTemplateId");

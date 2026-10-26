@@ -48,6 +48,27 @@ export type SandboxFileType = "compose";
 /** Filesystem path (`string`) or raw file bytes. A string is always a path. */
 export type SandboxFileContents = string | Uint8Array;
 
+/**
+ * Who controls a sandbox's containers. `"container_engine"` runs a Compose
+ * file as written under Docker Compose in a container named `cws-engine`.
+ * `"unspecified"` and `"platform"` both mean platform control.
+ */
+export type SandboxControl = "unspecified" | "platform" | "container_engine";
+
+/**
+ * Registry pull credentials resolved server-side from a secret store.
+ *
+ * `store` and `name` select the secret, and `field` optionally selects a field
+ * within it. The secret must resolve to an object with non-empty `username`
+ * and `password` fields.
+ */
+export interface ImagePullCredentials {
+  readonly field?: string;
+  readonly name: string;
+  readonly registry: string;
+  readonly store: string;
+}
+
 export type WaitTargetStatus = "completed" | "paused" | "running" | "terminal";
 
 export interface WaitOptions extends RequestOptions {
@@ -301,12 +322,27 @@ export interface SandboxRunFromTemplateOptions
 export interface SandboxRunFromFileOptions
   extends RequestOptions, DataPlaneOptions, CreateRetryOptions {
   /**
-   * Compose service that is the sandbox primary. Required. Must name a
-   * service in `contents`.
+   * Compose service that is the sandbox primary. Must name a service in
+   * `contents`. Required unless `control` is `"container_engine"`, where the
+   * backend rejects it.
    */
-  readonly primaryService: string;
+  readonly primaryService?: string;
   /** Document type. Defaults to `"compose"`. */
   readonly fileType?: SandboxFileType;
+  /**
+   * Who controls the containers. Defaults to the platform. `"container_engine"`
+   * runs the file as written under Docker Compose in a container named
+   * `cws-engine`; exec, file, and log calls all reach `cws-engine`, where you
+   * manage services with `docker compose`. Engine startup can take several
+   * minutes, so pass an explicit `timeoutMs` and keep `maxLifetimeSeconds`
+   * well above it.
+   */
+  readonly control?: SandboxControl;
+  /**
+   * Registry credentials for image pulls, one per registry. Valid with either
+   * `control` value.
+   */
+  readonly imagePullCredentials?: readonly ImagePullCredentials[];
   /**
    * Per-service pullable image refs. Keys must be services in `contents`.
    * Use this when a service would otherwise need a build.
@@ -390,6 +426,11 @@ export interface SandboxMetadata {
   /** Server creation time, distinct from the container start time. */
   readonly createdAt?: Date;
   readonly tags?: readonly SandboxTag[];
+  /**
+   * Who controls the sandbox's containers, as reported by the backend. Omitted
+   * when the backend does not report it.
+   */
+  readonly control?: SandboxControl;
   readonly dnsEgressNames?: readonly string[];
   readonly exitCode?: number;
   readonly exposedPorts?: readonly SandboxExposedPort[];
@@ -436,6 +477,12 @@ export interface Sandbox {
   readonly sandboxId: SandboxId;
   readonly createdAt: Date | undefined;
   readonly tags: readonly SandboxTag[];
+  /**
+   * Who controls the sandbox's containers, from the latest backend response
+   * that reported it. `undefined`, `"unspecified"`, and `"platform"` all mean
+   * platform control, so compare against `"container_engine"`.
+   */
+  readonly control: SandboxControl | undefined;
   readonly dnsEgressNames: readonly string[] | undefined;
   readonly endpointShareToken?: string | undefined;
   readonly exitCode: number | undefined;

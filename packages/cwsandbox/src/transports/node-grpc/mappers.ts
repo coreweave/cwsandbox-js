@@ -28,8 +28,10 @@ import type {
   FileSystemSnapshotState,
   FileSystemSnapshotTrigger,
   GetSandboxResult,
+  ImagePullCredentials as SdkImagePullCredentials,
   ListSandboxesOptions,
   ListSandboxesResult,
+  SandboxControl,
   SandboxExposedPort,
   SandboxInfo,
   SandboxMetadata,
@@ -46,6 +48,7 @@ import type {
 } from "../../transport/types.js";
 import {
   Container,
+  Control,
   CreateSandboxFromFileRequest,
   CreateSandboxFromTemplateRequest,
   CreateSandboxRequest,
@@ -54,6 +57,7 @@ import {
   EndpointAuth,
   EndpointKind,
   ExecRequest as ProtoExecRequest,
+  ImagePullCredentials as ProtoImagePullCredentials,
   ListSandboxesRequest,
   NetworkOptions as ProtoNetworkOptions,
   ObjectStorageAccess,
@@ -137,11 +141,18 @@ export function toProtoCreateFromFileRequest(
       ? { ...request.imageOverrides }
       : undefined;
 
+  const control = toProtoControl(request.control);
+  const imagePullCredentials = request.imagePullCredentials?.map(toProtoImagePullCredentials);
+
   return CreateSandboxFromFileRequest.create({
     requestId: randomUUID(),
     type: SandboxFileType.COMPOSE,
     contents: request.contents,
-    primaryService: request.primaryService,
+    ...(request.primaryService === undefined ? {} : { primaryService: request.primaryService }),
+    ...(control === undefined ? {} : { control }),
+    ...(imagePullCredentials === undefined || imagePullCredentials.length === 0
+      ? {}
+      : { imagePullCredentials }),
     ...(imageOverrides === undefined ? {} : { imageOverrides }),
     ...(defaultResources === undefined ? {} : { defaultResources }),
     ...(request.maxLifetimeSeconds === undefined
@@ -152,6 +163,30 @@ export function toProtoCreateFromFileRequest(
     annotations: { ...request.annotations },
     tags: [...(request.tags ?? [])],
     ...(runnerIds.length === 0 ? {} : { mode: SandboxMode.CKS, runnerIds }),
+  });
+}
+
+function toProtoControl(control: SandboxControl | undefined): Control | undefined {
+  switch (control) {
+    case "platform":
+      return Control.PLATFORM;
+    case "container_engine":
+      return Control.CONTAINER_ENGINE;
+    default:
+      return undefined;
+  }
+}
+
+function toProtoImagePullCredentials(
+  credentials: SdkImagePullCredentials,
+): ProtoImagePullCredentials {
+  return ProtoImagePullCredentials.create({
+    registry: credentials.registry,
+    credentials: {
+      field: credentials.field ?? "",
+      path: credentials.name,
+      storeName: credentials.store,
+    },
   });
 }
 
@@ -635,6 +670,9 @@ function toSdkSandboxMetadata(sandbox: ProtoSandboxMessage): SandboxMetadata {
   return {
     ...(sandbox.spec === undefined ? {} : { tags: [...sandbox.spec.tags] }),
     ...(createdAt === undefined ? {} : { createdAt }),
+    ...(sandbox.control === Control.UNSPECIFIED
+      ? {}
+      : { control: toSdkSandboxControl(sandbox.control) }),
     ...(status?.exitCode === undefined ? {} : { exitCode: status.exitCode }),
     ...(dnsEgressNames === undefined ? {} : { dnsEgressNames }),
     ...(exposedPorts === undefined ? {} : { exposedPorts }),
@@ -656,6 +694,17 @@ function toSdkSandboxMetadata(sandbox: ProtoSandboxMessage): SandboxMetadata {
       ? {}
       : { statusReason: status.stateReason }),
   };
+}
+
+function toSdkSandboxControl(control: Control): SandboxControl {
+  switch (control) {
+    case Control.PLATFORM:
+      return "platform";
+    case Control.CONTAINER_ENGINE:
+      return "container_engine";
+    default:
+      return "unspecified";
+  }
 }
 
 function toSdkDnsEgressNames(

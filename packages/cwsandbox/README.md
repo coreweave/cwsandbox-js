@@ -1038,11 +1038,12 @@ is a filesystem path or raw file bytes. A string is always opened as a path;
 encode Compose text with `new TextEncoder().encode(...)`. Bytes are sent as-is,
 so whitespace is part of the request. The file is capped at 256 KiB.
 
-`primaryService` is required and must name a service in the file. Optional
-`imageOverrides` and CPU/memory `defaultResources` apply per service. Images
-must already be pullable; leftover `build:` is not supported. Volumes,
-published services, secrets, mounted files, and container overlays stay on
-`create` / `run`.
+`primaryService` must name a service in the file unless `control` is
+`"container_engine"` (see below). Optional `imageOverrides` and CPU/memory
+`defaultResources` apply per service. Images must already be pullable; pass
+`imagePullCredentials` (one entry per registry) for private registries.
+Leftover `build:` is not supported. Volumes, published services, secrets,
+mounted files, and container overlays stay on `create` / `run`.
 
 Wait for `running` as usual. If creation is accepted but the readiness wait
 rejects, the SDK best-effort stops the sandbox. `waitUntilRunning: false`
@@ -1066,6 +1067,41 @@ await client.withSandboxFromFile(
   {
     primaryService: "main",
     tags: ["example"],
+  },
+);
+```
+
+### Container Engine Mode
+
+`control: "container_engine"` runs the file as written under Docker Compose in
+a container named `cws-engine`. Omit `primaryService`. The sandbox reaches
+`running` once `docker compose up --wait` succeeds. Commands, files, and logs
+all reach `cws-engine`, so manage services with `docker compose`. Startup can
+take several minutes: pass an explicit `timeoutMs` and keep
+`maxLifetimeSeconds` well above it. `sandbox.control` reports
+`"container_engine"`; `undefined`, `"unspecified"`, and `"platform"` all mean
+platform control.
+
+```ts
+const engineContents = new TextEncoder().encode(`services:
+  web:
+    image: docker.io/library/nginx:1.27
+  worker:
+    image: docker.io/library/alpine:3.20
+    command: ["sleep", "3600"]
+`);
+
+await client.withSandboxFromFile(
+  engineContents,
+  async (sandbox) => {
+    await sandbox.commands.run(["docker", "compose", "stop", "worker"]);
+    const running = await sandbox.commands.run(["docker", "compose", "ps", "--services"]);
+    console.log(sandbox.control, running.stdout);
+  },
+  {
+    control: "container_engine",
+    maxLifetimeSeconds: 1800,
+    timeoutMs: 600_000,
   },
 );
 ```

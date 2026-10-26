@@ -31,6 +31,8 @@ import type { DeleteSandboxResponse } from "./sandbox.js";
 import type { DeleteSandboxRequest } from "./sandbox.js";
 import type { ListSandboxesResponse } from "./sandbox.js";
 import type { ListSandboxesRequest } from "./sandbox.js";
+import type { GetSandboxBuildLogsResponse } from "./sandbox.js";
+import type { GetSandboxBuildLogsRequest } from "./sandbox.js";
 import type { GetSandboxRequest } from "./sandbox.js";
 import type { CreateSandboxFromFileRequest } from "./sandbox.js";
 import type { CreateSandboxFromTemplateRequest } from "./sandbox.js";
@@ -64,12 +66,29 @@ export interface ISandboxServiceClient {
     /**
      * CreateSandboxFromFile launches a sandbox from an uploaded file (AIP-136
      * custom method). Unspecified type is INVALID_ARGUMENT
-     * (CWSANDBOX_INVALID_REQUEST) on type. Compose (SANDBOX_FILE_TYPE_COMPOSE)
-     * is accepted when every service already has a pullable image (`image:` or
-     * image_overrides). A service that still needs a build is UNIMPLEMENTED
-     * (CWSANDBOX_NOT_IMPLEMENTED) on that service's build, after
-     * build_context_objects and builder_sizes are validated. Other declared
-     * types are UNIMPLEMENTED (CWSANDBOX_NOT_IMPLEMENTED) on type.
+     * (CWSANDBOX_INVALID_REQUEST) on type. Other declared types than Compose
+     * (SANDBOX_FILE_TYPE_COMPOSE) are UNIMPLEMENTED (CWSANDBOX_NOT_IMPLEMENTED)
+     * on type. control selects who controls the sandbox's containers (see
+     * Control).
+     *
+     * When every Compose service has a pullable image (`image:` or
+     * image_overrides), the sandbox is returned in STATE_CREATING. When a
+     * service still needs a build, the sandbox is returned in STATE_PREPARING,
+     * its images are built without further calls, and it is placed with
+     * digest-pinned images once every build succeeds. A failed build ends it in
+     * STATE_FAILED with a state_reason starting with "build_"; fetch the failed
+     * build's output with GetSandboxBuildLogs. Stop and Delete
+     * end a preparing sandbox in STATE_TERMINATED.
+     *
+     * Builds run with the caller's CoreWeave API token and need the
+     * organization's Compose build storage to be enabled. Otherwise the create
+     * is FAILED_PRECONDITION (CWSANDBOX_PRECONDITION_FAILED) with a
+     * PreconditionFailure of type COREWEAVE_CREDENTIAL_REQUIRED or
+     * BUILD_STORAGE_NOT_ENABLED. When build capacity is full the create is
+     * RESOURCE_EXHAUSTED (CWSANDBOX_BUILD_CAPACITY_EXHAUSTED) with RetryInfo;
+     * the refused request_id may be reused for the retry. A deployment without
+     * builds returns UNIMPLEMENTED (CWSANDBOX_NOT_IMPLEMENTED) on the service's
+     * build, after build_context_objects and builder_sizes are validated.
      *
      * @generated from protobuf rpc: CreateSandboxFromFile
      */
@@ -80,6 +99,44 @@ export interface ISandboxServiceClient {
      * @generated from protobuf rpc: GetSandbox
      */
     getSandbox(input: GetSandboxRequest, options?: RpcOptions): UnaryCall<GetSandboxRequest, Sandbox>;
+    /**
+     * GetSandboxBuildLogs returns a short-lived download link for the output of
+     * a Compose service build that failed during CreateSandboxFromFile. The link
+     * is a presigned object storage URL for a plain-text log. It needs no
+     * Authorization header and stops working at expire_time, at most five
+     * minutes after it is issued; call again for a fresh link. Logs are
+     * available until 24 hours after the build failed, including after the
+     * sandbox is stopped or deleted and when it was never placed. The creating
+     * user, or a caller with the sandbox_admin action in the sandbox's
+     * organization, can read them.
+     *
+     * The REST binding answers 302 Found with the link in the Location header
+     * and no body. Errors are returned as usual. Follow the redirect only when
+     * authenticating with the Authorization header: HTTP clients drop it on a
+     * cross-host redirect but forward other headers, such as an API-key
+     * header, to the object storage host. With an API-key header, call the RPC
+     * instead, or read the Location header without following it.
+     *
+     * Errors:
+     *   - NOT_FOUND (CWSANDBOX_BUILD_LOGS_NOT_FOUND): the caller can see no
+     *     failed build for this sandbox and service. The sandbox or service does
+     *     not exist, belongs to another user or organization, or its build did
+     *     not fail; these cases are not distinguished.
+     *   - UNAVAILABLE (CWSANDBOX_BUILD_LOGS_PENDING) with RetryInfo: the build
+     *     failed and its logs are still being stored. Retry after the delay.
+     *   - FAILED_PRECONDITION (CWSANDBOX_BUILD_LOGS_UNAVAILABLE): the logs were
+     *     not captured, or are no longer stored. ErrorInfo metadata keys
+     *     capture_error and archive_error carry a short snake_case diagnostic
+     *     code when one is known, such as capture_unavailable or
+     *     archive_missing. Retrying does not help.
+     *   - FAILED_PRECONDITION (CWSANDBOX_BUILD_LOGS_EXPIRED): more than 24 hours
+     *     have passed since the build failed.
+     *   - UNIMPLEMENTED (CWSANDBOX_NOT_IMPLEMENTED): the deployment does not
+     *     build Compose services.
+     *
+     * @generated from protobuf rpc: GetSandboxBuildLogs
+     */
+    getSandboxBuildLogs(input: GetSandboxBuildLogsRequest, options?: RpcOptions): UnaryCall<GetSandboxBuildLogsRequest, GetSandboxBuildLogsResponse>;
     /**
      * ListSandboxes lists the caller's sandboxes.
      *
@@ -135,7 +192,10 @@ export interface ISandboxServiceClient {
     /**
      * StreamLogs streams a live container's stdout/stderr, supporting follow,
      * tail, since-time, resume, and terminal in-band stream errors. A terminal or
-     * terminating sandbox fails with CWSANDBOX_SANDBOX_NOT_RUNNING.
+     * terminating sandbox fails with CWSANDBOX_SANDBOX_NOT_RUNNING. In a
+     * CONTROL_CONTAINER_ENGINE sandbox, the cws-engine log carries the engine's
+     * output and every service's output, each service line prefixed with the
+     * service name.
      *
      * @generated from protobuf rpc: StreamLogs
      */
@@ -215,12 +275,29 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
     /**
      * CreateSandboxFromFile launches a sandbox from an uploaded file (AIP-136
      * custom method). Unspecified type is INVALID_ARGUMENT
-     * (CWSANDBOX_INVALID_REQUEST) on type. Compose (SANDBOX_FILE_TYPE_COMPOSE)
-     * is accepted when every service already has a pullable image (`image:` or
-     * image_overrides). A service that still needs a build is UNIMPLEMENTED
-     * (CWSANDBOX_NOT_IMPLEMENTED) on that service's build, after
-     * build_context_objects and builder_sizes are validated. Other declared
-     * types are UNIMPLEMENTED (CWSANDBOX_NOT_IMPLEMENTED) on type.
+     * (CWSANDBOX_INVALID_REQUEST) on type. Other declared types than Compose
+     * (SANDBOX_FILE_TYPE_COMPOSE) are UNIMPLEMENTED (CWSANDBOX_NOT_IMPLEMENTED)
+     * on type. control selects who controls the sandbox's containers (see
+     * Control).
+     *
+     * When every Compose service has a pullable image (`image:` or
+     * image_overrides), the sandbox is returned in STATE_CREATING. When a
+     * service still needs a build, the sandbox is returned in STATE_PREPARING,
+     * its images are built without further calls, and it is placed with
+     * digest-pinned images once every build succeeds. A failed build ends it in
+     * STATE_FAILED with a state_reason starting with "build_"; fetch the failed
+     * build's output with GetSandboxBuildLogs. Stop and Delete
+     * end a preparing sandbox in STATE_TERMINATED.
+     *
+     * Builds run with the caller's CoreWeave API token and need the
+     * organization's Compose build storage to be enabled. Otherwise the create
+     * is FAILED_PRECONDITION (CWSANDBOX_PRECONDITION_FAILED) with a
+     * PreconditionFailure of type COREWEAVE_CREDENTIAL_REQUIRED or
+     * BUILD_STORAGE_NOT_ENABLED. When build capacity is full the create is
+     * RESOURCE_EXHAUSTED (CWSANDBOX_BUILD_CAPACITY_EXHAUSTED) with RetryInfo;
+     * the refused request_id may be reused for the retry. A deployment without
+     * builds returns UNIMPLEMENTED (CWSANDBOX_NOT_IMPLEMENTED) on the service's
+     * build, after build_context_objects and builder_sizes are validated.
      *
      * @generated from protobuf rpc: CreateSandboxFromFile
      */
@@ -238,12 +315,53 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
         return stackIntercept<GetSandboxRequest, Sandbox>("unary", this._transport, method, opt, input);
     }
     /**
+     * GetSandboxBuildLogs returns a short-lived download link for the output of
+     * a Compose service build that failed during CreateSandboxFromFile. The link
+     * is a presigned object storage URL for a plain-text log. It needs no
+     * Authorization header and stops working at expire_time, at most five
+     * minutes after it is issued; call again for a fresh link. Logs are
+     * available until 24 hours after the build failed, including after the
+     * sandbox is stopped or deleted and when it was never placed. The creating
+     * user, or a caller with the sandbox_admin action in the sandbox's
+     * organization, can read them.
+     *
+     * The REST binding answers 302 Found with the link in the Location header
+     * and no body. Errors are returned as usual. Follow the redirect only when
+     * authenticating with the Authorization header: HTTP clients drop it on a
+     * cross-host redirect but forward other headers, such as an API-key
+     * header, to the object storage host. With an API-key header, call the RPC
+     * instead, or read the Location header without following it.
+     *
+     * Errors:
+     *   - NOT_FOUND (CWSANDBOX_BUILD_LOGS_NOT_FOUND): the caller can see no
+     *     failed build for this sandbox and service. The sandbox or service does
+     *     not exist, belongs to another user or organization, or its build did
+     *     not fail; these cases are not distinguished.
+     *   - UNAVAILABLE (CWSANDBOX_BUILD_LOGS_PENDING) with RetryInfo: the build
+     *     failed and its logs are still being stored. Retry after the delay.
+     *   - FAILED_PRECONDITION (CWSANDBOX_BUILD_LOGS_UNAVAILABLE): the logs were
+     *     not captured, or are no longer stored. ErrorInfo metadata keys
+     *     capture_error and archive_error carry a short snake_case diagnostic
+     *     code when one is known, such as capture_unavailable or
+     *     archive_missing. Retrying does not help.
+     *   - FAILED_PRECONDITION (CWSANDBOX_BUILD_LOGS_EXPIRED): more than 24 hours
+     *     have passed since the build failed.
+     *   - UNIMPLEMENTED (CWSANDBOX_NOT_IMPLEMENTED): the deployment does not
+     *     build Compose services.
+     *
+     * @generated from protobuf rpc: GetSandboxBuildLogs
+     */
+    getSandboxBuildLogs(input: GetSandboxBuildLogsRequest, options?: RpcOptions): UnaryCall<GetSandboxBuildLogsRequest, GetSandboxBuildLogsResponse> {
+        const method = this.methods[4], opt = this._transport.mergeOptions(options);
+        return stackIntercept<GetSandboxBuildLogsRequest, GetSandboxBuildLogsResponse>("unary", this._transport, method, opt, input);
+    }
+    /**
      * ListSandboxes lists the caller's sandboxes.
      *
      * @generated from protobuf rpc: ListSandboxes
      */
     listSandboxes(input: ListSandboxesRequest, options?: RpcOptions): UnaryCall<ListSandboxesRequest, ListSandboxesResponse> {
-        const method = this.methods[4], opt = this._transport.mergeOptions(options);
+        const method = this.methods[5], opt = this._transport.mergeOptions(options);
         return stackIntercept<ListSandboxesRequest, ListSandboxesResponse>("unary", this._transport, method, opt, input);
     }
     /**
@@ -253,7 +371,7 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
      * @generated from protobuf rpc: DeleteSandbox
      */
     deleteSandbox(input: DeleteSandboxRequest, options?: RpcOptions): UnaryCall<DeleteSandboxRequest, DeleteSandboxResponse> {
-        const method = this.methods[5], opt = this._transport.mergeOptions(options);
+        const method = this.methods[6], opt = this._transport.mergeOptions(options);
         return stackIntercept<DeleteSandboxRequest, DeleteSandboxResponse>("unary", this._transport, method, opt, input);
     }
     /**
@@ -273,7 +391,7 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
      * @generated from protobuf rpc: PurgeSandboxes
      */
     purgeSandboxes(input: PurgeSandboxesRequest, options?: RpcOptions): UnaryCall<PurgeSandboxesRequest, PurgeSandboxesResponse> {
-        const method = this.methods[6], opt = this._transport.mergeOptions(options);
+        const method = this.methods[7], opt = this._transport.mergeOptions(options);
         return stackIntercept<PurgeSandboxesRequest, PurgeSandboxesResponse>("unary", this._transport, method, opt, input);
     }
     /**
@@ -284,7 +402,7 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
      * @generated from protobuf rpc: ConnectSandbox
      */
     connectSandbox(input: ConnectSandboxRequest, options?: RpcOptions): UnaryCall<ConnectSandboxRequest, SandboxConnection> {
-        const method = this.methods[7], opt = this._transport.mergeOptions(options);
+        const method = this.methods[8], opt = this._transport.mergeOptions(options);
         return stackIntercept<ConnectSandboxRequest, SandboxConnection>("unary", this._transport, method, opt, input);
     }
     /**
@@ -294,7 +412,7 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
      * @generated from protobuf rpc: Exec
      */
     exec(input: ExecRequest, options?: RpcOptions): UnaryCall<ExecRequest, ExecResponse> {
-        const method = this.methods[8], opt = this._transport.mergeOptions(options);
+        const method = this.methods[9], opt = this._transport.mergeOptions(options);
         return stackIntercept<ExecRequest, ExecResponse>("unary", this._transport, method, opt, input);
     }
     /**
@@ -304,18 +422,21 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
      * @generated from protobuf rpc: StreamExec
      */
     streamExec(options?: RpcOptions): DuplexStreamingCall<ExecStreamRequest, ExecStreamResponse> {
-        const method = this.methods[9], opt = this._transport.mergeOptions(options);
+        const method = this.methods[10], opt = this._transport.mergeOptions(options);
         return stackIntercept<ExecStreamRequest, ExecStreamResponse>("duplex", this._transport, method, opt);
     }
     /**
      * StreamLogs streams a live container's stdout/stderr, supporting follow,
      * tail, since-time, resume, and terminal in-band stream errors. A terminal or
-     * terminating sandbox fails with CWSANDBOX_SANDBOX_NOT_RUNNING.
+     * terminating sandbox fails with CWSANDBOX_SANDBOX_NOT_RUNNING. In a
+     * CONTROL_CONTAINER_ENGINE sandbox, the cws-engine log carries the engine's
+     * output and every service's output, each service line prefixed with the
+     * service name.
      *
      * @generated from protobuf rpc: StreamLogs
      */
     streamLogs(input: StreamLogsRequest, options?: RpcOptions): ServerStreamingCall<StreamLogsRequest, LogEntry> {
-        const method = this.methods[10], opt = this._transport.mergeOptions(options);
+        const method = this.methods[11], opt = this._transport.mergeOptions(options);
         return stackIntercept<StreamLogsRequest, LogEntry>("serverStreaming", this._transport, method, opt, input);
     }
     /**
@@ -324,7 +445,7 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
      * @generated from protobuf rpc: WriteFile
      */
     writeFile(input: WriteFileRequest, options?: RpcOptions): UnaryCall<WriteFileRequest, WriteFileResponse> {
-        const method = this.methods[11], opt = this._transport.mergeOptions(options);
+        const method = this.methods[12], opt = this._transport.mergeOptions(options);
         return stackIntercept<WriteFileRequest, WriteFileResponse>("unary", this._transport, method, opt, input);
     }
     /**
@@ -333,7 +454,7 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
      * @generated from protobuf rpc: ReadFile
      */
     readFile(input: ReadFileRequest, options?: RpcOptions): UnaryCall<ReadFileRequest, ReadFileResponse> {
-        const method = this.methods[12], opt = this._transport.mergeOptions(options);
+        const method = this.methods[13], opt = this._transport.mergeOptions(options);
         return stackIntercept<ReadFileRequest, ReadFileResponse>("unary", this._transport, method, opt, input);
     }
     /**
@@ -343,7 +464,7 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
      * @generated from protobuf rpc: CreateFileSystemSnapshot
      */
     createFileSystemSnapshot(input: CreateFileSystemSnapshotRequest, options?: RpcOptions): UnaryCall<CreateFileSystemSnapshotRequest, FileSystemSnapshot> {
-        const method = this.methods[13], opt = this._transport.mergeOptions(options);
+        const method = this.methods[14], opt = this._transport.mergeOptions(options);
         return stackIntercept<CreateFileSystemSnapshotRequest, FileSystemSnapshot>("unary", this._transport, method, opt, input);
     }
     /**
@@ -352,7 +473,7 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
      * @generated from protobuf rpc: GetFileSystemSnapshot
      */
     getFileSystemSnapshot(input: GetFileSystemSnapshotRequest, options?: RpcOptions): UnaryCall<GetFileSystemSnapshotRequest, FileSystemSnapshot> {
-        const method = this.methods[14], opt = this._transport.mergeOptions(options);
+        const method = this.methods[15], opt = this._transport.mergeOptions(options);
         return stackIntercept<GetFileSystemSnapshotRequest, FileSystemSnapshot>("unary", this._transport, method, opt, input);
     }
     /**
@@ -361,7 +482,7 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
      * @generated from protobuf rpc: ListFileSystemSnapshots
      */
     listFileSystemSnapshots(input: ListFileSystemSnapshotsRequest, options?: RpcOptions): UnaryCall<ListFileSystemSnapshotsRequest, ListFileSystemSnapshotsResponse> {
-        const method = this.methods[15], opt = this._transport.mergeOptions(options);
+        const method = this.methods[16], opt = this._transport.mergeOptions(options);
         return stackIntercept<ListFileSystemSnapshotsRequest, ListFileSystemSnapshotsResponse>("unary", this._transport, method, opt, input);
     }
     /**
@@ -371,7 +492,7 @@ export class SandboxServiceClient implements ISandboxServiceClient, ServiceInfo 
      * @generated from protobuf rpc: DeleteFileSystemSnapshot
      */
     deleteFileSystemSnapshot(input: DeleteFileSystemSnapshotRequest, options?: RpcOptions): UnaryCall<DeleteFileSystemSnapshotRequest, FileSystemSnapshot> {
-        const method = this.methods[16], opt = this._transport.mergeOptions(options);
+        const method = this.methods[17], opt = this._transport.mergeOptions(options);
         return stackIntercept<DeleteFileSystemSnapshotRequest, FileSystemSnapshot>("unary", this._transport, method, opt, input);
     }
 }

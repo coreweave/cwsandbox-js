@@ -186,6 +186,7 @@ function createTrackingClient(): TrackingClient {
       createdAt: undefined,
       tags: [],
       commands,
+      control: undefined,
       delete: async () => {
         deletedSandboxIds.push(sandboxId);
       },

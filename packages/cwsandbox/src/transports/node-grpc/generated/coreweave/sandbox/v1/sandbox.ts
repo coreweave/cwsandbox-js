@@ -13,6 +13,7 @@ import type { PartialMessage } from "@protobuf-ts/runtime";
 import { reflectionMergePartial } from "@protobuf-ts/runtime";
 import { MessageType } from "@protobuf-ts/runtime";
 import { Timestamp } from "../../../google/protobuf/timestamp.js";
+import { RuntimeClass } from "./runtime_class.js";
 // ----------------------------------------------------------------------------
 // Sandbox resource
 // ----------------------------------------------------------------------------
@@ -78,6 +79,13 @@ export interface Sandbox {
      * @generated from protobuf field: string endpoint_share_token = 7
      */
     endpointShareToken: string;
+    /**
+     * Who controls the sandbox's containers: CONTROL_CONTAINER_ENGINE for a
+     * sandbox created with it, and CONTROL_PLATFORM for every other sandbox.
+     *
+     * @generated from protobuf field: coreweave.sandbox.v1.Control control = 8
+     */
+    control: Control;
 }
 /**
  * SandboxSpec is the user-declared workload: one or more containers that share
@@ -98,7 +106,11 @@ export interface SandboxSpec {
     /**
      * The containers that make up the sandbox (at least one). They share the
      * sandbox's network (reachable over localhost) and any mounted volumes.
-     * Exactly one container is primary (see Container.primary).
+     * Exactly one container is primary (see Container.primary). In a
+     * CONTROL_CONTAINER_ENGINE sandbox, this lists one container, cws-engine,
+     * with the sandbox's total resources and no image, because the platform
+     * owns the engine image. That spec can't be sent back through
+     * CreateSandbox.
      *
      * @generated from protobuf field: repeated coreweave.sandbox.v1.Container containers = 1
      */
@@ -160,9 +172,12 @@ export interface SandboxSpec {
      */
     runnerIds: string[];
     /**
-     * Network intent: the egress rules this sandbox needs and the inbound
+     * Create input: the egress rules this sandbox needs and the inbound
      * sources for its CUSTOM-visibility ports. Declared rules are validated
-     * against the runner policy's network constraints.
+     * against the runner policy's network constraints. Stored as the
+     * sandbox's NetworkConfig: GET / List omit this field and return
+     * network_config_id instead; read or change the rules through
+     * NetworkConfigService. Do not send together with network_config_id.
      *
      * @generated from protobuf field: coreweave.sandbox.v1.NetworkOptions network = 10
      */
@@ -211,11 +226,41 @@ export interface SandboxSpec {
      * the allow-list even when it names the policy's own default — copying an
      * observed effective_runtime_class into a new spec's pin (a clone flow)
      * fails under a policy that sets defaults without an allow-list; clone
-     * flows should leave this unset and let the default apply.
+     * flows should leave this unset and let the default apply. Mutually
+     * exclusive with runtime_class_selection. A runner whose policy defines
+     * SecurityConstraints.runtime_class_mappings accepts no concrete pin.
      *
      * @generated from protobuf field: string runtime_class = 15
      */
     runtimeClass: string;
+    /**
+     * Immutable pointer to the bound NetworkConfig (desired NetworkOptions).
+     * Optional on Create: omit to have one created from network (or empty),
+     * with a platform-assigned `nc-…` id; set to bind a precreated config
+     * (CreateNetworkConfig rejects the `nc-` prefix). GET / List return the
+     * bound config's id. Pattern when set: ^[a-z][a-z0-9-]{2,62}$
+     *
+     * @generated from protobuf field: string network_config_id = 16
+     */
+    networkConfigId: string;
+    /**
+     * Optionally select a portable runtime class. Each runner policy's
+     * SecurityConstraints.runtime_class_mappings binds the classes it offers to
+     * concrete runtimes; only runners whose policy maps the selected class are
+     * eligible. UNSPECIFIED selects RUNTIME_CLASS_GPU_DEFAULT when any container
+     * requests GPUs and RUNTIME_CLASS_CPU_DEFAULT otherwise, on runners whose
+     * policy defines mappings; other runners keep the runtime_class behavior. CPU
+     * classes require zero GPUs and GPU classes require GPUs (INVALID_ARGUMENT
+     * otherwise). A recognized class that no runner policy in the requested
+     * placement scope offers, or that is not yet available, fails with
+     * FAILED_PRECONDITION (reason CWSANDBOX_RUNTIME_CLASS_UNAVAILABLE); when
+     * runners that offer it are busy, the create fails with a retryable error
+     * instead. Mutually exclusive with runtime_class. The concrete runtime the
+     * runner applied is reported in SandboxStatus.effective_runtime_class.
+     *
+     * @generated from protobuf field: coreweave.sandbox.v1.RuntimeClass runtime_class_selection = 17
+     */
+    runtimeClassSelection: RuntimeClass;
 }
 /**
  * SecurityContext sets in-guest privilege for a container. These settings are
@@ -322,7 +367,7 @@ export interface Container {
      * Unique name within the sandbox; used as the runtime container name and
      * to target operations and mount volumes. Must be a DNS-1123 label.
      * Must not be cw-object-store-agent, cw-object-store-agent-restore,
-     * dns-egress, dns-egress-probe, or start with
+     * cws-engine, dns-egress, dns-egress-probe, or start with
      * cw-object-store-agent-restore-. Duplicate or reserved names are
      * INVALID_ARGUMENT (CWSANDBOX_INVALID_REQUEST).
      *
@@ -541,7 +586,10 @@ export interface PartialContainer {
  * Replace-on-presence (CreateSandboxFromTemplate overrides): message fields
  * replace when non-nil; repeated fields and maps replace when non-nil
  * (including empty); scalars and enums replace when non-zero / non-empty;
- * zero / empty / nil keeps the template value.
+ * zero / empty / nil keeps the template value. Exception: runtime_class and
+ * runtime_class_selection form one runtime selection. Setting either
+ * replaces both; a present runtime_class_selection of UNSPECIFIED clears the
+ * template's runtime selection.
  *
  * @generated from protobuf message coreweave.sandbox.v1.PartialSandboxSpec
  */
@@ -603,6 +651,22 @@ export interface PartialSandboxSpec {
      * @generated from protobuf field: string runtime_class = 15
      */
     runtimeClass: string;
+    /**
+     * SandboxTemplate create/update rejects a set value, because every sandbox
+     * created from the template would share one config. To bind a precreated
+     * config (a caller-chosen id; CreateNetworkConfig rejects the `nc-`
+     * prefix), set CreateSandboxFromTemplateRequest.overrides.network_config_id.
+     *
+     * @generated from protobuf field: string network_config_id = 16
+     */
+    networkConfigId: string;
+    /**
+     * Same meaning and field number as SandboxSpec.runtime_class_selection.
+     * Presence is significant; see the runtime selection exception above.
+     *
+     * @generated from protobuf field: optional coreweave.sandbox.v1.RuntimeClass runtime_class_selection = 17
+     */
+    runtimeClassSelection?: RuntimeClass;
 }
 /**
  * SandboxStatus is the observed state of a sandbox.
@@ -611,7 +675,8 @@ export interface PartialSandboxSpec {
  */
 export interface SandboxStatus {
     /**
-     * Overall sandbox state, derived from the primary container.
+     * Overall sandbox state, derived from the primary container. In a
+     * CONTROL_CONTAINER_ENGINE sandbox, that is cws-engine (see Control).
      *
      * @generated from protobuf field: coreweave.sandbox.v1.State state = 1
      */
@@ -1615,8 +1680,10 @@ export interface CreateSandboxFromTemplateRequest {
 /**
  * CreateSandboxFromFileRequest is the AIP-136 body for CreateSandboxFromFile.
  * This list is closed: volumes, instance_type, runtime_class,
- * image_pull_credentials, and published services are not fields here; those
+ * runtime_class_selection, and published services are not fields here; those
  * callers use CreateSandbox. There is no PartialSandboxSpec overlay.
+ * CONTROL_CONTAINER_ENGINE needs no runtime class field: the Runner's engine
+ * class is used (see Control).
  *
  * @generated from protobuf message coreweave.sandbox.v1.CreateSandboxFromFileRequest
  */
@@ -1629,14 +1696,18 @@ export interface CreateSandboxFromFileRequest {
      */
     type: SandboxFileType;
     /**
-     * UTF-8 file bytes. Compose: max 256 KiB.
+     * UTF-8 file bytes. Compose: max 256 KiB. The platform keeps the file, or
+     * the spec derived from it, for the life of the sandbox record, so put
+     * secrets in a secret store rather than inline.
      *
      * @generated from protobuf field: bytes contents = 2
      */
     contents: Uint8Array;
     /**
      * Compose service that is the sandbox primary. Required when type is
-     * Compose; must name a service in contents.
+     * Compose and control is CONTROL_PLATFORM; must name a service in contents.
+     * Set with CONTROL_CONTAINER_ENGINE, it is INVALID_ARGUMENT
+     * (CWSANDBOX_INVALID_REQUEST).
      *
      * @generated from protobuf field: string primary_service = 3
      */
@@ -1652,9 +1723,11 @@ export interface CreateSandboxFromFileRequest {
         [key: string]: string;
     };
     /**
-     * Per-service gzip build-context tarballs. Keys must be services. Total
-     * 32 MiB. A service that still needs a build must not have an entry here
-     * when its build.context is a remote URL. Valid only when type is Compose.
+     * Per-service gzip build-context tarballs for services that still need a
+     * build. Keys must be services. Total 32 MiB. A service that still needs a
+     * build must not have an entry here when its build.context is a remote URL.
+     * Entries for services with an image are ignored. Valid only when type is
+     * Compose.
      *
      * @generated from protobuf field: map<string, bytes> build_contexts = 5
      */
@@ -1730,14 +1803,42 @@ export interface CreateSandboxFromFileRequest {
     };
     /**
      * Per-service builder size name, at most 64 bytes. Omitted services use the
-     * default size. Keys must be services that still need a build. At most 64
-     * entries. Valid only when type is Compose.
+     * default size. A size the build service does not offer is
+     * INVALID_ARGUMENT on builder_sizes.<service>. Keys must be services that
+     * still need a build. At most 64 entries. Valid only when type is Compose.
      *
      * @generated from protobuf field: map<string, string> builder_sizes = 18
      */
     builderSizes: {
         [key: string]: string;
     };
+    /**
+     * Who controls the sandbox's containers (see Control). Unspecified means
+     * CONTROL_PLATFORM. CONTROL_CONTAINER_ENGINE is valid only when type is
+     * Compose. A server that doesn't support it returns UNIMPLEMENTED
+     * (CWSANDBOX_NOT_IMPLEMENTED). When no runner can run a container engine,
+     * the create is FAILED_PRECONDITION (CWSANDBOX_NO_SUITABLE_RUNNER) with
+     * metadata unsupported_feature=container_engine. A value the server
+     * doesn't recognize is UNIMPLEMENTED (CWSANDBOX_NOT_IMPLEMENTED).
+     *
+     * @generated from protobuf field: coreweave.sandbox.v1.Control control = 19
+     */
+    control: Control;
+    /**
+     * Registry credentials for pulling images, at most one per registry and at
+     * most 16 entries. A repeated registry or a 17th entry is INVALID_ARGUMENT
+     * (CWSANDBOX_INVALID_REQUEST).
+     * Credentials are resolved at create, as for
+     * Container.image_pull_credentials. With CONTROL_PLATFORM, each container
+     * uses the credential whose registry matches its image. With
+     * CONTROL_CONTAINER_ENGINE, the engine's Docker client holds every
+     * credential, and a credential here replaces the platform's own for the
+     * same registry. Valid only when type is Compose. A deployment without
+     * support returns UNIMPLEMENTED (CWSANDBOX_NOT_IMPLEMENTED).
+     *
+     * @generated from protobuf field: repeated coreweave.sandbox.v1.ImagePullCredentials image_pull_credentials = 20
+     */
+    imagePullCredentials: ImagePullCredentials[];
 }
 /**
  * BuildContextObject names one exact version of a gzip-compressed tar build
@@ -1789,6 +1890,44 @@ export interface GetSandboxRequest {
     sandboxId: string;
 }
 /**
+ * @generated from protobuf message coreweave.sandbox.v1.GetSandboxBuildLogsRequest
+ */
+export interface GetSandboxBuildLogsRequest {
+    /**
+     * Sandbox UUID, as returned by CreateSandboxFromFile. Display names are not
+     * accepted.
+     *
+     * @generated from protobuf field: string sandbox_id = 1
+     */
+    sandboxId: string;
+    /**
+     * Name of the Compose service whose build failed, as it appears under
+     * services: in the file.
+     *
+     * @generated from protobuf field: string service = 2
+     */
+    service: string;
+}
+/**
+ * @generated from protobuf message coreweave.sandbox.v1.GetSandboxBuildLogsResponse
+ */
+export interface GetSandboxBuildLogsResponse {
+    /**
+     * Presigned HTTPS GET URL for the plain-text build log. It is a bearer
+     * credential: anyone holding it can read the log until expire_time, so do
+     * not log or share it.
+     *
+     * @generated from protobuf field: string url = 1
+     */
+    url: string;
+    /**
+     * When url stops working.
+     *
+     * @generated from protobuf field: google.protobuf.Timestamp expire_time = 2
+     */
+    expireTime?: Timestamp;
+}
+/**
  * @generated from protobuf message coreweave.sandbox.v1.ListSandboxesRequest
  */
 export interface ListSandboxesRequest {
@@ -1831,6 +1970,14 @@ export interface ListSandboxesRequest {
      * @generated from protobuf field: repeated string volume_ids = 7
      */
     volumeIds: string[];
+    /**
+     * Direction of the creation-time ordering, with sandbox_id breaking ties.
+     * Unspecified means descending: newest first. A page_token must be reused
+     * with the direction that produced it.
+     *
+     * @generated from protobuf field: coreweave.sandbox.v1.SortDirection sort_direction = 8
+     */
+    sortDirection: SortDirection;
 }
 /**
  * @generated from protobuf message coreweave.sandbox.v1.ListSandboxesResponse
@@ -2011,6 +2158,8 @@ export interface ExecRequest {
     /**
      * Target container name. Empty = the primary. Unknown names and
      * platform sidecar names are INVALID_ARGUMENT (CWSANDBOX_INVALID_REQUEST).
+     * In a CONTROL_CONTAINER_ENGINE sandbox, cws-engine is the only container
+     * and the primary.
      *
      * @generated from protobuf field: string container = 5
      */
@@ -2136,6 +2285,8 @@ export interface ExecStreamInit {
     /**
      * Target container name. Empty = the primary. Unknown names and
      * platform sidecar names are INVALID_ARGUMENT (CWSANDBOX_INVALID_REQUEST).
+     * In a CONTROL_CONTAINER_ENGINE sandbox, cws-engine is the only container
+     * and the primary.
      *
      * @generated from protobuf field: string container = 7
      */
@@ -2291,6 +2442,8 @@ export interface StreamLogsRequest {
     /**
      * Target container name. Empty = the primary. Unknown names and
      * platform sidecar names are INVALID_ARGUMENT (CWSANDBOX_INVALID_REQUEST).
+     * In a CONTROL_CONTAINER_ENGINE sandbox, cws-engine is the only container
+     * and the primary.
      *
      * @generated from protobuf field: string container = 5
      */
@@ -2391,6 +2544,8 @@ export interface WriteFileRequest {
     /**
      * Target container name. Empty = the primary. Unknown names and
      * platform sidecar names are INVALID_ARGUMENT (CWSANDBOX_INVALID_REQUEST).
+     * In a CONTROL_CONTAINER_ENGINE sandbox, cws-engine is the only container
+     * and the primary.
      *
      * @generated from protobuf field: string container = 4
      */
@@ -2416,6 +2571,8 @@ export interface ReadFileRequest {
     /**
      * Target container name. Empty = the primary. Unknown names and
      * platform sidecar names are INVALID_ARGUMENT (CWSANDBOX_INVALID_REQUEST).
+     * In a CONTROL_CONTAINER_ENGINE sandbox, cws-engine is the only container
+     * and the primary.
      *
      * @generated from protobuf field: string container = 3
      */
@@ -2741,7 +2898,7 @@ export enum State {
      */
     PAUSED = 8,
     /**
-     * accepted image fill; not placed. spec omitted
+     * accepted; Compose images building; not placed. spec omitted
      *
      * @generated from protobuf enum value: STATE_PREPARING = 9;
      */
@@ -2965,6 +3122,73 @@ export enum SandboxFileType {
     COMPOSE = 1
 }
 /**
+ * Control says who controls a sandbox's containers.
+ *
+ * @generated from protobuf enum coreweave.sandbox.v1.Control
+ */
+export enum Control {
+    /**
+     * CONTROL_PLATFORM.
+     *
+     * @generated from protobuf enum value: CONTROL_UNSPECIFIED = 0;
+     */
+    UNSPECIFIED = 0,
+    /**
+     * The platform creates, runs and reports each container.
+     *
+     * @generated from protobuf enum value: CONTROL_PLATFORM = 1;
+     */
+    PLATFORM = 1,
+    /**
+     * The sandbox is a container engine that the caller drives. It needs a
+     * Compose file, which runs as written under Docker Compose in a privileged
+     * container named cws-engine, inside the sandbox's virtual machine. Exec,
+     * StreamExec, ReadFile, WriteFile and StreamLogs reach cws-engine, where the
+     * caller runs docker compose and docker to manage and reach services. The
+     * sandbox is RUNNING once docker compose up --wait succeeds. It is FAILED
+     * whenever the engine exits, unless it was stopped, deleted or reached its
+     * lifetime. A service exiting doesn't end it.
+     *
+     * The engine adds 0.25 CPU and 512 MiB to the sandbox's requests and limits,
+     * on top of the services' resources. The added resources are billed and
+     * count against quota and policy ceilings. Limits are always set.
+     *
+     * cws-engine receives the sandbox's identity token at
+     * /var/run/secrets/sandbox/identity-token and, for W&B-authenticated
+     * callers, WANDB_API_KEY in its environment. The file passes them to the
+     * services that need them.
+     *
+     * Placement uses only Runners whose policy sets allow_privileged and permits
+     * the Runner's Kata Containers VM runtime class through
+     * allowed_runtime_classes, default_cpu_runtime_class or
+     * runtime_class_mappings.
+     *
+     * @generated from protobuf enum value: CONTROL_CONTAINER_ENGINE = 2;
+     */
+    CONTAINER_ENGINE = 2
+}
+/**
+ * SortDirection selects ascending or descending order.
+ *
+ * @generated from protobuf enum coreweave.sandbox.v1.SortDirection
+ */
+export enum SortDirection {
+    /**
+     * The method's default direction.
+     *
+     * @generated from protobuf enum value: SORT_DIRECTION_UNSPECIFIED = 0;
+     */
+    UNSPECIFIED = 0,
+    /**
+     * @generated from protobuf enum value: SORT_DIRECTION_DESCENDING = 1;
+     */
+    DESCENDING = 1,
+    /**
+     * @generated from protobuf enum value: SORT_DIRECTION_ASCENDING = 2;
+     */
+    ASCENDING = 2
+}
+/**
  * @generated from protobuf enum coreweave.sandbox.v1.SnapshotState
  */
 export enum SnapshotState {
@@ -3088,7 +3312,8 @@ class Sandbox$Type extends MessageType<Sandbox> {
             { no: 4, name: "source_template_id", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } },
             { no: 5, name: "source_template_revision", kind: "scalar", T: 3 /*ScalarType.INT64*/, options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } },
             { no: 6, name: "display_name", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
-            { no: 7, name: "endpoint_share_token", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } }
+            { no: 7, name: "endpoint_share_token", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } },
+            { no: 8, name: "control", kind: "enum", T: () => ["coreweave.sandbox.v1.Control", Control, "CONTROL_"], options: { "google.api.field_behavior": ["OUTPUT_ONLY"] } }
         ]);
     }
     create(value?: PartialMessage<Sandbox>): Sandbox {
@@ -3098,6 +3323,7 @@ class Sandbox$Type extends MessageType<Sandbox> {
         message.sourceTemplateRevision = "0";
         message.displayName = "";
         message.endpointShareToken = "";
+        message.control = 0;
         if (value !== undefined)
             reflectionMergePartial<Sandbox>(this, message, value);
         return message;
@@ -3127,6 +3353,9 @@ class Sandbox$Type extends MessageType<Sandbox> {
                     break;
                 case /* string endpoint_share_token */ 7:
                     message.endpointShareToken = reader.string();
+                    break;
+                case /* coreweave.sandbox.v1.Control control */ 8:
+                    message.control = reader.int32();
                     break;
                 default:
                     let u = options.readUnknownField;
@@ -3161,6 +3390,9 @@ class Sandbox$Type extends MessageType<Sandbox> {
         /* string endpoint_share_token = 7; */
         if (message.endpointShareToken !== "")
             writer.tag(7, WireType.LengthDelimited).string(message.endpointShareToken);
+        /* coreweave.sandbox.v1.Control control = 8; */
+        if (message.control !== 0)
+            writer.tag(8, WireType.Varint).int32(message.control);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -3183,11 +3415,13 @@ class SandboxSpec$Type extends MessageType<SandboxSpec> {
             { no: 7, name: "object_storage_access", kind: "message", T: () => ObjectStorageAccess, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 8, name: "tags", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 9, name: "runner_ids", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
-            { no: 10, name: "network", kind: "message", T: () => NetworkOptions, options: { "google.api.field_behavior": ["OPTIONAL"] } },
+            { no: 10, name: "network", kind: "message", T: () => NetworkOptions, options: { "google.api.field_behavior": ["OPTIONAL", "INPUT_ONLY"] } },
             { no: 11, name: "annotations", kind: "map", K: 9 /*ScalarType.STRING*/, V: { kind: "scalar", T: 9 /*ScalarType.STRING*/ }, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 13, name: "instance_type", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 14, name: "mode", kind: "enum", T: () => ["coreweave.sandbox.v1.SandboxMode", SandboxMode, "SANDBOX_MODE_"], options: { "google.api.field_behavior": ["OPTIONAL"] } },
-            { no: 15, name: "runtime_class", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } }
+            { no: 15, name: "runtime_class", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
+            { no: 16, name: "network_config_id", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
+            { no: 17, name: "runtime_class_selection", kind: "enum", T: () => ["coreweave.sandbox.v1.RuntimeClass", RuntimeClass, "RUNTIME_CLASS_"], options: { "google.api.field_behavior": ["OPTIONAL"] } }
         ]);
     }
     create(value?: PartialMessage<SandboxSpec>): SandboxSpec {
@@ -3203,6 +3437,8 @@ class SandboxSpec$Type extends MessageType<SandboxSpec> {
         message.instanceType = "";
         message.mode = 0;
         message.runtimeClass = "";
+        message.networkConfigId = "";
+        message.runtimeClassSelection = 0;
         if (value !== undefined)
             reflectionMergePartial<SandboxSpec>(this, message, value);
         return message;
@@ -3250,6 +3486,12 @@ class SandboxSpec$Type extends MessageType<SandboxSpec> {
                     break;
                 case /* string runtime_class */ 15:
                     message.runtimeClass = reader.string();
+                    break;
+                case /* string network_config_id */ 16:
+                    message.networkConfigId = reader.string();
+                    break;
+                case /* coreweave.sandbox.v1.RuntimeClass runtime_class_selection */ 17:
+                    message.runtimeClassSelection = reader.int32();
                     break;
                 default:
                     let u = options.readUnknownField;
@@ -3318,6 +3560,12 @@ class SandboxSpec$Type extends MessageType<SandboxSpec> {
         /* string runtime_class = 15; */
         if (message.runtimeClass !== "")
             writer.tag(15, WireType.LengthDelimited).string(message.runtimeClass);
+        /* string network_config_id = 16; */
+        if (message.networkConfigId !== "")
+            writer.tag(16, WireType.LengthDelimited).string(message.networkConfigId);
+        /* coreweave.sandbox.v1.RuntimeClass runtime_class_selection = 17; */
+        if (message.runtimeClassSelection !== 0)
+            writer.tag(17, WireType.Varint).int32(message.runtimeClassSelection);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -3859,7 +4107,9 @@ class PartialSandboxSpec$Type extends MessageType<PartialSandboxSpec> {
             { no: 11, name: "annotations", kind: "map", K: 9 /*ScalarType.STRING*/, V: { kind: "scalar", T: 9 /*ScalarType.STRING*/ }, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 13, name: "instance_type", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 14, name: "mode", kind: "enum", T: () => ["coreweave.sandbox.v1.SandboxMode", SandboxMode, "SANDBOX_MODE_"], options: { "google.api.field_behavior": ["OPTIONAL"] } },
-            { no: 15, name: "runtime_class", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } }
+            { no: 15, name: "runtime_class", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
+            { no: 16, name: "network_config_id", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
+            { no: 17, name: "runtime_class_selection", kind: "enum", opt: true, T: () => ["coreweave.sandbox.v1.RuntimeClass", RuntimeClass, "RUNTIME_CLASS_"], options: { "google.api.field_behavior": ["OPTIONAL"] } }
         ]);
     }
     create(value?: PartialMessage<PartialSandboxSpec>): PartialSandboxSpec {
@@ -3875,6 +4125,7 @@ class PartialSandboxSpec$Type extends MessageType<PartialSandboxSpec> {
         message.instanceType = "";
         message.mode = 0;
         message.runtimeClass = "";
+        message.networkConfigId = "";
         if (value !== undefined)
             reflectionMergePartial<PartialSandboxSpec>(this, message, value);
         return message;
@@ -3922,6 +4173,12 @@ class PartialSandboxSpec$Type extends MessageType<PartialSandboxSpec> {
                     break;
                 case /* string runtime_class */ 15:
                     message.runtimeClass = reader.string();
+                    break;
+                case /* string network_config_id */ 16:
+                    message.networkConfigId = reader.string();
+                    break;
+                case /* optional coreweave.sandbox.v1.RuntimeClass runtime_class_selection */ 17:
+                    message.runtimeClassSelection = reader.int32();
                     break;
                 default:
                     let u = options.readUnknownField;
@@ -3990,6 +4247,12 @@ class PartialSandboxSpec$Type extends MessageType<PartialSandboxSpec> {
         /* string runtime_class = 15; */
         if (message.runtimeClass !== "")
             writer.tag(15, WireType.LengthDelimited).string(message.runtimeClass);
+        /* string network_config_id = 16; */
+        if (message.networkConfigId !== "")
+            writer.tag(16, WireType.LengthDelimited).string(message.networkConfigId);
+        /* optional coreweave.sandbox.v1.RuntimeClass runtime_class_selection = 17; */
+        if (message.runtimeClassSelection !== undefined)
+            writer.tag(17, WireType.Varint).int32(message.runtimeClassSelection);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -5973,7 +6236,9 @@ class CreateSandboxFromFileRequest$Type extends MessageType<CreateSandboxFromFil
             { no: 15, name: "request_id", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 16, name: "display_name", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 17, name: "build_context_objects", kind: "map", K: 9 /*ScalarType.STRING*/, V: { kind: "message", T: () => BuildContextObject }, options: { "google.api.field_behavior": ["OPTIONAL"] } },
-            { no: 18, name: "builder_sizes", kind: "map", K: 9 /*ScalarType.STRING*/, V: { kind: "scalar", T: 9 /*ScalarType.STRING*/ }, options: { "google.api.field_behavior": ["OPTIONAL"] } }
+            { no: 18, name: "builder_sizes", kind: "map", K: 9 /*ScalarType.STRING*/, V: { kind: "scalar", T: 9 /*ScalarType.STRING*/ }, options: { "google.api.field_behavior": ["OPTIONAL"] } },
+            { no: 19, name: "control", kind: "enum", T: () => ["coreweave.sandbox.v1.Control", Control, "CONTROL_"], options: { "google.api.field_behavior": ["OPTIONAL"] } },
+            { no: 20, name: "image_pull_credentials", kind: "message", repeat: 2 /*RepeatType.UNPACKED*/, T: () => ImagePullCredentials, options: { "google.api.field_behavior": ["OPTIONAL"] } }
         ]);
     }
     create(value?: PartialMessage<CreateSandboxFromFileRequest>): CreateSandboxFromFileRequest {
@@ -5993,6 +6258,8 @@ class CreateSandboxFromFileRequest$Type extends MessageType<CreateSandboxFromFil
         message.displayName = "";
         message.buildContextObjects = {};
         message.builderSizes = {};
+        message.control = 0;
+        message.imagePullCredentials = [];
         if (value !== undefined)
             reflectionMergePartial<CreateSandboxFromFileRequest>(this, message, value);
         return message;
@@ -6055,6 +6322,12 @@ class CreateSandboxFromFileRequest$Type extends MessageType<CreateSandboxFromFil
                     break;
                 case /* map<string, string> builder_sizes */ 18:
                     this.binaryReadMap18(message.builderSizes, reader, options);
+                    break;
+                case /* coreweave.sandbox.v1.Control control */ 19:
+                    message.control = reader.int32();
+                    break;
+                case /* repeated coreweave.sandbox.v1.ImagePullCredentials image_pull_credentials */ 20:
+                    message.imagePullCredentials.push(ImagePullCredentials.internalBinaryRead(reader, reader.uint32(), options));
                     break;
                 default:
                     let u = options.readUnknownField;
@@ -6206,6 +6479,12 @@ class CreateSandboxFromFileRequest$Type extends MessageType<CreateSandboxFromFil
         /* map<string, string> builder_sizes = 18; */
         for (let k of globalThis.Object.keys(message.builderSizes))
             writer.tag(18, WireType.LengthDelimited).fork().tag(1, WireType.LengthDelimited).string(k).tag(2, WireType.LengthDelimited).string(message.builderSizes[k]).join();
+        /* coreweave.sandbox.v1.Control control = 19; */
+        if (message.control !== 0)
+            writer.tag(19, WireType.Varint).int32(message.control);
+        /* repeated coreweave.sandbox.v1.ImagePullCredentials image_pull_credentials = 20; */
+        for (let i = 0; i < message.imagePullCredentials.length; i++)
+            ImagePullCredentials.internalBinaryWrite(message.imagePullCredentials[i], writer.tag(20, WireType.LengthDelimited).fork(), options).join();
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -6335,6 +6614,115 @@ class GetSandboxRequest$Type extends MessageType<GetSandboxRequest> {
  */
 export const GetSandboxRequest = new GetSandboxRequest$Type();
 // @generated message type with reflection information, may provide speed optimized methods
+class GetSandboxBuildLogsRequest$Type extends MessageType<GetSandboxBuildLogsRequest> {
+    constructor() {
+        super("coreweave.sandbox.v1.GetSandboxBuildLogsRequest", [
+            { no: 1, name: "sandbox_id", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["REQUIRED"] } },
+            { no: 2, name: "service", kind: "scalar", T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["REQUIRED"] } }
+        ]);
+    }
+    create(value?: PartialMessage<GetSandboxBuildLogsRequest>): GetSandboxBuildLogsRequest {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.sandboxId = "";
+        message.service = "";
+        if (value !== undefined)
+            reflectionMergePartial<GetSandboxBuildLogsRequest>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: GetSandboxBuildLogsRequest): GetSandboxBuildLogsRequest {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* string sandbox_id */ 1:
+                    message.sandboxId = reader.string();
+                    break;
+                case /* string service */ 2:
+                    message.service = reader.string();
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: GetSandboxBuildLogsRequest, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* string sandbox_id = 1; */
+        if (message.sandboxId !== "")
+            writer.tag(1, WireType.LengthDelimited).string(message.sandboxId);
+        /* string service = 2; */
+        if (message.service !== "")
+            writer.tag(2, WireType.LengthDelimited).string(message.service);
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message coreweave.sandbox.v1.GetSandboxBuildLogsRequest
+ */
+export const GetSandboxBuildLogsRequest = new GetSandboxBuildLogsRequest$Type();
+// @generated message type with reflection information, may provide speed optimized methods
+class GetSandboxBuildLogsResponse$Type extends MessageType<GetSandboxBuildLogsResponse> {
+    constructor() {
+        super("coreweave.sandbox.v1.GetSandboxBuildLogsResponse", [
+            { no: 1, name: "url", kind: "scalar", T: 9 /*ScalarType.STRING*/ },
+            { no: 2, name: "expire_time", kind: "message", T: () => Timestamp }
+        ]);
+    }
+    create(value?: PartialMessage<GetSandboxBuildLogsResponse>): GetSandboxBuildLogsResponse {
+        const message = globalThis.Object.create((this.messagePrototype!));
+        message.url = "";
+        if (value !== undefined)
+            reflectionMergePartial<GetSandboxBuildLogsResponse>(this, message, value);
+        return message;
+    }
+    internalBinaryRead(reader: IBinaryReader, length: number, options: BinaryReadOptions, target?: GetSandboxBuildLogsResponse): GetSandboxBuildLogsResponse {
+        let message = target ?? this.create(), end = reader.pos + length;
+        while (reader.pos < end) {
+            let [fieldNo, wireType] = reader.tag();
+            switch (fieldNo) {
+                case /* string url */ 1:
+                    message.url = reader.string();
+                    break;
+                case /* google.protobuf.Timestamp expire_time */ 2:
+                    message.expireTime = Timestamp.internalBinaryRead(reader, reader.uint32(), options, message.expireTime);
+                    break;
+                default:
+                    let u = options.readUnknownField;
+                    if (u === "throw")
+                        throw new globalThis.Error(`Unknown field ${fieldNo} (wire type ${wireType}) for ${this.typeName}`);
+                    let d = reader.skip(wireType);
+                    if (u !== false)
+                        (u === true ? UnknownFieldHandler.onRead : u)(this.typeName, message, fieldNo, wireType, d);
+            }
+        }
+        return message;
+    }
+    internalBinaryWrite(message: GetSandboxBuildLogsResponse, writer: IBinaryWriter, options: BinaryWriteOptions): IBinaryWriter {
+        /* string url = 1; */
+        if (message.url !== "")
+            writer.tag(1, WireType.LengthDelimited).string(message.url);
+        /* google.protobuf.Timestamp expire_time = 2; */
+        if (message.expireTime)
+            Timestamp.internalBinaryWrite(message.expireTime, writer.tag(2, WireType.LengthDelimited).fork(), options).join();
+        let u = options.writeUnknownFields;
+        if (u !== false)
+            (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
+        return writer;
+    }
+}
+/**
+ * @generated MessageType for protobuf message coreweave.sandbox.v1.GetSandboxBuildLogsResponse
+ */
+export const GetSandboxBuildLogsResponse = new GetSandboxBuildLogsResponse$Type();
+// @generated message type with reflection information, may provide speed optimized methods
 class ListSandboxesRequest$Type extends MessageType<ListSandboxesRequest> {
     constructor() {
         super("coreweave.sandbox.v1.ListSandboxesRequest", [
@@ -6344,7 +6732,8 @@ class ListSandboxesRequest$Type extends MessageType<ListSandboxesRequest> {
             { no: 4, name: "state", kind: "enum", T: () => ["coreweave.sandbox.v1.State", State, "STATE_"], options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 5, name: "show_terminated", kind: "scalar", T: 8 /*ScalarType.BOOL*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
             { no: 6, name: "runner_ids", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
-            { no: 7, name: "volume_ids", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } }
+            { no: 7, name: "volume_ids", kind: "scalar", repeat: 2 /*RepeatType.UNPACKED*/, T: 9 /*ScalarType.STRING*/, options: { "google.api.field_behavior": ["OPTIONAL"] } },
+            { no: 8, name: "sort_direction", kind: "enum", T: () => ["coreweave.sandbox.v1.SortDirection", SortDirection, "SORT_DIRECTION_"], options: { "google.api.field_behavior": ["OPTIONAL"] } }
         ]);
     }
     create(value?: PartialMessage<ListSandboxesRequest>): ListSandboxesRequest {
@@ -6356,6 +6745,7 @@ class ListSandboxesRequest$Type extends MessageType<ListSandboxesRequest> {
         message.showTerminated = false;
         message.runnerIds = [];
         message.volumeIds = [];
+        message.sortDirection = 0;
         if (value !== undefined)
             reflectionMergePartial<ListSandboxesRequest>(this, message, value);
         return message;
@@ -6385,6 +6775,9 @@ class ListSandboxesRequest$Type extends MessageType<ListSandboxesRequest> {
                     break;
                 case /* repeated string volume_ids */ 7:
                     message.volumeIds.push(reader.string());
+                    break;
+                case /* coreweave.sandbox.v1.SortDirection sort_direction */ 8:
+                    message.sortDirection = reader.int32();
                     break;
                 default:
                     let u = options.readUnknownField;
@@ -6419,6 +6812,9 @@ class ListSandboxesRequest$Type extends MessageType<ListSandboxesRequest> {
         /* repeated string volume_ids = 7; */
         for (let i = 0; i < message.volumeIds.length; i++)
             writer.tag(7, WireType.LengthDelimited).string(message.volumeIds[i]);
+        /* coreweave.sandbox.v1.SortDirection sort_direction = 8; */
+        if (message.sortDirection !== 0)
+            writer.tag(8, WireType.Varint).int32(message.sortDirection);
         let u = options.writeUnknownFields;
         if (u !== false)
             (u == true ? UnknownFieldHandler.onWrite : u)(this.typeName, message, writer);
@@ -8572,6 +8968,7 @@ export const SandboxService = new ServiceType("coreweave.sandbox.v1.SandboxServi
     { name: "CreateSandboxFromTemplate", options: { "google.api.http": { post: "/v1/sandboxes:createFromTemplate", body: "*" } }, I: CreateSandboxFromTemplateRequest, O: Sandbox },
     { name: "CreateSandboxFromFile", options: { "google.api.http": { post: "/v1/sandboxes:createFromFile", body: "*" } }, I: CreateSandboxFromFileRequest, O: Sandbox },
     { name: "GetSandbox", options: { "google.api.http": { get: "/v1/sandboxes/{sandbox_id}" } }, I: GetSandboxRequest, O: Sandbox },
+    { name: "GetSandboxBuildLogs", options: { "google.api.http": { get: "/v1/sandboxes/{sandbox_id}/builds/{service}/logs" } }, I: GetSandboxBuildLogsRequest, O: GetSandboxBuildLogsResponse },
     { name: "ListSandboxes", options: { "google.api.http": { get: "/v1/sandboxes" } }, I: ListSandboxesRequest, O: ListSandboxesResponse },
     { name: "DeleteSandbox", options: { "google.api.http": { delete: "/v1/sandboxes/{sandbox_id}" } }, I: DeleteSandboxRequest, O: DeleteSandboxResponse },
     { name: "PurgeSandboxes", options: { "google.api.http": { post: "/v1/sandboxes:purge", body: "*" } }, I: PurgeSandboxesRequest, O: PurgeSandboxesResponse },
