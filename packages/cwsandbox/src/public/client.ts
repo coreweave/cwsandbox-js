@@ -96,8 +96,10 @@ export interface SandboxClient {
    * as-is, so whitespace is part of the request. The file is capped at 256 KiB.
    *
    * Compose is pull-only. Images must already be pullable or supplied in
-   * `imageOverrides`. Leftover `build:` is not implemented.
-   * `primaryService` is required and must name a service in the file.
+   * `imageOverrides`; pass `imagePullCredentials` for private registries.
+   * Leftover `build:` is not implemented. `primaryService` must name a
+   * service in the file unless `control` is `"container_engine"`, which runs
+   * the file as written under Docker Compose in a `cws-engine` container.
    *
    * This surface does not accept volumes, published services, secrets,
    * mounted files, or container/image overlays. Use `create` / `run` for

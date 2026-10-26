@@ -158,7 +158,6 @@ const FROM_FILE_UNSUPPORTED_KEYS = [
   "containers",
   "environmentVariables",
   "fileSystemSnapshot",
-  "imagePullCredentials",
   "instanceType",
   "mountedFiles",
   "networkIds",
@@ -186,8 +185,18 @@ export function validateSandboxRunFromFileOptions(
     rejectRemovedKeys(options.network, ["egressMode", "exposedPorts", "ingressMode"]);
   }
   validateFromFileOptionShapes(options);
-  if (typeof options.primaryService !== "string" || options.primaryService.trim() === "") {
-    throw new CWSandboxValidationError("primaryService must not be empty.");
+  if (options.control !== undefined && !SANDBOX_CONTROLS.has(options.control)) {
+    throw new CWSandboxValidationError(
+      'control must be "unspecified", "platform", or "container_engine".',
+    );
+  }
+  if (
+    options.control !== "container_engine" &&
+    (typeof options.primaryService !== "string" || options.primaryService.trim() === "")
+  ) {
+    throw new CWSandboxValidationError(
+      'primaryService must not be empty unless control is "container_engine".',
+    );
   }
   if (options.fileType !== undefined && options.fileType !== "compose") {
     throw new CWSandboxValidationError('fileType must be "compose".');
@@ -205,6 +214,12 @@ export function validateSandboxRunFromFileOptions(
   validateOptionalBoolean(options.waitUntilRunning, "waitUntilRunning");
   validateDataPlaneMode(options.dataPlaneMode);
 }
+
+const SANDBOX_CONTROLS: ReadonlySet<string> = new Set([
+  "unspecified",
+  "platform",
+  "container_engine",
+]);
 
 function rejectUnsupportedFromFileKeys(options: object): void {
   const record = options as Record<string, unknown>;
@@ -225,6 +240,8 @@ function validateFromFileOptionShapes(options: SandboxRunFromFileOptions): void 
   requireArrayIfPresent(options.tags, "tags");
   requireStringIfPresent(options.primaryService, "primaryService");
   requireStringIfPresent(options.fileType, "fileType");
+  requireStringIfPresent(options.control, "control");
+  validateImagePullCredentialsShape(options.imagePullCredentials);
 
   if (options.imageOverrides !== undefined) {
     for (const [key, value] of Object.entries(options.imageOverrides)) {
@@ -494,6 +511,24 @@ function requireStringIfPresent(value: unknown, name: string): void {
 function requireNumberIfPresent(value: unknown, name: string): void {
   if (value !== undefined && typeof value !== "number") {
     throw new CWSandboxValidationError(`${name} must be a number`);
+  }
+}
+
+function validateImagePullCredentialsShape(credentials: unknown): void {
+  requireArrayOfRecordsIfPresent(credentials, "imagePullCredentials");
+  if (credentials === undefined) {
+    return;
+  }
+  for (const [index, entry] of (credentials as readonly Record<string, unknown>[]).entries()) {
+    for (const key of ["registry", "store", "name"]) {
+      const value = entry[key];
+      if (typeof value !== "string" || value.trim() === "") {
+        throw new CWSandboxValidationError(
+          `imagePullCredentials[${index}].${key} must be a non-empty string`,
+        );
+      }
+    }
+    requireStringIfPresent(entry["field"], `imagePullCredentials[${index}].field`);
   }
 }
 

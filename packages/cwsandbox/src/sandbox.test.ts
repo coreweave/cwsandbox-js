@@ -340,6 +340,28 @@ describe("Sandbox", () => {
     expect(sandbox.statusReason).toBe("ready");
   });
 
+  it("keeps reported control when a later response omits it", async () => {
+    const transport: SandboxTransport = {
+      ...createFakeTransport(),
+      async startFromFile() {
+        return { control: "container_engine", sandboxId: "sandbox-engine", status: "creating" };
+      },
+      async get(request) {
+        return { sandboxId: request.sandboxId, status: "running" };
+      },
+    };
+    const client = createClient(transport);
+
+    const sandbox = await client.runFromFile(new TextEncoder().encode("services: {}\n"), {
+      control: "container_engine",
+      waitUntilRunning: false,
+    });
+    await sandbox.getStatus();
+
+    expect(sandbox.control).toBe("container_engine");
+    expect((await client.run(["echo"], { waitUntilRunning: false })).control).toBeUndefined();
+  });
+
   it("clears serviceUrls when inspect omits them and retains exposedPorts", async () => {
     const ports = [{ name: "http", port: 8000, protocol: "tcp" as const }];
     const transport: SandboxTransport = {

@@ -1829,7 +1829,66 @@ describe("SandboxClient", () => {
       await expect(client.runFromFile(compose, { primaryService: "   " })).rejects.toThrow(
         /primaryService must not be empty/,
       );
+      await expect(client.runFromFile(compose, { control: "platform" })).rejects.toThrow(
+        /primaryService must not be empty/,
+      );
       expect(startFromFileCalls).toBe(0);
+    });
+
+    it("passes container engine control and image pull credentials to the transport", async () => {
+      let fileRequest: Parameters<SandboxTransport["startFromFile"]>[0] | undefined;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async startFromFile(request) {
+          fileRequest = request;
+          return { control: "container_engine", sandboxId: "sandbox-engine", status: "running" };
+        },
+      };
+      const imagePullCredentials = [
+        { name: "ghcr-creds", registry: "ghcr.io", store: "wandb" },
+      ] as const;
+
+      const sandbox = await createClient(transport).runFromFile(compose, {
+        control: "container_engine",
+        imagePullCredentials,
+        waitUntilRunning: false,
+      });
+
+      expect(fileRequest).toMatchObject({ control: "container_engine", imagePullCredentials });
+      expect(fileRequest).not.toHaveProperty("primaryService");
+      expect(sandbox.control).toBe("container_engine");
+    });
+
+    it("rejects an unknown control before the transport", async () => {
+      const client = createClient();
+
+      await expect(
+        client.runFromFile(compose, { control: "docker" as never, primaryService: "main" }),
+      ).rejects.toThrow(/control must be/);
+    });
+
+    it("rejects malformed image pull credentials before the transport", async () => {
+      const client = createClient();
+      const credential = { name: "ghcr-creds", registry: "ghcr.io", store: "wandb" };
+
+      await expect(
+        client.runFromFile(compose, {
+          control: "container_engine",
+          imagePullCredentials: credential as never,
+        }),
+      ).rejects.toThrow(/imagePullCredentials must be an array/);
+      await expect(
+        client.runFromFile(compose, {
+          control: "container_engine",
+          imagePullCredentials: [{ ...credential, registry: "" }],
+        }),
+      ).rejects.toThrow(/imagePullCredentials\[0\]\.registry must be a non-empty string/);
+      await expect(
+        client.runFromFile(compose, {
+          control: "container_engine",
+          imagePullCredentials: [{ ...credential, field: 1 as never }],
+        }),
+      ).rejects.toThrow(/imagePullCredentials\[0\]\.field must be a string/);
     });
 
     it("rejects GPU on defaultResources", async () => {

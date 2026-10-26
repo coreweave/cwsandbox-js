@@ -19,7 +19,9 @@ import type {
   EnvironmentVariables,
   FileSystemSnapshotOptions,
   FileSystemSnapshotResult,
+  ImagePullCredentials,
   SandboxAnnotations,
+  SandboxControl,
   SandboxFileType,
   SandboxId,
   SandboxObjectStorageAccess,
@@ -45,8 +47,10 @@ export interface StartSandboxRequest extends Omit<SandboxRunOptions, "waitUntilR
 
 export interface StartSandboxFromFileRequest extends RequestOptions, CreateRetryOptions {
   readonly contents: Uint8Array;
-  readonly primaryService: string;
+  readonly primaryService?: string;
   readonly fileType?: SandboxFileType;
+  readonly control?: SandboxControl;
+  readonly imagePullCredentials?: readonly ImagePullCredentials[];
   readonly imageOverrides?: Readonly<Record<string, string>>;
   readonly defaultResources?: ResourceOptions;
   readonly annotations?: SandboxAnnotations;
