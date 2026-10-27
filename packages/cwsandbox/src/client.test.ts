@@ -156,6 +156,9 @@ describe("SandboxClient", () => {
     it("stops the accepted sandbox when the run readiness wait sees a failed status", async () => {
       const stoppedSandboxIds: string[] = [];
       const getStatuses: string[] = [];
+      // Not a real backend sequence: `failed` is terminal. The cleanup stop's
+      // status check sees `running` here only so that a stop RPC is sent,
+      // which proves the cleanup ran. The realistic case is the next test.
       const base = createFakeTransport(["failed", "running"]);
       const transport: SandboxTransport = {
         ...base,
@@ -175,6 +178,53 @@ describe("SandboxClient", () => {
       );
       expect(stoppedSandboxIds).toEqual(["sandbox-for-echo"]);
       expect(getStatuses).toEqual(["failed", "running", "terminated"]);
+    });
+
+    it("sends no stop request when the run readiness wait sees a terminal failed status", async () => {
+      const getStatuses: string[] = [];
+      let stopCalls = 0;
+      const base = createFakeTransport(["failed"]);
+      const transport: SandboxTransport = {
+        ...base,
+        async get(request) {
+          const result = await base.get(request);
+          getStatuses.push(result.status);
+          return result;
+        },
+        async stop() {
+          stopCalls += 1;
+        },
+      };
+
+      await expect(createClient(transport).run(["echo", "hello"])).rejects.toBeInstanceOf(
+        CWSandboxFailedError,
+      );
+      expect(getStatuses).toEqual(["failed", "failed"]);
+      expect(stopCalls).toBe(0);
+    });
+
+    it("stops the accepted sandbox and rejects with the abort reason when run is aborted", async () => {
+      const controller = new AbortController();
+      const reason = new Error("caller aborted");
+      const stopRequests: Parameters<SandboxTransport["stop"]>[0][] = [];
+      const base = createFakeTransport(["creating"]);
+      const transport: SandboxTransport = {
+        ...base,
+        async get(request) {
+          const result = await base.get(request);
+          controller.abort(reason);
+          return result;
+        },
+        async stop(request) {
+          stopRequests.push(request);
+          await base.stop(request);
+        },
+      };
+
+      await expect(
+        createClient(transport).run(["echo", "hello"], { signal: controller.signal }),
+      ).rejects.toBe(reason);
+      expect(stopRequests.map((request) => request.sandboxId)).toEqual(["sandbox-for-echo"]);
     });
 
     it("stops the accepted sandbox when the create readiness wait times out", async () => {
@@ -2308,6 +2358,8 @@ describe("SandboxClient", () => {
 
     it("stops the sandbox and skips the callback when withSandbox readiness fails", async () => {
       const stoppedSandboxIds: string[] = [];
+      // Not a real backend sequence: `failed` is terminal. The cleanup stop's
+      // status check sees `running` only so that a stop RPC proves cleanup ran.
       const base = createFakeTransport(["failed", "running"]);
       const callback = vi.fn<() => void>();
       const transport: SandboxTransport = {
