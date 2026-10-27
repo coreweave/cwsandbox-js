@@ -1176,6 +1176,16 @@ describe("node transport mappers", () => {
       expect(request.buildContexts).toEqual({});
     });
 
+    it("sends the caller's requestId instead of a generated one", () => {
+      const request = toProtoCreateFromFileRequest({
+        contents: compose,
+        primaryService: "main",
+        requestId: "caller-key",
+      });
+
+      expect(request.requestId).toBe("caller-key");
+    });
+
     it("omits default resources, image overrides, and CKS mode when unset", () => {
       const request = toProtoCreateFromFileRequest({
         contents: compose,

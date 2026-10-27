@@ -146,7 +146,7 @@ export function toProtoCreateFromFileRequest(
   const imagePullCredentials = request.imagePullCredentials?.map(toProtoImagePullCredentials);
 
   return CreateSandboxFromFileRequest.create({
-    requestId: randomUUID(),
+    requestId: request.requestId ?? randomUUID(),
     type: SandboxFileType.COMPOSE,
     contents: request.contents,
     ...(request.primaryService === undefined ? {} : { primaryService: request.primaryService }),

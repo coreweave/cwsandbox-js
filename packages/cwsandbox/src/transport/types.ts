@@ -58,6 +58,7 @@ export interface StartSandboxFromFileRequest extends RequestOptions, CreateRetry
   readonly network?: NetworkOptions;
   readonly objectStorageAccess?: SandboxObjectStorageAccess;
   readonly runnerIds?: readonly string[];
+  readonly requestId?: string;
   readonly tags?: readonly SandboxTag[];
 }
 

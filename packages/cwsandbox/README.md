@@ -1080,6 +1080,12 @@ Wait for `running` as usual. If creation is accepted but the readiness wait
 rejects, the SDK best-effort stops the sandbox. `waitUntilRunning: false`
 returns immediately after accept with no automatic cleanup.
 
+Pass `requestId` to make a create safe to retry: repeating the same request
+with the same key returns the original sandbox instead of creating another.
+Because bytes are not normalized, the same key with different `contents` (even
+whitespace) fails with `CWSANDBOX_REQUEST_ID_CONFLICT`. Without it, each call
+gets a fresh key.
+
 Prefer `withSandboxFromFile` for short-lived work:
 
 ```ts

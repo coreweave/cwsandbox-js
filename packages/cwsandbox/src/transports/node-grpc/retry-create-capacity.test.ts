@@ -153,6 +153,46 @@ describe("create factory retries", () => {
     },
   );
 
+  it("sends the caller's runFromFile requestId on every capacity retry", async () => {
+    const bodies: unknown[] = [];
+    const createSandboxFromFile = (body: unknown): { response: Promise<unknown> } => {
+      bodies.push(body);
+      return {
+        response:
+          bodies.length === 1
+            ? Promise.reject(
+                new RpcError(
+                  "busy",
+                  "RESOURCE_EXHAUSTED",
+                  statusDetailsMeta({
+                    errorInfos: [{ reason: "CWSANDBOX_RUNNER_CAPACITY_EXHAUSTED" }],
+                    retryInfos: [{ retryNanos: 1_000_000 }],
+                  }),
+                ),
+              )
+            : Promise.resolve(
+                ProtoSandbox.create({ sandboxId: "keyed", status: { state: State.RUNNING } }),
+              ),
+      };
+    };
+    const transport = new GrpcSandboxTransport({ apiKey: "test", baseUrl: "http://127.0.0.1:1" });
+    Object.defineProperty(transport, "client", { value: { createSandboxFromFile } });
+
+    await createClient(transport).runFromFile(
+      new TextEncoder().encode("services:\n  main:\n    image: alpine\n"),
+      {
+        createRetryBudgetMs: 5_000,
+        primaryService: "main",
+        requestId: "caller-key",
+        waitUntilRunning: false,
+      },
+    );
+
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0]).toHaveProperty("requestId", "caller-key");
+    expect(bodies[1]).toHaveProperty("requestId", "caller-key");
+  });
+
   it.each([-1, NaN, Infinity, -Infinity])(
     "validates retry budget %s before any create",
     async (createRetryBudgetMs) => {
@@ -166,6 +206,12 @@ describe("create factory retries", () => {
       ).rejects.toThrow(/createRetryBudgetMs/);
     },
   );
+
+  it.each(["", "  "])("rejects a blank runFromFile requestId %j before any create", async (id) => {
+    await expect(
+      createClient().runFromFile(new Uint8Array([1]), { primaryService: "main", requestId: id }),
+    ).rejects.toThrow(/requestId must not be empty/);
+  });
 });
 
 describe("capacity retry pacing", () => {

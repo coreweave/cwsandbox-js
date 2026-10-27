@@ -210,6 +210,7 @@ export function validateSandboxRunFromFileOptions(
   rejectGpuResources(options.defaultResources, "defaultResources");
   validateResources(options.defaultResources);
   validateUniqueStringList(options.runnerIds, "runnerIds");
+  validateOptionalNonBlankString(options.requestId, "requestId");
   validateTags(options.tags);
   validateOptionalBoolean(options.waitUntilRunning, "waitUntilRunning");
   validateDataPlaneMode(options.dataPlaneMode);

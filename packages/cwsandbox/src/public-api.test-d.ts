@@ -181,6 +181,7 @@ test("public API types", async () => {
       permission: "read",
     },
     primaryService: "main",
+    requestId: "compose-key",
   };
   expectTypeOf(client.runFromFile(composeBytes, sandboxRunFromFileOptions)).toEqualTypeOf<
     ReturnType<SandboxClient["runFromFile"]>

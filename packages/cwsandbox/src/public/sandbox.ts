@@ -361,6 +361,13 @@ export interface SandboxRunFromFileOptions
    * CKS placement is only via non-empty `runnerIds`.
    */
   readonly runnerIds?: readonly string[];
+  /**
+   * Idempotency key. Repeating the same request with the same key returns the
+   * original sandbox instead of creating another. The same key with different
+   * `contents` bytes (even whitespace) is rejected with
+   * `CWSANDBOX_REQUEST_ID_CONFLICT`. Defaults to a fresh UUID per call.
+   */
+  readonly requestId?: string;
   readonly tags?: readonly SandboxTag[];
   /**
    * Wait for the sandbox to reach `running` before resolving creation helpers.
