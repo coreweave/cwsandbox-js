@@ -13,6 +13,8 @@ import {
   CWSandboxTransportError,
   CWSandboxUnavailableError,
   CWSandboxValidationError,
+  type GetSandboxResult,
+  type SnapshotOptions,
   type WaitOptions,
 } from "./index.js";
 import type { SandboxRuntime } from "./runtime/context.js";
@@ -796,3 +798,181 @@ function advancingClock(): {
     },
   };
 }
+
+describe("startup poll cadence", () => {
+  const OLD_BACKOFF_MS = [200, 300, 450, 675, 1_012.5, 1_518.75, 2_000];
+  const CAPPED_BACKOFF_MS = [200, 300, 450, 500, 500, 500, 500];
+
+  function startupClock(startMs = 1_000): {
+    readonly now: () => number;
+    readonly sleep: (timeoutMs: number) => Promise<void>;
+    readonly sleeps: number[];
+  } {
+    let nowMs = startMs;
+    const sleeps: number[] = [];
+    return {
+      now: () => nowMs,
+      sleep: async (timeoutMs) => {
+        sleeps.push(timeoutMs);
+        nowMs += timeoutMs;
+      },
+      sleeps,
+    };
+  }
+
+  function statusRuntime(status: (getCall: number) => GetSandboxResult["status"]): {
+    readonly calls: () => number;
+    readonly runtime: SandboxRuntime;
+  } {
+    let getCalls = 0;
+    return {
+      calls: () => getCalls,
+      runtime: {
+        sandboxId: "sandbox-startup",
+        transport: {
+          ...createFakeTransport(),
+          async get(request) {
+            getCalls += 1;
+            return { exitCode: 0, sandboxId: request.sandboxId, status: status(getCalls) };
+          },
+        },
+      },
+    };
+  }
+
+  it("detects a sandbox ready at 5s without a two-second sleep", async () => {
+    const clock = startupClock();
+    const { calls, runtime } = statusRuntime(() => (clock.now() >= 6_000 ? "running" : "creating"));
+
+    await waitForSandbox(runtime, {
+      now: clock.now,
+      sleep: clock.sleep,
+      startupPollStartedAt: 1_000,
+    });
+
+    expect(clock.now()).toBeGreaterThanOrEqual(6_000);
+    expect(clock.now()).toBeLessThan(6_500);
+    expect(Math.max(...clock.sleeps)).toBeLessThanOrEqual(500);
+    expect(calls()).toBeLessThanOrEqual(14);
+  });
+
+  it("returns to the normal backoff after the 15s window", async () => {
+    const clock = startupClock();
+    const { calls, runtime } = statusRuntime(() => (clock.now() >= 21_000 ? "running" : "pending"));
+
+    await waitForSandbox(runtime, {
+      now: clock.now,
+      sleep: clock.sleep,
+      startupPollStartedAt: 1_000,
+    });
+
+    const windowSleeps = clock.sleeps.filter((_, index) => {
+      const sleptAt = 1_000 + clock.sleeps.slice(0, index).reduce((sum, ms) => sum + ms, 0);
+      return sleptAt < 16_000;
+    });
+    expect(Math.max(...windowSleeps)).toBeLessThanOrEqual(500);
+    expect(clock.sleeps.slice(-3)).toEqual([2_000, 2_000, 2_000]);
+    expect(calls()).toBeLessThan(38);
+  });
+
+  it.each([
+    ["no create time (adopted sandbox)", undefined],
+    ["a window that elapsed before the wait started", -15_000],
+  ])("keeps the normal backoff with %s", async (_label, startupPollStartedAt) => {
+    const clock = startupClock();
+    const { runtime } = statusRuntime((getCall) => (getCall <= 7 ? "creating" : "running"));
+
+    await waitForSandbox(runtime, {
+      now: clock.now,
+      sleep: clock.sleep,
+      ...(startupPollStartedAt === undefined ? {} : { startupPollStartedAt }),
+    });
+
+    expect(clock.sleeps).toEqual(OLD_BACKOFF_MS);
+  });
+
+  it("does not cap polling once the sandbox is terminating", async () => {
+    const clock = startupClock();
+    const { runtime } = statusRuntime((getCall) => (getCall <= 7 ? "terminating" : "completed"));
+
+    await waitForSandbox(runtime, {
+      now: clock.now,
+      sleep: clock.sleep,
+      startupPollStartedAt: 1_000,
+    });
+
+    expect(clock.sleeps).toEqual(OLD_BACKOFF_MS);
+  });
+
+  it("does not shorten a server retry hint", async () => {
+    const clock = startupClock();
+    let getCalls = 0;
+    const runtime: SandboxRuntime = {
+      sandboxId: "sandbox-startup",
+      transport: {
+        ...createFakeTransport(),
+        async get(request) {
+          getCalls += 1;
+          if (getCalls === 1) {
+            throw new CWSandboxUnavailableError("busy", { retryDelayMs: 5_000 });
+          }
+          return { sandboxId: request.sandboxId, status: getCalls === 2 ? "creating" : "running" };
+        },
+      },
+    };
+
+    await waitForSandbox(runtime, {
+      now: clock.now,
+      sleep: clock.sleep,
+      startupPollStartedAt: 1_000,
+    });
+
+    expect(clock.sleeps).toEqual([5_000, 200]);
+  });
+
+  it("caps waits on created sandboxes only, until stop", async () => {
+    const statuses: GetSandboxResult["status"][] = [...Array(7).fill("creating"), "running"];
+    const recordSleeps = (): { sleeps: number[]; sleep: (ms: number) => Promise<void> } => {
+      const sleeps: number[] = [];
+      return { sleep: async (ms) => void sleeps.push(ms), sleeps };
+    };
+    const client = createClient(createFakeTransport(statuses));
+
+    const created = await client.run(["echo", "hello"], { waitUntilRunning: false });
+    const createdWait = recordSleeps();
+    await created.wait({ sleep: createdWait.sleep } as WaitOptions);
+    expect(createdWait.sleeps).toEqual(CAPPED_BACKOFF_MS);
+
+    const snapshotted = await createClient(createFakeTransport(statuses)).run(["echo", "hello"], {
+      waitUntilRunning: false,
+    });
+    const snapshotWait = recordSleeps();
+    await snapshotted.snapshot({ sleep: snapshotWait.sleep } as SnapshotOptions);
+    expect(snapshotWait.sleeps.slice(0, 7)).toEqual(CAPPED_BACKOFF_MS);
+
+    // fromId spends one Get.
+    const adoptedClient = createClient(createFakeTransport(["creating", ...statuses]));
+    const adopted = await adoptedClient.fromId("sandbox-for-echo");
+    const adoptedWait = recordSleeps();
+    await adopted.wait({ sleep: adoptedWait.sleep } as WaitOptions);
+    expect(adoptedWait.sleeps).toEqual(OLD_BACKOFF_MS);
+
+    let stopGets = 0;
+    const base = createFakeTransport();
+    const stopClient = createClient({
+      ...base,
+      async get(request) {
+        stopGets += 1;
+        // Hold stop's own Get open so only stop() starting can clear the window.
+        return stopGets === 1
+          ? new Promise<never>(() => {})
+          : { sandboxId: request.sandboxId, status: statuses[stopGets - 2] ?? "running" };
+      },
+    });
+    const stopping = await stopClient.run(["echo", "hello"], { waitUntilRunning: false });
+    void stopping.stop();
+    const stoppingWait = recordSleeps();
+    await stopping.wait({ sleep: stoppingWait.sleep } as WaitOptions);
+    expect(stoppingWait.sleeps).toEqual(OLD_BACKOFF_MS);
+  });
+});

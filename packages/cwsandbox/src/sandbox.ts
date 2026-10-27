@@ -60,7 +60,7 @@ import {
   captureFileSystemSnapshot,
   type CaptureFileSystemSnapshotOptions,
 } from "./runtime/snapshot.js";
-import { waitForSandbox, type WaitForSandboxOptions } from "./runtime/wait.js";
+import { STARTING_STATUSES, waitForSandbox, type WaitForSandboxOptions } from "./runtime/wait.js";
 import type { SandboxTransport } from "./transport.js";
 import type { FileAdapter } from "./transport/file-adapter.js";
 
@@ -74,6 +74,8 @@ interface SandboxOptions {
   readonly metadata?: SandboxMetadata | StartSandboxResult;
   readonly sandboxId: SandboxId;
   readonly scratchVolumeNames?: readonly string[];
+  /** `Date.now()` just before this client's create request. Omitted for adopted sandboxes. */
+  readonly startupPollStartedAt?: number;
   readonly transport: SandboxTransport;
 }
 
@@ -96,10 +98,14 @@ export class Sandbox implements PublicSandbox {
   private readonly runtime: SandboxRuntime;
   private statusUpdatedAtMs: number | undefined;
   private stopPromise: Promise<void> | undefined;
+  // Cleared once startup is over or a stop begins, so later waits keep the
+  // normal backoff (Python parity).
+  private startupPollStartedAt: number | undefined;
 
   public constructor(options: SandboxOptions) {
     const dataPlaneMode = options.dataPlaneMode;
     this.sandboxId = options.sandboxId;
+    this.startupPollStartedAt = options.startupPollStartedAt;
     this.retainedEndpointShareToken = createTimeEndpointShareToken(options.metadata);
     this.metadata = {
       ...cloneMetadata(options.metadata),
@@ -254,16 +260,20 @@ export class Sandbox implements PublicSandbox {
   public async wait(options: WaitOptions = {}): Promise<PublicSandbox> {
     // Cast preserves test-only WaitForSandboxOptions fields (e.g. initialIntervalMs)
     // when callers pass a widened object through the public WaitOptions signature.
-    await waitForSandbox(this.runtime, options as WaitForSandboxOptions, (metadata) => {
-      this.updateMetadata(metadata);
-    });
+    await waitForSandbox(
+      this.runtime,
+      { ...(options as WaitForSandboxOptions), ...this.startupPollOptions() },
+      (metadata) => {
+        this.updateMetadata(metadata);
+      },
+    );
     return this;
   }
 
   public async snapshot(options: SnapshotOptions = {}): Promise<FileSystemSnapshotResult> {
     return captureFileSystemSnapshot(
       this.runtime,
-      options as CaptureFileSystemSnapshotOptions,
+      { ...(options as CaptureFileSystemSnapshotOptions), ...this.startupPollOptions() },
       (metadata) => {
         this.updateMetadata(metadata);
       },
@@ -272,6 +282,7 @@ export class Sandbox implements PublicSandbox {
 
   public async stop(options: StopOptions = {}): Promise<void> {
     validateStopOptions(options);
+    this.startupPollStartedAt = undefined;
 
     if (this.stopPromise === undefined) {
       // First caller's lifecycle RPC options win; missingOk is applied per waiter below.
@@ -352,7 +363,16 @@ export class Sandbox implements PublicSandbox {
     );
   }
 
+  private startupPollOptions(): { readonly startupPollStartedAt?: number } {
+    return this.startupPollStartedAt === undefined
+      ? {}
+      : { startupPollStartedAt: this.startupPollStartedAt };
+  }
+
   private updateMetadata(metadata: SandboxMetadata): void {
+    if (metadata.status !== undefined && !STARTING_STATUSES.has(metadata.status)) {
+      this.startupPollStartedAt = undefined;
+    }
     const serviceAddresses = mergeServiceAddresses(this.metadata, metadata);
     const exposedPorts = mergeExposedPorts(this.metadata.exposedPorts, metadata.exposedPorts);
     const { serviceAddresses: _ignored, ...metadataWithoutAddresses } = metadata;

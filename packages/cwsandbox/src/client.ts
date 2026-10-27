@@ -84,6 +84,7 @@ export class SandboxClient implements SandboxClientInterface {
     const normalizedCommand = normalizeCommand(command);
     validateSandboxRunOptions(options);
     const { dataPlaneMode, waitUntilRunning, ...startOptions } = options;
+    const startupPollStartedAt = Date.now();
     const result = await transport.start({ ...startOptions, command: normalizedCommand });
     const scratchVolumeNames = scratchVolumeNamesFromRunOptions(options);
 
@@ -92,6 +93,7 @@ export class SandboxClient implements SandboxClientInterface {
       dataPlaneMode: dataPlaneMode ?? this.dataPlaneMode,
       metadata: result,
       sandboxId: result.sandboxId,
+      startupPollStartedAt,
       transport,
       ...(scratchVolumeNames === undefined ? {} : { scratchVolumeNames }),
     });
@@ -128,6 +130,7 @@ export class SandboxClient implements SandboxClientInterface {
     const fileAdapter = this.fileAdapter;
     validateSandboxRunFromTemplateOptions(templateId, options);
     const { command, dataPlaneMode, waitUntilRunning, ...startOptions } = options;
+    const startupPollStartedAt = Date.now();
     const result = await transport.startFromTemplate({
       ...startOptions,
       templateId,
@@ -140,6 +143,7 @@ export class SandboxClient implements SandboxClientInterface {
       dataPlaneMode: dataPlaneMode ?? this.dataPlaneMode,
       metadata: result,
       sandboxId: result.sandboxId,
+      startupPollStartedAt,
       transport,
       ...(scratchVolumeNames === undefined ? {} : { scratchVolumeNames }),
     });
@@ -177,6 +181,7 @@ export class SandboxClient implements SandboxClientInterface {
       ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
     });
     const { dataPlaneMode, waitUntilRunning, ...startOptions } = options;
+    const startupPollStartedAt = Date.now();
     const result = await transport.startFromFile({
       ...startOptions,
       contents: contentsBytes,
@@ -188,6 +193,7 @@ export class SandboxClient implements SandboxClientInterface {
       dataPlaneMode: dataPlaneMode ?? this.dataPlaneMode,
       metadata: result,
       sandboxId: result.sandboxId,
+      startupPollStartedAt,
       transport,
     });
 
