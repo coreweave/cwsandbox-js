@@ -31,7 +31,7 @@ export async function execCommand(
   options: ExecOptions = {},
 ): Promise<ProcessResult> {
   validateExecOptions(options);
-  const { check, cwd, signal, timeoutMs } = options;
+  const { check, container, cwd, signal, timeoutMs } = options;
   const normalizedCommand = normalizeCommand(command);
   const stats = runtime.execStats;
   if (stats !== undefined) {
@@ -44,6 +44,7 @@ export async function execCommand(
       command: normalizedCommand,
       ...(runtime.dataPlaneMode === undefined ? {} : { dataPlaneMode: runtime.dataPlaneMode }),
       sandboxId: runtime.sandboxId,
+      ...(container !== undefined ? { container } : {}),
       ...(cwd !== undefined ? { cwd } : {}),
       ...(signal !== undefined ? { signal } : {}),
       ...(timeoutMs !== undefined ? { timeoutMs } : {}),

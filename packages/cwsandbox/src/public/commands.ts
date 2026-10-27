@@ -12,12 +12,16 @@ export type CommandProcessStatus = "cancelled" | "exited" | "failed" | "running"
 
 export interface ExecOptions extends RequestOptions {
   readonly check?: boolean;
+  /** Target container name. Omit or empty for the primary. */
+  readonly container?: string;
   readonly cwd?: string;
 }
 
 export interface StartCommandOptions extends RequestOptions {
   readonly bufferedMaxKiB?: number;
   readonly check?: boolean;
+  /** Target container name. Omit or empty for the primary. */
+  readonly container?: string;
   readonly cwd?: string;
   readonly stdin?: boolean;
 }
@@ -29,6 +33,9 @@ export interface StartCommandOptionsWithStdin extends StartCommandOptions {
 export interface ShellOptions extends RequestOptions {
   readonly cols?: number;
   readonly command?: CommandInput;
+  /** Target container name. Omit or empty for the primary. */
+  readonly container?: string;
+
   readonly rows?: number;
 }
 

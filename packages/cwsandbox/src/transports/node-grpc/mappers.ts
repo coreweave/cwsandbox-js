@@ -13,6 +13,8 @@ import { isAdvancedResources } from "../../internal/resources.js";
 import { groupSecretsByStore, normalizeSecrets } from "../../internal/secrets.js";
 import { isRegisteredVolume } from "../../internal/validation/file-system-snapshot.js";
 import type { Command, ProcessResult } from "../../public/commands.js";
+import type { Container as SdkContainer } from "../../public/containers.js";
+import type { MountedFiles } from "../../public/files.js";
 import type {
   NetworkConfigResult,
   NetworkConfigUnsupportedField,
@@ -56,6 +58,7 @@ import type {
   SecurityContext as SdkSecurityContext,
   StartSandboxResult,
 } from "../../public/sandbox.js";
+import type { SecretInput, Secrets } from "../../public/secrets.js";
 import type {
   CreateNetworkConfigRequest,
   ExecRequest,
@@ -110,6 +113,7 @@ import {
   VolumeMount,
   type CidrBlock as ProtoCidrBlock,
   type ContainerStatus as ProtoContainerStatus,
+  type Container as ProtoContainer,
   type ExecResponse as ProtoExecResponse,
   type FileSystemSnapshot as ProtoFileSystemSnapshot,
   type Gpu,
@@ -145,7 +149,10 @@ export function toProtoCreateRequest(request: StartSandboxRequest): CreateSandbo
     sandbox: ProtoSandbox.create({
       spec: SandboxSpec.create({
         annotations: { ...request.annotations },
-        containers: [toProtoContainer(request)],
+        containers:
+          request.containers === undefined
+            ? [toProtoContainer(request)]
+            : toProtoContainers(request.containers, request),
         ...(request.maxLifetimeSeconds === undefined
           ? {}
           : { maxLifetimeSeconds: request.maxLifetimeSeconds }),
@@ -334,13 +341,11 @@ function toProtoContainer(request: StartSandboxRequest): ReturnType<typeof Conta
   const resourceRequirements = toProtoResourceRequirements(request.resources);
   const volumeMounts = toProtoVolumeMounts(request);
   return Container.create({
-    args: commandArgs(request.command),
-    command: commandName(request.command),
+    ...(request.command === undefined
+      ? {}
+      : { args: commandArgs(request.command), command: commandName(request.command) }),
     environmentVariables: { ...request.environmentVariables },
-    files: normalizeMountedFiles(request.mountedFiles).map((file) => ({
-      content: normalizeFileContent(file.content),
-      path: file.path,
-    })),
+    files: toProtoFileMounts(request.mountedFiles),
     image: request.containerImage ?? DEFAULT_CONTAINER_IMAGE,
     ...(request.imagePullCredentials === undefined
       ? {}
@@ -348,14 +353,7 @@ function toProtoContainer(request: StartSandboxRequest): ReturnType<typeof Conta
     name: PRIMARY_CONTAINER,
     primary: true,
     ...(resourceRequirements === undefined ? {} : { resourceRequirements }),
-    secretStores: groupSecretsByStore(normalizeSecrets(request.secrets)).map((group) => ({
-      secrets: group.secrets.map((secret) => ({
-        envVar: secret.envVar,
-        field: secret.field,
-        path: secret.name,
-      })),
-      storeName: group.store,
-    })),
+    secretStores: toProtoSecretStores(request.secrets),
     ...(request.securityContext === undefined
       ? {}
       : { securityContext: toProtoSecurityContext(request.securityContext) }),
@@ -381,6 +379,71 @@ function toProtoSecurityContext(
     capabilitiesDrop: [...(context.capabilitiesDrop ?? [])],
     seccompProfile: context.seccompProfile ?? "",
   });
+}
+
+function toProtoContainers(
+  containers: readonly SdkContainer[],
+  volumes: VolumeCreateFields,
+): ReturnType<typeof Container.create>[] {
+  const rows = containers.map(toProtoUserContainer);
+  // Sandbox-level volume mounts go on the primary, as with a single container.
+  const mounts = toProtoVolumeMounts(volumes) ?? [];
+  const primary = rows.find((row) => row.primary === true) ?? rows[0];
+  if (primary !== undefined) {
+    const existing = new Set(primary.volumeMounts.map((m) => `${m.volume}\0${m.mountPath}`));
+    for (const mount of mounts) {
+      if (!existing.has(`${mount.volume}\0${mount.mountPath}`)) {
+        primary.volumeMounts.push(mount);
+      }
+    }
+  }
+  return rows;
+}
+
+function toProtoUserContainer(container: SdkContainer): ReturnType<typeof Container.create> {
+  const resourceRequirements = toProtoResourceRequirements(container.resources);
+  return Container.create({
+    args: [...(container.args ?? [])],
+    command: container.command ?? "",
+    environmentVariables: { ...container.environmentVariables },
+    files: toProtoFileMounts(container.mountedFiles),
+    image: container.image,
+    name: container.name ?? "",
+    ...(container.primary === true ? { primary: true } : {}),
+    ...(resourceRequirements === undefined ? {} : { resourceRequirements }),
+    secretStores: toProtoSecretStores(container.secrets),
+    volumeMounts: (container.volumeMounts ?? []).map((mount) =>
+      VolumeMount.create({
+        mountPath: mount.mountPath,
+        readOnly: mount.readOnly === true,
+        subPath: mount.subPath ?? "",
+        volume: mount.volume,
+      }),
+    ),
+  });
+}
+
+function toProtoFileMounts(
+  mountedFiles: MountedFiles | undefined,
+): { content: Uint8Array; path: string }[] {
+  return normalizeMountedFiles(mountedFiles).map((file) => ({
+    content: normalizeFileContent(file.content),
+    path: file.path,
+  }));
+}
+
+function toProtoSecretStores(secrets: Secrets | undefined): {
+  secrets: { envVar: string; field: string; path: string }[];
+  storeName: string;
+}[] {
+  return groupSecretsByStore(normalizeSecrets(secrets)).map((group) => ({
+    secrets: group.secrets.map((secret) => ({
+      envVar: secret.envVar,
+      field: secret.field,
+      path: secret.name,
+    })),
+    storeName: group.store,
+  }));
 }
 
 type VolumeCreateFields = {
@@ -721,11 +784,17 @@ function toProtoGpu(gpu: GpuSpec): Gpu {
   };
 }
 
+/** Empty or whitespace targets the primary. */
+export function toProtoContainerTarget(container: string | undefined): string {
+  return container?.trim() ?? "";
+}
+
 export function toProtoExecRequest(
   request: ExecRequest,
 ): ReturnType<typeof ProtoExecRequest.create> {
   return ProtoExecRequest.create({
     command: toExecCommand(request),
+    container: toProtoContainerTarget(request.container),
     sandboxId: request.sandboxId,
   });
 }
@@ -757,6 +826,7 @@ export function toProtoDeleteRequest(request: {
 }
 
 export function toProtoStreamLogsRequest(request: {
+  readonly container?: string;
   readonly follow?: boolean;
   readonly resume?: { readonly offset: bigint | number | string; readonly sessionId: string };
   readonly sandboxId: string;
@@ -765,6 +835,7 @@ export function toProtoStreamLogsRequest(request: {
   readonly timestamps?: boolean;
 }): ReturnType<typeof ProtoStreamLogsRequest.create> {
   return ProtoStreamLogsRequest.create({
+    container: toProtoContainerTarget(request.container),
     follow: request.follow ?? false,
     ...(request.resume === undefined
       ? {}
@@ -850,6 +921,7 @@ function toSdkSandboxMetadata(sandbox: ProtoSandboxMessage): SandboxMetadata {
   const effectiveDnsEgress =
     status === undefined ? undefined : toSdkDnsEgressMode(status.effectiveDnsEgress);
   const networkConfigId = sandbox.spec?.networkConfigId;
+  const containers = toSdkContainers(sandbox.spec?.containers);
 
   return {
     ...(sandbox.spec === undefined ? {} : { tags: [...sandbox.spec.tags] }),
@@ -861,6 +933,7 @@ function toSdkSandboxMetadata(sandbox: ProtoSandboxMessage): SandboxMetadata {
       ? {}
       : { attachedVolumeIds: [...status.attachedVolumeIds] }),
     ...(containerStatuses === undefined ? {} : { containerStatuses }),
+    ...(containers === undefined ? {} : { containers }),
     ...(status?.exitCode === undefined ? {} : { exitCode: status.exitCode }),
     ...(dnsEgressNames === undefined ? {} : { dnsEgressNames }),
     ...(effectiveEgress === undefined ? {} : { effectiveEgress }),
@@ -889,6 +962,74 @@ function toSdkSandboxMetadata(sandbox: ProtoSandboxMessage): SandboxMetadata {
       ? {}
       : { statusReason: status.stateReason }),
   };
+}
+
+/** Marks the inferred primary so the list is a valid `containers` create option. */
+function toSdkContainers(
+  containers: readonly ProtoContainer[] | undefined,
+): readonly SdkContainer[] | undefined {
+  if (containers === undefined || containers.length === 0) {
+    return undefined;
+  }
+  const rows = containers.map(toSdkContainer);
+  if (rows.some((row) => row.primary === true)) {
+    return rows;
+  }
+  return rows.map((row, index) => (index === 0 ? { ...row, primary: true } : row));
+}
+
+function toSdkContainer(container: ProtoContainer): SdkContainer {
+  const resources = toSdkContainerResources(container);
+  const secrets = container.secretStores.flatMap((store) =>
+    store.secrets.map((secret): SecretInput => ({
+      name: secret.path,
+      store: store.storeName,
+      ...(secret.field === "" ? {} : { field: secret.field }),
+      ...(secret.envVar === "" ? {} : { envVar: secret.envVar }),
+    })),
+  );
+  const environmentVariables = { ...container.environmentVariables };
+  return {
+    image: container.image,
+    ...(container.name === "" ? {} : { name: container.name }),
+    ...(container.command === "" ? {} : { command: container.command }),
+    ...(container.args.length === 0 ? {} : { args: [...container.args] }),
+    ...(Object.keys(environmentVariables).length === 0 ? {} : { environmentVariables }),
+    ...(resources === undefined ? {} : { resources }),
+    ...(container.files.length === 0
+      ? {}
+      : {
+          mountedFiles: container.files.map((file) => ({ content: file.content, path: file.path })),
+        }),
+    ...(container.volumeMounts.length === 0
+      ? {}
+      : {
+          volumeMounts: container.volumeMounts.map((mount) => ({
+            mountPath: mount.mountPath,
+            volume: mount.volume,
+            ...(mount.readOnly ? { readOnly: true } : {}),
+            ...(mount.subPath === "" ? {} : { subPath: mount.subPath }),
+          })),
+        }),
+    ...(secrets.length === 0 ? {} : { secrets }),
+    ...(container.primary === true ? { primary: true } : {}),
+  };
+}
+
+function toSdkContainerResources(container: ProtoContainer): ResourceOptions | undefined {
+  const requirements = container.resourceRequirements;
+  if (requirements === undefined) {
+    return toSdkResourceSpec(container.resources);
+  }
+  const requests = toSdkResourceSpec(requirements.requests);
+  const limits = toSdkResourceSpec(requirements.limits);
+  if (requests === undefined || limits === undefined) {
+    return requests ?? limits;
+  }
+  if (requests.cpu === limits.cpu && requests.memory === limits.memory) {
+    return requests;
+  }
+  return { limits, requests };
 }
 
 function toSdkSandboxControl(control: Control): SandboxControl {

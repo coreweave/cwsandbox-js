@@ -42,7 +42,8 @@ export interface ListFileSystemSnapshotsResult {
 }
 
 export interface StartSandboxRequest extends Omit<SandboxRunOptions, "waitUntilRunning"> {
-  readonly command: Command;
+  /** Omitted when `containers` carries the commands. */
+  readonly command?: Command;
 }
 
 export interface StartSandboxFromFileRequest extends RequestOptions, CreateRetryOptions {

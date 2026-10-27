@@ -11,6 +11,7 @@ import type {
   TerminalSession,
 } from "./commands.js";
 import type { Milliseconds, RequestOptions, Seconds } from "./common.js";
+import type { Container } from "./containers.js";
 import type { DataPlaneOptions } from "./data-plane.js";
 import type { MountedFiles, SandboxFiles } from "./files.js";
 import type { SandboxLogs } from "./logs.js";
@@ -239,6 +240,13 @@ export interface SnapshotOptions extends RequestOptions {
 export interface SandboxRunOptions extends RequestOptions, DataPlaneOptions, CreateRetryOptions {
   readonly annotations?: SandboxAnnotations;
   readonly containerImage?: string;
+  /**
+   * Containers to run, in place of the single-container options. Mutually
+   * exclusive with `containerImage`, `environmentVariables`, `mountedFiles`,
+   * `resources`, `secrets`, and the `run()` command. Containers without a
+   * `command` use their image entrypoint; `create()` adds no keep-alive.
+   */
+  readonly containers?: readonly Container[];
   readonly environmentVariables?: EnvironmentVariables;
   readonly fileSystemSnapshot?: FileSystemSnapshotOptions;
   /** Registry credentials for pulling the primary container image. */
@@ -550,6 +558,12 @@ export interface SandboxMetadata {
   readonly control?: SandboxControl;
   readonly attachedVolumeIds?: readonly string[];
   readonly containerStatuses?: readonly SandboxContainerStatus[];
+  /**
+   * Container spec echoed by the backend. `primary` is set on the primary
+   * (the first row when none is flagged), so the list is a valid `containers`
+   * create option.
+   */
+  readonly containers?: readonly Container[];
   readonly dnsEgressNames?: readonly string[];
   readonly effectiveEgress?: readonly EffectiveEgressRule[];
   readonly effectiveIngress?: readonly EffectiveIngressRule[];
@@ -615,6 +629,8 @@ export interface Sandbox {
   readonly control: SandboxControl | undefined;
   readonly attachedVolumeIds?: readonly string[] | undefined;
   readonly containerStatuses?: readonly SandboxContainerStatus[] | undefined;
+  /** Container spec from the latest backend response that reported it. */
+  readonly containers: readonly Container[] | undefined;
   readonly dnsEgressNames: readonly string[] | undefined;
   readonly effectiveEgress?: readonly EffectiveEgressRule[] | undefined;
   readonly effectiveIngress?: readonly EffectiveIngressRule[] | undefined;

@@ -12,6 +12,8 @@ export interface LogResumeCursor {
 }
 
 export interface LogStreamOptions extends RequestOptions {
+  /** Target container name. Omit or empty for the primary. */
+  readonly container?: string;
   readonly follow?: boolean;
   readonly resume?: LogResumeCursor;
   readonly sinceTime?: Date | string;
