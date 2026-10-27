@@ -4,7 +4,11 @@
 
 import { RpcError } from "@protobuf-ts/runtime-rpc";
 
-import { CWSANDBOX_ERROR_DOMAIN, CWSANDBOX_SANDBOX_NOT_FOUND } from "../../internal/error-info.js";
+import {
+  CWSANDBOX_ERROR_DOMAIN,
+  CWSANDBOX_RUNNER_OVERLOADED,
+  CWSANDBOX_SANDBOX_NOT_FOUND,
+} from "../../internal/error-info.js";
 import { sleep as abortableSleep } from "../../internal/retry-transient-rpc.js";
 import { parseStatusDetailsFromMetadata } from "./error-info.js";
 
@@ -26,6 +30,8 @@ export interface HintedRetryOptions {
   readonly timeoutMs?: number;
   readonly signal?: AbortSignal;
   readonly maxAttempts?: number;
+  /** Which raw errors may be retried when they carry RetryInfo. Defaults to UNAVAILABLE. */
+  readonly retryable?: (error: RpcError) => boolean;
   /** Test seams. */
   readonly now?: () => number;
   readonly random?: () => number;
@@ -42,8 +48,8 @@ interface Hint {
  * Inspect raw status: CWSandboxUnavailableError also covers bare UNAVAILABLE
  * and unavailable reasons on other statuses, neither of which qualifies.
  */
-function hintOf(error: unknown): Hint | undefined {
-  if (!(error instanceof RpcError) || error.code !== "UNAVAILABLE") {
+function hintOf(error: unknown, retryable: (error: RpcError) => boolean): Hint | undefined {
+  if (!(error instanceof RpcError) || !retryable(error)) {
     return undefined;
   }
   const parsed = parseStatusDetailsFromMetadata(error.meta);
@@ -52,6 +58,19 @@ function hintOf(error: unknown): Hint | undefined {
     return undefined;
   }
   return { delayMs, reason: parsed?.reason };
+}
+
+function isUnavailable(error: RpcError): boolean {
+  return error.code === "UNAVAILABLE";
+}
+
+/** Raw RESOURCE_EXHAUSTED with a trusted `CWSANDBOX_RUNNER_OVERLOADED` reason. */
+export function isRunnerOverloaded(error: RpcError): boolean {
+  if (error.code !== "RESOURCE_EXHAUSTED") {
+    return false;
+  }
+  const parsed = parseStatusDetailsFromMetadata(error.meta);
+  return parsed?.domain === CWSANDBOX_ERROR_DOMAIN && parsed.reason === CWSANDBOX_RUNNER_OVERLOADED;
 }
 
 /** Raw gRPC NOT_FOUND, or a trusted `CWSANDBOX_SANDBOX_NOT_FOUND` reason. */
@@ -67,7 +86,8 @@ export function isRawSandboxNotFound(error: unknown): boolean {
 }
 
 /**
- * Retry an idempotent unary operation only on UNAVAILABLE with RetryInfo.
+ * Retry an idempotent unary operation only on UNAVAILABLE (or the errors
+ * `options.retryable` accepts) with RetryInfo.
  * `attempt` must make one call and propagate unmapped `RpcError`s.
  * Wrap this helper in `withGrpcErrorMapping`; exhaustion preserves the last
  * error, while backoff cancellation produces a CANCELLED `RpcError`.
@@ -85,6 +105,7 @@ export async function retryHintedUnavailable<T>(
   const sleep = options.sleep ?? abortableSleep;
   const log = options.log ?? ((message: string) => console.info(message));
   const maxAttempts = options.maxAttempts ?? HINTED_RETRY_MAX_ATTEMPTS;
+  const retryable = options.retryable ?? isUnavailable;
   const deadline = options.timeoutMs === undefined ? undefined : now() + options.timeoutMs;
   let timeoutMs = options.timeoutMs;
 
@@ -92,7 +113,7 @@ export async function retryHintedUnavailable<T>(
     try {
       return await attempt(timeoutMs);
     } catch (error) {
-      const hint = attempts < maxAttempts ? hintOf(error) : undefined;
+      const hint = attempts < maxAttempts ? hintOf(error, retryable) : undefined;
       if (hint === undefined || hint.delayMs > HINTED_RETRY_MAX_DELAY_MS) {
         throw error;
       }

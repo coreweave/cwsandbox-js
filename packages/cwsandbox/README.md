@@ -1249,6 +1249,14 @@ same retry to its status check and Stop RPC, without the caller's timeout or sig
 the stop section above). Other operations (exec, streams, writes, create, list, and other
 gets) do not add this retry. When the retries run out, the last error is thrown.
 
+`files.read()` and `files.write()` over a direct data-plane connection also wait and retry
+when the runner rejects the call as overloaded (gRPC `RESOURCE_EXHAUSTED` with reason
+`CWSANDBOX_RUNNER_OVERLOADED` and a `RetryInfo` delay), with the same limits: up to 3
+calls, a delay of at most 10s, and the `timeoutMs` budget. If the runner is still
+overloaded, `dataPlaneMode: "auto"` falls back to the Gateway for that call within the time
+left; `dataPlaneMode: "direct"` throws `CWSandboxResourceExhaustedError` with
+`retryDelayMs` set.
+
 ```ts
 import { CWSANDBOX_FILE_TOO_LARGE } from "@coreweave/cwsandbox";
 import { CWSandboxNotFoundError } from "@coreweave/cwsandbox";

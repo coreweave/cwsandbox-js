@@ -7,7 +7,7 @@ import {
   CWSandboxTransportError,
   isCWSandboxError,
 } from "../errors.js";
-import { CWSANDBOX_FILE_TOO_LARGE } from "./error-info.js";
+import { CWSANDBOX_FILE_TOO_LARGE, isRunnerOverloadedError } from "./error-info.js";
 import { MAX_AUTO_FALLBACK_BYTES } from "./file-limits.js";
 
 export function isFileTooLargeReason(error: unknown): error is CWSandboxTransportError {
@@ -88,6 +88,12 @@ export function shouldFallbackRead(error: unknown): {
       return { fallback: false };
     }
     return { fallback: true, expectedSize: size };
+  }
+
+  // An overloaded runner is not a size problem; a StreamExec re-read would only
+  // add load. The adapter already honored RetryInfo and, in auto mode, tried the Gateway.
+  if (isRunnerOverloadedError(error)) {
+    return { fallback: false };
   }
 
   // Broad RE fallback (Python parity) when remote size is unknown — includes the
