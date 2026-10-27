@@ -49,6 +49,20 @@ SPDX-PackageName: cwsandbox
   Concurrent file calls on one sandbox that used to fail now succeed in auto
   mode. An overloaded call can take a few seconds longer to return or fail; a
   `timeoutMs` shorter than 5s plus the server's delay skips the retries.
+- Add `requestId` to `runFromFile` / `withSandboxFromFile` options. The key
+  makes an ambiguous create error safe to retry; the same key with different
+  `contents` bytes fails with `CWSANDBOX_REQUEST_ID_CONFLICT`. After a
+  readiness failure the SDK may have stopped the sandbox, so use a new key, or
+  pass `waitUntilRunning: false` and call `wait()` yourself.
+- Expose status read-back fields on sandbox handles and on create, Get, and
+  list results: `containerStatuses`, `effectiveRuntimeClass`,
+  `attachedVolumeIds`, `effectiveEgress`, and `effectiveIngress`. Each status
+  response replaces them, so a field the latest response omits reads
+  `undefined`. Handles also add client-side `statusUpdatedAt` and `execStats`.
+  `execStats` counts only `exec()` and `commands.run()`; unlike the Python SDK,
+  it does not count streaming `commands.start()` or `shell()`. The new
+  `Sandbox` interface members are optional, so existing `Sandbox`
+  implementations keep compiling.
 
 ## 1.0.0
 

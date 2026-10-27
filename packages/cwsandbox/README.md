@@ -1105,11 +1105,14 @@ Wait for `running` as usual. If creation is accepted but the readiness wait
 rejects, the SDK best-effort stops the sandbox. `waitUntilRunning: false`
 returns immediately after accept with no automatic cleanup.
 
-Pass `requestId` to make a create safe to retry: repeating the same request
-with the same key returns the original sandbox instead of creating another.
-Because bytes are not normalized, the same key with different `contents` (even
-whitespace) fails with `CWSANDBOX_REQUEST_ID_CONFLICT`. Without it, each call
-gets a fresh key.
+Pass `requestId` to make an ambiguous create error (for example a timeout or
+dropped connection) safe to retry: repeating the same request with the same key
+returns the original sandbox instead of creating another. Because bytes are not
+normalized, the same key with different `contents` (even whitespace) fails with
+`CWSANDBOX_REQUEST_ID_CONFLICT`. Without it, each call gets a fresh key. The
+key does not help after a readiness failure: the SDK may already have stopped
+the sandbox, so a retry with the same key gets that stopped sandbox back. Use a
+new key, or pass `waitUntilRunning: false` and call `wait()` yourself.
 
 Prefer `withSandboxFromFile` for short-lived work:
 
