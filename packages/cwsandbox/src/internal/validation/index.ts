@@ -86,6 +86,10 @@ export function validateSandboxRunOptions(options: SandboxRunOptions): void {
   validateNonNegativeFinite(options.maxLifetimeSeconds, "maxLifetimeSeconds");
   validateMountedFiles(options.mountedFiles);
   validateSandboxVolumeCreateOptions(options);
+  if (options.imagePullCredentials !== undefined) {
+    requirePlainRecord(options.imagePullCredentials, "imagePullCredentials");
+    validateImagePullCredentialsEntry(options.imagePullCredentials, "imagePullCredentials");
+  }
   validateObjectStorageAccess(options.objectStorageAccess);
   validateNetworkOptions(options.services, options.network);
   validateResources(options.resources);
@@ -525,16 +529,18 @@ function validateImagePullCredentialsShape(credentials: unknown): void {
     return;
   }
   for (const [index, entry] of (credentials as readonly Record<string, unknown>[]).entries()) {
-    for (const key of ["registry", "store", "name"]) {
-      const value = entry[key];
-      if (typeof value !== "string" || value.trim() === "") {
-        throw new CWSandboxValidationError(
-          `imagePullCredentials[${index}].${key} must be a non-empty string`,
-        );
-      }
-    }
-    requireStringIfPresent(entry["field"], `imagePullCredentials[${index}].field`);
+    validateImagePullCredentialsEntry(entry, `imagePullCredentials[${index}]`);
   }
+}
+
+function validateImagePullCredentialsEntry(entry: Record<string, unknown>, name: string): void {
+  for (const key of ["registry", "store", "name"]) {
+    const value = entry[key];
+    if (typeof value !== "string" || value.trim() === "") {
+      throw new CWSandboxValidationError(`${name}.${key} must be a non-empty string`);
+    }
+  }
+  requireStringIfPresent(entry["field"], `${name}.field`);
 }
 
 function validateSecretsShape(secrets: unknown): void {

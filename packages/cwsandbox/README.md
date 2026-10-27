@@ -877,6 +877,27 @@ secret store on Gateway is a one-time admin step.
 
 Do not put secret values in `environmentVariables`, annotations, or tags.
 
+### Private images
+
+Pass `imagePullCredentials` to pull a private `containerImage`. The gateway
+resolves the credential from a secret store at create time. `field` optionally
+selects a field within the secret, which must resolve to an object with
+non-empty `username` and `password`.
+
+```ts
+await client.create({
+  containerImage: "ghcr.io/example/private-image:latest",
+  imagePullCredentials: {
+    registry: "ghcr.io",
+    store: "wandb-team-secrets",
+    name: "ghcr-pull",
+  },
+});
+```
+
+`create` takes one entry for the primary image. `runFromFile` takes a list, one
+per registry. `runFromTemplate` does not accept credentials.
+
 ### Network And Services
 
 Internet egress follows the fleet policy default. Deny outbound or inbound

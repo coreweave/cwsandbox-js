@@ -317,6 +317,9 @@ function toProtoContainer(request: StartSandboxRequest): ReturnType<typeof Conta
       path: file.path,
     })),
     image: request.containerImage ?? DEFAULT_CONTAINER_IMAGE,
+    ...(request.imagePullCredentials === undefined
+      ? {}
+      : { imagePullCredentials: toProtoImagePullCredentials(request.imagePullCredentials) }),
     name: PRIMARY_CONTAINER,
     primary: true,
     ...(resourceRequirements === undefined ? {} : { resourceRequirements }),

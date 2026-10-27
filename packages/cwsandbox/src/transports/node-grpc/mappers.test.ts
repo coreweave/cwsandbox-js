@@ -873,6 +873,29 @@ describe("node transport mappers", () => {
       });
     });
 
+    it("maps imagePullCredentials onto the primary container", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        imagePullCredentials: {
+          field: "token",
+          name: "ghcr-creds",
+          registry: "ghcr.io",
+          store: "wandb",
+        },
+      });
+
+      expect(primaryContainer(request)?.imagePullCredentials).toEqual({
+        credentials: { field: "token", path: "ghcr-creds", storeName: "wandb" },
+        registry: "ghcr.io",
+      });
+    });
+
+    it("omits imagePullCredentials when unset", () => {
+      const request = toProtoCreateRequest({ command: ["python"] });
+
+      expect(primaryContainer(request)?.imagePullCredentials).toBeUndefined();
+    });
+
     it("omits runtimeClass, workingDir, and securityContext when unset", () => {
       const request = toProtoCreateRequest({ command: ["python"] });
 

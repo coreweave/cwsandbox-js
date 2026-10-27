@@ -208,6 +208,8 @@ export interface SandboxRunOptions extends RequestOptions, DataPlaneOptions, Cre
   readonly containerImage?: string;
   readonly environmentVariables?: EnvironmentVariables;
   readonly fileSystemSnapshot?: FileSystemSnapshotOptions;
+  /** Registry credentials for pulling the primary container image. */
+  readonly imagePullCredentials?: ImagePullCredentials;
   /**
    * Named scratch volumes. Mutually exclusive with `fileSystemSnapshot`.
    * Must be non-empty. `snapshot()` fails client-side when this process

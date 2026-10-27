@@ -1471,6 +1471,33 @@ describe("SandboxClient", () => {
       expect(startCalls).toBe(0);
     });
 
+    it("rejects malformed create imagePullCredentials before the transport", async () => {
+      let startCalls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async start() {
+          startCalls += 1;
+          throw new Error("transport should not be called");
+        },
+      };
+      const client = createClient(transport);
+
+      await expect(
+        client.create({
+          imagePullCredentials: [{ name: "n", registry: "r", store: "s" }] as never,
+        }),
+      ).rejects.toThrow("imagePullCredentials must be an object");
+      await expect(
+        client.create({ imagePullCredentials: { name: "n", registry: " ", store: "s" } }),
+      ).rejects.toThrow("imagePullCredentials.registry must be a non-empty string");
+      await expect(
+        client.create({
+          imagePullCredentials: { field: 1, name: "n", registry: "r", store: "s" } as never,
+        }),
+      ).rejects.toThrow("imagePullCredentials.field must be a string");
+      expect(startCalls).toBe(0);
+    });
+
     it("passes runtimeClass, workingDir, and securityContext to the transport", async () => {
       let startRequest: Parameters<SandboxTransport["start"]>[0] | undefined;
       const transport: SandboxTransport = {

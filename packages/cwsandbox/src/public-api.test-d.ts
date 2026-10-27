@@ -226,6 +226,11 @@ test("public API types", async () => {
       imagePullCredentials: [imagePullCredentials],
     }),
   ).toEqualTypeOf<ReturnType<SandboxClient["runFromFile"]>>();
+  expectTypeOf(client.create({ imagePullCredentials })).toEqualTypeOf<
+    ReturnType<SandboxClient["create"]>
+  >();
+  // @ts-expect-error create takes one imagePullCredentials entry for the primary image
+  void client.create({ imagePullCredentials: [imagePullCredentials] });
   // @ts-expect-error control is a closed set of values
   void client.runFromFile(composeBytes, { control: "docker" });
   void client.runFromFile(composeBytes, {
