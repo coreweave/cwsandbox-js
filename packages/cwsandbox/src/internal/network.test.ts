@@ -34,6 +34,48 @@ describe("normalizeDnsName", () => {
   });
 });
 
+describe("validateNetworkOptions ingress", () => {
+  it("accepts one source per rule, port ranges, and empty ingress", () => {
+    expect(() =>
+      validateNetworkOptions(undefined, {
+        ingress: [
+          { cidr: { cidr: "10.0.0.0/8", exceptCidrs: ["10.1.0.0/16"] }, any: false },
+          { ports: [{ endPort: 9010, port: 9000, protocol: "TCP" }], tenant: "same_org" },
+          { any: true },
+        ],
+      }),
+    ).not.toThrow();
+    expect(() => validateNetworkOptions(undefined, { ingress: [] })).not.toThrow();
+  });
+
+  it.each([
+    [{}, /exactly one source/],
+    [{ any: false }, /exactly one source/],
+    [{ any: true, tenant: "same_org" }, /exactly one source/],
+    [{ any: "yes" }, /any must be a boolean/],
+    [{ cidr: { cidr: "" } }, /cidr\.cidr must be a non-empty string/],
+    [{ cidr: "10.0.0.0/8" }, /cidr must be an object/],
+    [{ cidr: { cidr: "10.0.0.0/8", exceptCidrs: [""] } }, /exceptCidrs must be an array/],
+    [{ tenant: "everyone" }, /tenant must be/],
+    [{ tenant: "unspecified" }, /tenant must be/],
+    [{ any: true, ports: [{ port: 0 }] }, /ports\[0\]\.port must be an integer/],
+    [{ any: true, ports: [{ endPort: 79, port: 80 }] }, /endPort must not be less than port/],
+    [{ any: true, ports: [{ endPort: 70000, port: 80 }] }, /endPort must be an integer/],
+    [{ any: true, ports: [{ port: 80, protocol: 6 }] }, /protocol must be a string/],
+    [{ any: true, ports: 80 }, /ports must be an array/],
+  ])("rejects invalid rule %j", (rule, message) => {
+    expect(() =>
+      validateNetworkOptions(undefined, { ingress: [rule] } as unknown as NetworkOptions),
+    ).toThrow(message);
+  });
+
+  it("rejects a non-array ingress list", () => {
+    expect(() =>
+      validateNetworkOptions(undefined, { ingress: { any: true } } as unknown as NetworkOptions),
+    ).toThrow(CWSandboxValidationError);
+  });
+});
+
 describe("validateNetworkOptions egress", () => {
   it("accepts hostname grants and empty egress", () => {
     expect(() =>

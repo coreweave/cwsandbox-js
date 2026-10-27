@@ -19,6 +19,7 @@ import type {
   Endpoint,
   EndpointAuth as SdkEndpointAuth,
   HttpsEndpointStatus,
+  IngressRule,
   NetworkOptions,
   PortRange as SdkPortRange,
   Service,
@@ -65,12 +66,14 @@ import {
   EndpointKind,
   ExecRequest as ProtoExecRequest,
   ImagePullCredentials as ProtoImagePullCredentials,
+  IngressRule as ProtoIngressRule,
   ListSandboxesRequest,
   NetworkOptions as ProtoNetworkOptions,
   ObjectStorageAccess,
   ObjectStoragePermission,
   PartialContainer,
   PartialSandboxSpec,
+  PortRange as ProtoPortRange,
   ResourceRequirements,
   Resources,
   Sandbox as ProtoSandbox,
@@ -92,8 +95,6 @@ import {
   type CidrBlock as ProtoCidrBlock,
   type ContainerStatus as ProtoContainerStatus,
   type ExecResponse as ProtoExecResponse,
-  type IngressRule as ProtoIngressRule,
-  type PortRange as ProtoPortRange,
   type FileSystemSnapshot as ProtoFileSystemSnapshot,
   type Gpu,
   type Sandbox as ProtoSandboxMessage,
@@ -464,10 +465,12 @@ function toProtoNetwork(
   }
 
   const egress = toProtoEgress(network.egress);
+  const ingress = toProtoIngress(network.ingress);
   if (
     network.denyEgress === undefined &&
     network.denyIngress === undefined &&
-    egress === undefined
+    egress === undefined &&
+    ingress === undefined
   ) {
     return undefined;
   }
@@ -476,7 +479,55 @@ function toProtoNetwork(
     ...(network.denyEgress !== undefined ? { denyEgress: network.denyEgress } : {}),
     ...(network.denyIngress !== undefined ? { denyIngress: network.denyIngress } : {}),
     ...(egress === undefined ? {} : { egress }),
+    ...(ingress === undefined ? {} : { ingress }),
   });
+}
+
+function toProtoIngress(
+  ingress: NetworkOptions["ingress"],
+): ReturnType<typeof ProtoIngressRule.create>[] | undefined {
+  if (ingress === undefined || ingress.length === 0) {
+    return undefined;
+  }
+
+  return ingress.map((rule) =>
+    ProtoIngressRule.create({
+      source: toProtoIngressSource(rule),
+      ports: (rule.ports ?? []).map((port) =>
+        ProtoPortRange.create({
+          port: port.port,
+          ...(port.endPort === undefined ? {} : { endPort: port.endPort }),
+          ...(port.protocol === undefined ? {} : { protocol: port.protocol }),
+        }),
+      ),
+    }),
+  );
+}
+
+function toProtoIngressSource(rule: IngressRule): ProtoIngressRule["source"] {
+  if (rule.cidr !== undefined) {
+    return {
+      oneofKind: "cidr",
+      cidr: { cidr: rule.cidr.cidr, except: [...(rule.cidr.exceptCidrs ?? [])] },
+    };
+  }
+  if (rule.tenant !== undefined) {
+    return { oneofKind: "tenant", tenant: toProtoTenantScope(rule.tenant) };
+  }
+  return { oneofKind: "any", any: true };
+}
+
+function toProtoTenantScope(tenant: SdkTenantScope): TenantScope {
+  switch (tenant) {
+    case "same_user":
+      return TenantScope.SAME_USER;
+    case "same_org":
+      return TenantScope.SAME_ORG;
+    case "sandbox_network":
+      return TenantScope.SANDBOX_NETWORK;
+    case "unspecified":
+      return TenantScope.UNSPECIFIED;
+  }
 }
 
 function toProtoEgress(

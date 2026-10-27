@@ -946,6 +946,24 @@ for (const rule of sandbox.effectiveEgress ?? []) {
 }
 ```
 
+Allow inbound traffic to CUSTOM-visibility services with `ingress` rules. Each
+rule sets exactly one source (`cidr`, `tenant`, or `any: true`) and optional
+`ports`; omitted ports mean every CUSTOM port. Rules are allow-only over a
+default deny, and a rule outside the runner policy's allowed ingress is
+rejected at create. `denyIngress: true` ignores the rules:
+
+```ts
+await client.run(["python", "-m", "http.server", "8000"], {
+  services: [{ port: 8000, visibility: "custom" }],
+  network: {
+    ingress: [
+      { cidr: { cidr: "203.0.113.0/24" }, ports: [{ port: 8000 }] },
+      { tenant: "same_org" },
+    ],
+  },
+});
+```
+
 Declare listen-only services, or request a public HTTPS assignment with
 `endpoint: { kind: "https", auth: "open" | "share_token" }` and
 `visibility: "public"`.

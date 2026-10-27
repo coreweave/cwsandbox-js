@@ -50,6 +50,7 @@ import {
   type EffectiveEgressRule,
   type EffectiveIngressRule,
   type EgressRule,
+  type IngressRule,
   type ObjectStoragePermission,
   type ProcessResult,
   type ResourceRequestsAndLimits,
@@ -555,6 +556,15 @@ test("public API types", async () => {
   const egressNetwork: NetworkOptions = {
     egress: [egressRule],
   };
+  const ingressRule: IngressRule = {
+    cidr: { cidr: "203.0.113.0/24" },
+    ports: [{ endPort: 9010, port: 9000 }],
+  };
+  const ingressNetwork: NetworkOptions = { ingress: [ingressRule, { tenant: "same_org" }] };
+  expectTypeOf(ingressNetwork).toExtend<NetworkOptions>();
+  // @ts-expect-error tenant is a closed set of values
+  const badTenant: IngressRule = { tenant: "everyone" };
+  void badTenant;
   expectTypeOf(endpoint).toExtend<Endpoint>();
   expectTypeOf(service).toExtend<Service>();
   expectTypeOf(serviceUrl).toExtend<ServiceUrl>();

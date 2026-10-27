@@ -118,6 +118,7 @@ export type {
   EndpointKind,
   HttpsEndpoint,
   HttpsEndpointStatus,
+  IngressRule,
   NetworkOptions,
   PortRange,
   SelectorBlock,

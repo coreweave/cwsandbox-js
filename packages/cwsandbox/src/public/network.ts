@@ -99,6 +99,24 @@ export interface EffectiveIngressRule {
   readonly ports?: readonly PortRange[];
 }
 
+/**
+ * One create-time inbound source for CUSTOM-visibility ports. Set exactly one
+ * of `cidr`, `tenant`, or `any: true`. A rule outside the runner policy's
+ * allowed ingress is rejected at create, never narrowed.
+ */
+export interface IngressRule {
+  readonly cidr?: CidrBlock;
+  /**
+   * `"same_user"` or `"same_org"`. `"sandbox_network"` is not accepted by the
+   * backend yet, and `"unspecified"` is rejected client-side.
+   */
+  readonly tenant?: TenantScope;
+  /** Any source, including the public internet. */
+  readonly any?: boolean;
+  /** Ports this rule applies to. Empty or omitted means all CUSTOM ports. */
+  readonly ports?: readonly PortRange[];
+}
+
 export interface NetworkOptions {
   /**
    * When true, deny outbound traffic. When omitted, the fleet policy default
@@ -117,6 +135,12 @@ export interface NetworkOptions {
    * leftmost label only (`*.pypi.org` does not include apex `pypi.org`).
    */
   readonly egress?: readonly EgressRule[];
+  /**
+   * Inbound sources for CUSTOM-visibility ports, allow-only over default deny.
+   * Empty or omitted leaves the policy default. Ignored when `denyIngress` is
+   * true.
+   */
+  readonly ingress?: readonly IngressRule[];
 }
 
 export interface ServiceUrl {

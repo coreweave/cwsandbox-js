@@ -3,12 +3,22 @@
 // SPDX-PackageName: cwsandbox
 
 import { CWSandboxValidationError } from "../errors.js";
-import type { EgressRule, Endpoint, NetworkOptions, Service } from "../public/network.js";
+import type {
+  CidrBlock,
+  EgressRule,
+  Endpoint,
+  IngressRule,
+  NetworkOptions,
+  PortRange,
+  Service,
+} from "../public/network.js";
 
 const ENDPOINT_AUTHS = new Set(["open", "share_token"]);
 const ENDPOINT_KINDS = new Set(["https", "tls_passthrough"]);
 const SERVICE_PROTOCOLS = new Set(["sctp", "tcp", "udp", "unspecified"]);
 const SERVICE_VISIBILITIES = new Set(["custom", "private", "public", "unspecified"]);
+// "unspecified" is a valid TenantScope for read-back but never a usable ingress source.
+const TENANT_SCOPES: ReadonlySet<string> = new Set(["same_org", "same_user", "sandbox_network"]);
 
 const DNS1123_LABEL = "[a-z0-9](?:[-a-z0-9]*[a-z0-9])?";
 const DNS1123_SUBDOMAIN_RE = new RegExp(`^(?:${DNS1123_LABEL})(?:\\.(?:${DNS1123_LABEL}))*$`);
@@ -21,6 +31,7 @@ export function validateNetworkOptions(
   validateServices(services);
   validateDenyFlags(network);
   validateEgress(network);
+  validateIngress(network);
 }
 
 export function normalizeDnsName(dnsName: string): string {
@@ -77,6 +88,92 @@ function validateEgress(network: NetworkOptions | undefined): void {
   if (network.denyEgress === true && egress.length > 0) {
     throw new CWSandboxValidationError("network.denyEgress cannot be combined with egress rules");
   }
+}
+
+function validateIngress(network: NetworkOptions | undefined): void {
+  if (network === undefined || network.ingress === undefined) {
+    return;
+  }
+  if (!Array.isArray(network.ingress)) {
+    throw new CWSandboxValidationError("network.ingress must be an array of ingress rules");
+  }
+  for (const [index, rule] of (network.ingress as readonly unknown[]).entries()) {
+    validateIngressRule(rule, `network.ingress[${index}]`);
+  }
+}
+
+function validateIngressRule(value: unknown, field: string): void {
+  if (!isObject(value)) {
+    throw new CWSandboxValidationError(`${field} must be an object`);
+  }
+  const rule = value as IngressRule;
+  if (rule.any !== undefined && typeof rule.any !== "boolean") {
+    throw new CWSandboxValidationError(`${field}.any must be a boolean`);
+  }
+  const sources = [rule.cidr !== undefined, rule.tenant !== undefined, rule.any === true];
+  if (sources.filter(Boolean).length !== 1) {
+    throw new CWSandboxValidationError(
+      `${field} requires exactly one source: cidr, tenant, or any: true`,
+    );
+  }
+  if (rule.cidr !== undefined) {
+    validateCidrBlock(rule.cidr, `${field}.cidr`);
+  }
+  if (rule.tenant !== undefined && !TENANT_SCOPES.has(rule.tenant)) {
+    throw new CWSandboxValidationError(
+      `${field}.tenant must be "same_org", "same_user", or "sandbox_network"`,
+    );
+  }
+  if (rule.ports !== undefined) {
+    if (!Array.isArray(rule.ports)) {
+      throw new CWSandboxValidationError(`${field}.ports must be an array`);
+    }
+    for (const [index, port] of (rule.ports as readonly unknown[]).entries()) {
+      validatePortRange(port, `${field}.ports[${index}]`);
+    }
+  }
+}
+
+function validateCidrBlock(value: unknown, field: string): void {
+  if (!isObject(value)) {
+    throw new CWSandboxValidationError(`${field} must be an object`);
+  }
+  const block = value as CidrBlock;
+  if (typeof block.cidr !== "string" || block.cidr.trim() === "") {
+    throw new CWSandboxValidationError(`${field}.cidr must be a non-empty string`);
+  }
+  if (block.exceptCidrs === undefined) {
+    return;
+  }
+  if (
+    !Array.isArray(block.exceptCidrs) ||
+    !block.exceptCidrs.every((entry) => typeof entry === "string" && entry.trim() !== "")
+  ) {
+    throw new CWSandboxValidationError(
+      `${field}.exceptCidrs must be an array of non-empty strings`,
+    );
+  }
+}
+
+function validatePortRange(value: unknown, field: string): void {
+  if (!isObject(value)) {
+    throw new CWSandboxValidationError(`${field} must be an object`);
+  }
+  const range = value as PortRange;
+  validatePortNumber(range.port, `${field}.port`);
+  if (range.endPort !== undefined) {
+    validatePortNumber(range.endPort, `${field}.endPort`);
+    if (range.endPort < range.port) {
+      throw new CWSandboxValidationError(`${field}.endPort must not be less than port`);
+    }
+  }
+  if (range.protocol !== undefined && typeof range.protocol !== "string") {
+    throw new CWSandboxValidationError(`${field}.protocol must be a string`);
+  }
+}
+
+function isObject(value: unknown): value is object {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isEgressRule(value: unknown): value is EgressRule {

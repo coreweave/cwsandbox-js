@@ -557,6 +557,49 @@ describe("node transport mappers", () => {
       ]);
     });
 
+    it("maps ingress rules with each source and port ranges", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        network: {
+          ingress: [
+            {
+              cidr: { cidr: "203.0.113.0/24", exceptCidrs: ["203.0.113.7/32"] },
+              ports: [{ port: 8080 }, { endPort: 9010, port: 9000, protocol: "UDP" }],
+            },
+            { tenant: "same_org" },
+            { tenant: "same_user" },
+            { any: true },
+          ],
+        },
+      });
+
+      expect(request.sandbox?.spec?.network?.denyIngress).toBeUndefined();
+      expect(request.sandbox?.spec?.network?.ingress).toEqual([
+        {
+          ports: [
+            { endPort: 0, port: 8080, protocol: "" },
+            { endPort: 9010, port: 9000, protocol: "UDP" },
+          ],
+          source: {
+            cidr: { cidr: "203.0.113.0/24", except: ["203.0.113.7/32"] },
+            oneofKind: "cidr",
+          },
+        },
+        { ports: [], source: { oneofKind: "tenant", tenant: TenantScope.SAME_ORG } },
+        { ports: [], source: { oneofKind: "tenant", tenant: TenantScope.SAME_USER } },
+        { ports: [], source: { any: true, oneofKind: "any" } },
+      ]);
+    });
+
+    it("omits network when ingress is empty and deny flags are unset", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        network: { ingress: [] },
+      });
+
+      expect(request.sandbox?.spec?.network).toBeUndefined();
+    });
+
     it("maps deny flags onto proto network options", () => {
       const request = toProtoCreateRequest({
         command: ["python"],
