@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CWSandboxExecutionError } from "./errors.js";
-import type { GetSandboxResult } from "./public/sandbox.js";
+import type { GetSandboxResult, Sandbox } from "./public/sandbox.js";
 import { createClient, createFakeTransport, createProcessResult } from "./test/helpers.js";
 import type { SandboxTransport } from "./transport.js";
 
@@ -162,6 +162,53 @@ describe("sandbox status read-back", () => {
     expect(sandbox.containerStatuses).toEqual([
       { exitCode: 1, name: "main", restartCount: 1, status: "failed" },
     ]);
+  });
+
+  const expectReadBackCleared = (sandbox: Sandbox): void => {
+    expect(sandbox.attachedVolumeIds).toBeUndefined();
+    expect(sandbox.containerStatuses).toBeUndefined();
+    expect(sandbox.dnsEgressNames).toBeUndefined();
+    expect(sandbox.effectiveEgress).toBeUndefined();
+    expect(sandbox.effectiveIngress).toBeUndefined();
+    expect(sandbox.effectiveRuntimeClass).toBeUndefined();
+  };
+
+  it("clears read-back fields when a later get omits them", async () => {
+    let calls = 0;
+    const sandbox = await createClient({
+      ...createFakeTransport(["running"]),
+      async get() {
+        calls += 1;
+        return calls === 1
+          ? { ...readBack, dnsEgressNames: ["pypi.org"] }
+          : { sandboxId: "read-back", status: "terminated" as const };
+      },
+    }).fromId("read-back");
+    expect(sandbox.effectiveRuntimeClass).toBe("gvisor");
+    expect(sandbox.dnsEgressNames).toEqual(["pypi.org"]);
+
+    await sandbox.inspect();
+
+    expect(sandbox.status).toBe("terminated");
+    expectReadBackCleared(sandbox);
+  });
+
+  it("clears read-back fields when a stop finds the sandbox gone", async () => {
+    const sandbox = await createClient({
+      ...createFakeTransport(["running"]),
+      async get() {
+        return { ...readBack, dnsEgressNames: ["pypi.org"] };
+      },
+      async stop() {
+        return { alreadyGone: true };
+      },
+    }).fromId("read-back");
+    expect(sandbox.containerStatuses).toHaveLength(1);
+
+    await sandbox.stop();
+
+    expect(sandbox.status).toBe("terminated");
+    expectReadBackCleared(sandbox);
   });
 
   it("counts exec outcomes", async () => {

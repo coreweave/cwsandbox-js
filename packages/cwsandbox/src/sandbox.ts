@@ -358,10 +358,21 @@ export class Sandbox implements PublicSandbox {
     const { serviceAddresses: _ignored, ...metadataWithoutAddresses } = metadata;
     const previousClone = cloneMetadata(this.metadata);
     const incomingClone = cloneMetadata(metadata);
-    const { dnsEgressNames: _previousDns, ...previousWithoutDns } = previousClone;
+    // Status read-back fields describe the latest response only: an omitted
+    // field clears the handle value instead of keeping a stale one (Python
+    // replaces them on every response too).
+    const {
+      attachedVolumeIds: _previousVolumes,
+      containerStatuses: _previousContainers,
+      dnsEgressNames: _previousDns,
+      effectiveEgress: _previousEgress,
+      effectiveIngress: _previousIngress,
+      effectiveRuntimeClass: _previousRuntimeClass,
+      ...previousWithoutReadBack
+    } = previousClone;
     const { dnsEgressNames: incomingDns, ...incomingWithoutDns } = incomingClone;
     this.metadata = {
-      ...previousWithoutDns,
+      ...previousWithoutReadBack,
       ...incomingWithoutDns,
       tags: [...(metadata.tags ?? [])],
       sandboxId: this.sandboxId,

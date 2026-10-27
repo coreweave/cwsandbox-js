@@ -460,12 +460,6 @@ function createTrackingClient(options: TrackingClientOptions = {}): TrackingClie
       tags: [],
       commands,
       control: undefined,
-      attachedVolumeIds: undefined,
-      containerStatuses: undefined,
-      effectiveEgress: undefined,
-      effectiveIngress: undefined,
-      effectiveRuntimeClass: undefined,
-      execStats: { execCount: 0, execCompletedOk: 0, execCompletedNonzero: 0, execFailures: 0 },
       delete: async () => {
         deletedSandboxIds.push(sandboxId);
       },
@@ -522,7 +516,6 @@ function createTrackingClient(options: TrackingClientOptions = {}): TrackingClie
       startedAt: new Date("2026-01-01T00:00:00.000Z"),
       status,
       statusReason: undefined,
-      statusUpdatedAt: undefined,
       stop: async () => undefined,
       wait: async () => sandbox,
       async [Symbol.asyncDispose]() {
