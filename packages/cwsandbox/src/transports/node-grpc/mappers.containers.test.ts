@@ -109,6 +109,7 @@ describe("container spec read-back", () => {
       spec: {
         containers: [
           {
+            files: [{ content: new Uint8Array([104, 105]), path: "/etc/app.conf" }],
             image: "python:3.11",
             name: "main",
             resourceRequirements: { limits: { cpu: "2" }, requests: { cpu: "2" } },
@@ -133,7 +134,13 @@ describe("container spec read-back", () => {
     });
 
     expect(containers).toEqual([
-      { image: "python:3.11", name: "main", primary: true, resources: { cpu: "2" } },
+      {
+        image: "python:3.11",
+        mountedFiles: [{ content: new Uint8Array([104, 105]), path: "/etc/app.conf" }],
+        name: "main",
+        primary: true,
+        resources: { cpu: "2" },
+      },
       {
         args: ["--save", ""],
         command: "redis-server",

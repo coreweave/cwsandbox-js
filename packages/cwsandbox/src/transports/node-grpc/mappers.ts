@@ -890,7 +890,11 @@ function toSdkSandboxMetadata(sandbox: ProtoSandboxMessage): SandboxMetadata {
   };
 }
 
-/** Marks the inferred primary so the list is a valid `containers` create option. */
+/**
+ * Marks the inferred primary so the list is a valid `containers` create
+ * option. Not valid on engine sandboxes, which echo one image-less
+ * `cws-engine` row. Proto fields `SdkContainer` does not model are dropped.
+ */
 function toSdkContainers(
   containers: readonly ProtoContainer[] | undefined,
 ): readonly SdkContainer[] | undefined {
