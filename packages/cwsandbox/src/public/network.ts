@@ -106,11 +106,8 @@ export interface EffectiveIngressRule {
  */
 export interface IngressRule {
   readonly cidr?: CidrBlock;
-  /**
-   * `"same_user"` or `"same_org"`. `"sandbox_network"` is not accepted by the
-   * backend yet, and `"unspecified"` is rejected client-side.
-   */
-  readonly tenant?: TenantScope;
+  /** `"same_user"` or `"same_org"`. `"sandbox_network"` is not accepted by the backend yet. */
+  readonly tenant?: Exclude<TenantScope, "unspecified">;
   /** Any source, including the public internet. */
   readonly any?: boolean;
   /** Ports this rule applies to. Empty or omitted means all CUSTOM ports. */

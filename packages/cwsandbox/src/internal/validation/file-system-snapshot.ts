@@ -127,6 +127,21 @@ function validateRegisteredVolume(volume: RegisteredVolumeOptions, field: string
   }
 }
 
+function rejectCrossedVolumeFields(
+  volume: object,
+  keys: readonly string[],
+  index: number,
+  kind: "registered" | "scratch",
+): void {
+  for (const key of keys) {
+    if ((volume as Record<string, unknown>)[key] !== undefined) {
+      throw new CWSandboxValidationError(
+        `volumes[${index}].${key} is not supported on a ${kind} volume.`,
+      );
+    }
+  }
+}
+
 export function validateScratchVolumeOptions(
   volumes: SandboxRunOptions["volumes"],
   mountedFiles: MountedFiles | undefined,
@@ -163,7 +178,9 @@ export function validateScratchVolumeOptions(
 
     if (isRegisteredVolume(volume)) {
       validateRegisteredVolume(volume, `volumes[${index}]`);
+      rejectCrossedVolumeFields(volume, ["size", "restoreFromSnapshotId"], index, "registered");
     } else {
+      rejectCrossedVolumeFields(volume, ["subPath", "readOnly"], index, "scratch");
       validateOptionalString(volume.size, `volumes[${index}].size`);
       validateOptionalString(
         volume.restoreFromSnapshotId,

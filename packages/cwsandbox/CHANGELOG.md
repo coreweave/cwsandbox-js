@@ -68,6 +68,24 @@ SPDX-PackageName: cwsandbox
   it does not count streaming `commands.start()` or `shell()`. The new
   `Sandbox` interface members are optional, so existing `Sandbox`
   implementations keep compiling.
+- Add create-spec fields from the Python SDK to `create` / `run` /
+  `withSandbox`: `runtimeClass`, `workingDir`, and `securityContext` (`""`
+  means unset for the two strings; `seccompProfile` takes any non-empty string),
+  single-entry `imagePullCredentials`, `network.ingress` rules (`IngressRule`
+  with exactly one of `cidr`, `tenant`, or `any: true`), and registered Volume
+  mounts in `volumes` (entries with `volumeId`, optional `subPath` /
+  `readOnly`). `runFromTemplate` also accepts registered Volume entries. A
+  field from the other volume kind (`subPath` / `readOnly` on a scratch,
+  `size` / `restoreFromSnapshotId` on a registered Volume) is rejected. Add a
+  `volumeIds` filter to `list` / `listAll` / `listPages`.
+- `runFromTemplate` now rejects `runtimeClass`, `securityContext`, and
+  `workingDir` instead of silently dropping them. Use `create` / `run` for
+  these fields until template support lands.
+- `SandboxRunOptions["volumes"]` widens to
+  `(ScratchVolumeOptions | RegisteredVolumeOptions)[]`. Code that only builds
+  options is unaffected, and reading `size` or `restoreFromSnapshotId` from an
+  entry still compiles. Code that passes an entry where a `ScratchVolumeOptions`
+  is expected must narrow first, for example with `volume.volumeId === undefined`.
 
 ## 1.0.0
 

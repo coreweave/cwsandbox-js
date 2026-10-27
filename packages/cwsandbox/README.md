@@ -725,7 +725,10 @@ Mount an existing registered Volume by adding an entry with `volumeId` to
 `volumes`. Names and mount paths must be unique across scratch and registered
 entries. `subPath` mounts a relative path inside the Volume, and `readOnly`
 mounts it read-only. Registered volumes are not scratches, so `snapshot()`
-ignores them. This SDK does not create or manage Volumes.
+ignores them. Scratch-only fields (`size`, `restoreFromSnapshotId`) on a
+registered entry, and `subPath` or `readOnly` on a scratch entry, are rejected.
+`runFromTemplate` accepts registered entries in `volumes` too (with
+`containerImage`). This SDK does not create or manage Volumes.
 
 ```ts
 await client.create({
@@ -811,9 +814,11 @@ checked by the server. `runFromFile` `defaultResources` does not accept GPU.
 
 `runtimeClass` pins the sandbox runtime class. The runner policy must allow the
 value; a disallowed pin is rejected, never rewritten. Omit it to use the policy
-default. `workingDir` sets the primary container's working directory.
-`securityContext` sets in-guest privilege for the primary container, inside the
-sandbox isolation boundary; the runner policy clamps which values are allowed.
+default. `workingDir` sets the primary container's working directory. For both,
+`""` means unset, as in the Python SDK. `securityContext` sets in-guest
+privilege for the primary container, inside the sandbox isolation boundary; the
+runner policy clamps which values are allowed. `seccompProfile` takes any
+non-empty string; the backend documents `"RuntimeDefault"` and `"Unconfined"`.
 
 ```ts
 await client.run(["python", "main.py"], {

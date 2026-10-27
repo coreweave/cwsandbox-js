@@ -95,9 +95,9 @@ export function validateSandboxRunOptions(options: SandboxRunOptions): void {
   validateResources(options.resources);
   validateSecrets(options.secrets, options.environmentVariables);
   validateUniqueStringList(options.runnerIds, "runnerIds");
-  validateOptionalNonBlankString(options.runtimeClass, "runtimeClass");
+  validateEmptyAsUnsetString(options.runtimeClass, "runtimeClass");
   validateSecurityContext(options.securityContext);
-  validateOptionalNonBlankString(options.workingDir, "workingDir");
+  validateEmptyAsUnsetString(options.workingDir, "workingDir");
   validateTags(options.tags);
   validateOptionalBoolean(options.waitUntilRunning, "waitUntilRunning");
   validateDataPlaneMode(options.dataPlaneMode);
@@ -679,6 +679,20 @@ function validateOptionalNonBlankString(value: string | undefined, name: string)
 
   if (typeof value !== "string" || value.trim() === "") {
     throw new CWSandboxValidationError(`${name} must not be empty.`);
+  }
+}
+
+// Python treats "" as unset for these fields. Whitespace-only can never be a
+// valid runtime class or absolute path, so it fails here instead of at Gateway.
+function validateEmptyAsUnsetString(value: string | undefined, name: string): void {
+  if (value === undefined || value === "") {
+    return;
+  }
+  if (typeof value !== "string") {
+    throw new CWSandboxValidationError(`${name} must be a string.`);
+  }
+  if (value.trim() === "") {
+    throw new CWSandboxValidationError(`${name} must not be blank.`);
   }
 }
 

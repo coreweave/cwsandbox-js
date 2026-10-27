@@ -25,6 +25,7 @@ import {
   type FileSystemSnapshotResult,
   type RegisteredVolumeOptions,
   type ScratchVolumeOptions,
+  type SeccompProfile,
   type SecurityContext,
   type GetSandboxResult,
   type LogEntry,
@@ -149,6 +150,12 @@ test("public API types", async () => {
     client.runFromTemplate("template-id", {
       command: ["/bin/sh", "-c", "echo ready"],
       containerImage: "python:3.11",
+    }),
+  ).toEqualTypeOf<ReturnType<SandboxClient["runFromTemplate"]>>();
+  expectTypeOf(
+    client.runFromTemplate("template-id", {
+      containerImage: "python:3.11",
+      volumes: [{ mountPath: "/data", name: "data", readOnly: true, volumeId: "vol-123" }],
     }),
   ).toEqualTypeOf<ReturnType<SandboxClient["runFromTemplate"]>>();
   void client.runFromTemplate("template-id", {
@@ -444,17 +451,26 @@ test("public API types", async () => {
   expectTypeOf(
     client.create({ runtimeClass: "gvisor", securityContext, workingDir: "/workspace" }),
   ).toEqualTypeOf<ReturnType<SandboxClient["create"]>>();
-  // @ts-expect-error seccompProfile is a closed set of values
-  void client.create({ securityContext: { seccompProfile: "Localhost" } });
+  void client.create({ securityContext: { seccompProfile: "localhost/profiles/audit.json" } });
+  expectTypeOf<"RuntimeDefault">().toExtend<SeccompProfile>();
+  expectTypeOf<string>().toExtend<SeccompProfile>();
   const registeredVolume: RegisteredVolumeOptions = {
     mountPath: "/data",
     name: "data",
     readOnly: true,
     volumeId: "vol-123",
   };
+  // @ts-expect-error readOnly is a registered Volume field, not a scratch field
+  void client.create({ volumes: [{ mountPath: "/ws", name: "ws", readOnly: true }] });
+  void client.create({
+    // @ts-expect-error restoreFromSnapshotId is a scratch field, not a registered Volume field
+    volumes: [{ mountPath: "/d", name: "d", restoreFromSnapshotId: "snap", volumeId: "v" }],
+  });
   expectTypeOf(client.create({ volumes: [...namedVolumes, registeredVolume] })).toEqualTypeOf<
     ReturnType<SandboxClient["create"]>
   >();
+  // @ts-expect-error "unspecified" is not a usable ingress tenant
+  void client.create({ network: { ingress: [{ tenant: "unspecified" }] } });
   expectTypeOf(client.list({ volumeIds: ["vol-123"] })).toEqualTypeOf<
     ReturnType<SandboxClient["list"]>
   >();

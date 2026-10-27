@@ -71,7 +71,12 @@ export interface ImagePullCredentials {
   readonly store: string;
 }
 
-export type SeccompProfile = "RuntimeDefault" | "Unconfined";
+/**
+ * Seccomp profile name. The backend documents `"RuntimeDefault"` and
+ * `"Unconfined"`; other strings are passed through for the server to judge.
+ * Empty means unset.
+ */
+export type SeccompProfile = "RuntimeDefault" | "Unconfined" | (string & {});
 
 /**
  * In-guest privilege for the primary container. These settings stay inside
@@ -134,6 +139,12 @@ export interface ScratchVolumeOptions {
   readonly size?: string;
   /** Restore this snapshot at start. Omit or empty for an empty volume. */
   readonly restoreFromSnapshotId?: string;
+  /** Registered Volume field. Not valid on a scratch volume. */
+  readonly volumeId?: never;
+  /** Registered Volume field. Not valid on a scratch volume. */
+  readonly subPath?: never;
+  /** Registered Volume field. Not valid on a scratch volume. */
+  readonly readOnly?: never;
 }
 
 /**
@@ -150,6 +161,10 @@ export interface RegisteredVolumeOptions {
   /** Relative path inside the Volume to mount instead of its root. */
   readonly subPath?: string;
   readonly readOnly?: boolean;
+  /** Scratch volume field. Not valid on a registered Volume. */
+  readonly size?: never;
+  /** Scratch volume field. Not valid on a registered Volume. */
+  readonly restoreFromSnapshotId?: never;
 }
 
 /**
@@ -241,8 +256,8 @@ export interface SandboxRunOptions extends RequestOptions, DataPlaneOptions, Cre
   readonly runnerIds?: readonly string[];
   /**
    * Runtime-class pin (for example `"gvisor"`). The runner policy must allow
-   * the value; a disallowed pin is rejected, never rewritten. Omit to use the
-   * policy default.
+   * the value; a disallowed pin is rejected, never rewritten. Omit or `""` to
+   * use the policy default.
    */
   readonly runtimeClass?: string;
   /** In-guest privilege for the primary container, clamped by runner policy. */
@@ -262,7 +277,7 @@ export interface SandboxRunOptions extends RequestOptions, DataPlaneOptions, Cre
    * the backend accepts the start request.
    */
   readonly waitUntilRunning?: boolean;
-  /** Working directory for the primary container command. Omit for the image default. */
+  /** Working directory for the primary container command. Omit or `""` for the image default. */
   readonly workingDir?: string;
 }
 
@@ -314,8 +329,9 @@ export interface SandboxRunFromTemplateOptions
    * keeps template volumes and drops mounts on the new container. Inherited
    * registered volumes that lose their mounts are rejected by Gateway;
    * inherited scratch volumes can remain unmounted. `volumes: []` is rejected.
+   * Accepts scratch volumes and registered Volume mounts (entries with `volumeId`).
    */
-  readonly volumes?: readonly ScratchVolumeOptions[];
+  readonly volumes?: readonly (ScratchVolumeOptions | RegisteredVolumeOptions)[];
   /**
    * Non-zero replaces the template scalar. `0` means inherit, not clear.
    */

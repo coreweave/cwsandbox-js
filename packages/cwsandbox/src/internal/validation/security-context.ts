@@ -7,7 +7,6 @@ import type { SecurityContext } from "../../public/sandbox.js";
 import { validateUniqueStringList } from "./string-list.js";
 
 const MAX_UINT32 = 0xffffffff;
-const SECCOMP_PROFILES: ReadonlySet<string> = new Set(["RuntimeDefault", "Unconfined"]);
 
 export function validateSecurityContext(context: SecurityContext | undefined): void {
   if (context === undefined) {
@@ -24,10 +23,8 @@ export function validateSecurityContext(context: SecurityContext | undefined): v
   validateBoolean(context.readOnlyRootFilesystem, "securityContext.readOnlyRootFilesystem");
   validateUniqueStringList(context.capabilitiesAdd, "securityContext.capabilitiesAdd");
   validateUniqueStringList(context.capabilitiesDrop, "securityContext.capabilitiesDrop");
-  if (context.seccompProfile !== undefined && !SECCOMP_PROFILES.has(context.seccompProfile)) {
-    throw new CWSandboxValidationError(
-      'securityContext.seccompProfile must be "RuntimeDefault" or "Unconfined".',
-    );
+  if (context.seccompProfile !== undefined && typeof context.seccompProfile !== "string") {
+    throw new CWSandboxValidationError("securityContext.seccompProfile must be a string.");
   }
 }
 

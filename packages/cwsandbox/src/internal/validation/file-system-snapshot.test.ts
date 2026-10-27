@@ -129,6 +129,24 @@ describe("registered volumes", () => {
     expect(() => validateScratchVolumeOptions([volume as never], undefined)).toThrow(message);
   });
 
+  it.each([
+    [{ ...registered, size: "10Gi" }, /volumes\[0]\.size is not supported on a registered volume/],
+    [
+      { ...registered, restoreFromSnapshotId: "snap-1" },
+      /volumes\[0]\.restoreFromSnapshotId is not supported on a registered volume/,
+    ],
+    [
+      { mountPath: "/workspace", name: "workspace", readOnly: true },
+      /volumes\[0]\.readOnly is not supported on a scratch volume/,
+    ],
+    [
+      { mountPath: "/workspace", name: "workspace", subPath: "a" },
+      /volumes\[0]\.subPath is not supported on a scratch volume/,
+    ],
+  ])("rejects a field from the other volume kind %j", (volume, message) => {
+    expect(() => validateScratchVolumeOptions([volume as never], undefined)).toThrow(message);
+  });
+
   it("rejects names shared with a scratch volume", () => {
     expect(() =>
       validateScratchVolumeOptions(

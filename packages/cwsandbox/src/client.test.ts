@@ -1444,6 +1444,30 @@ describe("SandboxClient", () => {
       ).rejects.toThrow(CWSandboxValidationError);
     });
 
+    it("accepts empty runtimeClass and workingDir and a custom seccompProfile", async () => {
+      let startRequest: Parameters<SandboxTransport["start"]>[0] | undefined;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async start(request) {
+          startRequest = request;
+          return { sandboxId: "sandbox-empty-fields", status: "running" };
+        },
+      };
+
+      await createClient(transport).create({
+        runtimeClass: "",
+        securityContext: { seccompProfile: "localhost/profiles/audit.json" },
+        waitUntilRunning: false,
+        workingDir: "",
+      });
+
+      expect(startRequest).toMatchObject({
+        runtimeClass: "",
+        securityContext: { seccompProfile: "localhost/profiles/audit.json" },
+        workingDir: "",
+      });
+    });
+
     it("rejects invalid runtimeClass, workingDir, and securityContext before the transport", async () => {
       let startCalls = 0;
       const transport: SandboxTransport = {
@@ -1456,10 +1480,16 @@ describe("SandboxClient", () => {
       const client = createClient(transport);
 
       await expect(client.create({ runtimeClass: " " })).rejects.toThrow(
-        "runtimeClass must not be empty.",
+        "runtimeClass must not be blank.",
       );
-      await expect(client.create({ workingDir: "" })).rejects.toThrow(
-        "workingDir must not be empty.",
+      await expect(client.create({ runtimeClass: 1 as never })).rejects.toThrow(
+        "runtimeClass must be a string.",
+      );
+      await expect(client.create({ workingDir: " " })).rejects.toThrow(
+        "workingDir must not be blank.",
+      );
+      await expect(client.create({ workingDir: false as never })).rejects.toThrow(
+        "workingDir must be a string.",
       );
       await expect(client.create({ securityContext: { runAsUser: -1 } })).rejects.toThrow(
         "securityContext.runAsUser must be an unsigned 32-bit integer.",
@@ -1474,8 +1504,8 @@ describe("SandboxClient", () => {
         "securityContext.capabilitiesAdd must not contain empty values",
       );
       await expect(
-        client.create({ securityContext: { seccompProfile: "Localhost" } as never }),
-      ).rejects.toThrow('securityContext.seccompProfile must be "RuntimeDefault" or "Unconfined".');
+        client.create({ securityContext: { seccompProfile: 1 } as never }),
+      ).rejects.toThrow("securityContext.seccompProfile must be a string.");
       await expect(client.create({ securityContext: null as never })).rejects.toThrow(
         "securityContext must be an object.",
       );

@@ -17,7 +17,7 @@ const ENDPOINT_AUTHS = new Set(["open", "share_token"]);
 const ENDPOINT_KINDS = new Set(["https", "tls_passthrough"]);
 const SERVICE_PROTOCOLS = new Set(["sctp", "tcp", "udp", "unspecified"]);
 const SERVICE_VISIBILITIES = new Set(["custom", "private", "public", "unspecified"]);
-// "unspecified" is a valid TenantScope for read-back but never a usable ingress source.
+// "unspecified" is excluded from IngressRule.tenant; untyped callers are rejected here.
 const TENANT_SCOPES: ReadonlySet<string> = new Set(["same_org", "same_user", "sandbox_network"]);
 
 const DNS1123_LABEL = "[a-z0-9](?:[-a-z0-9]*[a-z0-9])?";

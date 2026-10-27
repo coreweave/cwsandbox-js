@@ -936,6 +936,29 @@ describe("node transport mappers", () => {
       });
     });
 
+    it("treats empty runtimeClass and workingDir as unset", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        runtimeClass: "",
+        workingDir: "",
+      });
+      const unset = toProtoCreateRequest({ command: ["python"] });
+
+      expect(request.sandbox?.spec?.runtimeClass).toBe(unset.sandbox?.spec?.runtimeClass);
+      expect(primaryContainer(request)?.workingDir).toBe(primaryContainer(unset)?.workingDir);
+    });
+
+    it("passes a custom seccompProfile through", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        securityContext: { seccompProfile: "localhost/profiles/audit.json" },
+      });
+
+      expect(primaryContainer(request)?.securityContext?.seccompProfile).toBe(
+        "localhost/profiles/audit.json",
+      );
+    });
+
     it("leaves unset securityContext fields unset", () => {
       const request = toProtoCreateRequest({
         command: ["python"],
@@ -1006,6 +1029,21 @@ describe("node transport mappers", () => {
 
       expect(container?.command).toBe("/bin/sh");
       expect(container?.args).toEqual(["-c", "echo ready"]);
+    });
+
+    it("maps registered volumes onto template volume and mount overrides", () => {
+      const request = toProtoCreateFromTemplateRequest({
+        templateId,
+        containerImage: "python:3.11",
+        volumes: [{ mountPath: "/data", name: "data", readOnly: true, volumeId: "vol-1" }],
+      });
+
+      expect(request.overrides?.volumes).toEqual([
+        { name: "data", source: { oneofKind: "volumeId", volumeId: "vol-1" } },
+      ]);
+      expect(request.overrides?.containers[0]?.volumeMounts).toEqual([
+        { mountPath: "/data", readOnly: true, subPath: "", volume: "data" },
+      ]);
     });
 
     it("maps HTTPS public services onto template overrides", () => {

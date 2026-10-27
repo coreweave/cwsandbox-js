@@ -137,7 +137,7 @@ export function toProtoCreateRequest(request: StartSandboxRequest): CreateSandbo
         ...(network === undefined ? {} : { network }),
         ...(objectStorageAccess === undefined ? {} : { objectStorageAccess }),
         ...(runnerIds.length === 0 ? {} : { mode: SandboxMode.CKS, runnerIds }),
-        ...(request.runtimeClass === undefined ? {} : { runtimeClass: request.runtimeClass }),
+        ...(request.runtimeClass ? { runtimeClass: request.runtimeClass } : {}),
         services: toProtoServices(request.services),
         tags: [...(request.tags ?? [])],
         ...(volumes === undefined ? {} : { volumes }),
@@ -337,7 +337,7 @@ function toProtoContainer(request: StartSandboxRequest): ReturnType<typeof Conta
       ? {}
       : { securityContext: toProtoSecurityContext(request.securityContext) }),
     ...(volumeMounts === undefined ? {} : { volumeMounts }),
-    ...(request.workingDir === undefined ? {} : { workingDir: request.workingDir }),
+    ...(request.workingDir ? { workingDir: request.workingDir } : {}),
   });
 }
 
@@ -518,7 +518,7 @@ function toProtoIngressSource(rule: IngressRule): ProtoIngressRule["source"] {
   return { oneofKind: "any", any: true };
 }
 
-function toProtoTenantScope(tenant: SdkTenantScope): TenantScope {
+function toProtoTenantScope(tenant: NonNullable<IngressRule["tenant"]>): TenantScope {
   switch (tenant) {
     case "same_user":
       return TenantScope.SAME_USER;
@@ -526,8 +526,6 @@ function toProtoTenantScope(tenant: SdkTenantScope): TenantScope {
       return TenantScope.SAME_ORG;
     case "sandbox_network":
       return TenantScope.SANDBOX_NETWORK;
-    case "unspecified":
-      return TenantScope.UNSPECIFIED;
   }
 }
 
