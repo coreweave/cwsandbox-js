@@ -186,6 +186,26 @@ describe("FileTransfer", () => {
     expect(pulled).toBe(MAX_AUTO_FALLBACK_BYTES / chunk.byteLength + 1);
     expect(cancelled).toBe(true);
   });
+
+  it("allows an unknown-size fallback read of exactly the auto-fallback ceiling", async () => {
+    const chunk = new Uint8Array(16 * 1024 * 1024);
+    const adapter = createFakeAdapter({
+      read: async () => {
+        throw new CWSandboxResourceExhaustedError("resource exhausted");
+      },
+      readStream: () =>
+        (async function* () {
+          for (let i = 0; i < MAX_AUTO_FALLBACK_BYTES / chunk.byteLength; i += 1) {
+            yield chunk;
+          }
+        })(),
+    });
+    const transfer = new FileTransfer("sbx", adapter);
+
+    const result = await transfer.readSingle("/tmp/edge.bin", {});
+
+    expect(result.byteLength).toBe(MAX_AUTO_FALLBACK_BYTES);
+  });
 });
 
 function createFakeAdapter(overrides: Partial<FileAdapter> = {}): FileAdapter {
