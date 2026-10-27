@@ -13,13 +13,18 @@ import { isAdvancedResources } from "../../internal/resources.js";
 import { groupSecretsByStore, normalizeSecrets } from "../../internal/secrets.js";
 import type { Command, ProcessResult } from "../../public/commands.js";
 import type {
+  CidrBlock as SdkCidrBlock,
+  EffectiveEgressRule,
+  EffectiveIngressRule,
   Endpoint,
   EndpointAuth as SdkEndpointAuth,
   HttpsEndpointStatus,
   NetworkOptions,
+  PortRange as SdkPortRange,
   Service,
   ServiceProtocol as SdkServiceProtocol,
   ServiceUrl,
+  TenantScope as SdkTenantScope,
   TlsPassthroughEndpointStatus,
 } from "../../public/network.js";
 import type { GpuSpec, ResourceOptions, ResourceSpec } from "../../public/resources.js";
@@ -31,6 +36,7 @@ import type {
   ImagePullCredentials as SdkImagePullCredentials,
   ListSandboxesOptions,
   ListSandboxesResult,
+  SandboxContainerStatus,
   SandboxControl,
   SandboxExposedPort,
   SandboxInfo,
@@ -78,9 +84,14 @@ import {
   SnapshotTrigger,
   State,
   StreamLogsRequest as ProtoStreamLogsRequest,
+  TenantScope,
   Visibility,
   VolumeMount,
+  type CidrBlock as ProtoCidrBlock,
+  type ContainerStatus as ProtoContainerStatus,
   type ExecResponse as ProtoExecResponse,
+  type IngressRule as ProtoIngressRule,
+  type PortRange as ProtoPortRange,
   type FileSystemSnapshot as ProtoFileSystemSnapshot,
   type Gpu,
   type Sandbox as ProtoSandboxMessage,
@@ -684,6 +695,9 @@ function toSdkSandboxMetadata(sandbox: ProtoSandboxMessage): SandboxMetadata {
   const startedAt = toDate(status?.startTime);
   const createdAt = toDate(status?.createTime);
   const dnsEgressNames = toSdkDnsEgressNames(status?.effectiveEgress);
+  const containerStatuses = toSdkContainerStatuses(status?.containerStatuses);
+  const effectiveEgress = toSdkEffectiveEgress(status?.effectiveEgress);
+  const effectiveIngress = toSdkEffectiveIngress(status?.effectiveIngress);
 
   return {
     ...(sandbox.spec === undefined ? {} : { tags: [...sandbox.spec.tags] }),
@@ -691,8 +705,17 @@ function toSdkSandboxMetadata(sandbox: ProtoSandboxMessage): SandboxMetadata {
     ...(sandbox.control === Control.UNSPECIFIED
       ? {}
       : { control: toSdkSandboxControl(sandbox.control) }),
+    ...(status?.attachedVolumeIds === undefined || status.attachedVolumeIds.length === 0
+      ? {}
+      : { attachedVolumeIds: [...status.attachedVolumeIds] }),
+    ...(containerStatuses === undefined ? {} : { containerStatuses }),
     ...(status?.exitCode === undefined ? {} : { exitCode: status.exitCode }),
     ...(dnsEgressNames === undefined ? {} : { dnsEgressNames }),
+    ...(effectiveEgress === undefined ? {} : { effectiveEgress }),
+    ...(effectiveIngress === undefined ? {} : { effectiveIngress }),
+    ...(status?.effectiveRuntimeClass === undefined || status.effectiveRuntimeClass === ""
+      ? {}
+      : { effectiveRuntimeClass: status.effectiveRuntimeClass }),
     ...(exposedPorts === undefined ? {} : { exposedPorts }),
     ...(resourceLimits === undefined ? {} : { resourceLimits }),
     ...(resourceRequests === undefined ? {} : { resourceRequests }),
@@ -741,6 +764,132 @@ function toSdkDnsEgressNames(
   });
 
   return names.length === 0 ? undefined : names;
+}
+
+const TERMINAL_CONTAINER_STATUSES = new Set<SandboxStatus>(["completed", "failed", "terminated"]);
+
+function toSdkContainerStatuses(
+  rows: readonly ProtoContainerStatus[] | undefined,
+): readonly SandboxContainerStatus[] | undefined {
+  if (rows === undefined || rows.length === 0) {
+    return undefined;
+  }
+
+  return rows.map((row) => {
+    // A newer server may send a State this client does not know.
+    const status = State[row.state] === undefined ? "unspecified" : toSdkSandboxStatus(row.state);
+    return {
+      name: row.name,
+      status,
+      ...(TERMINAL_CONTAINER_STATUSES.has(status) ? { exitCode: row.exitCode } : {}),
+      restartCount: row.restartCount,
+    };
+  });
+}
+
+function toSdkEffectiveEgress(
+  rules: readonly ProtoEgressRule[] | undefined,
+): readonly EffectiveEgressRule[] | undefined {
+  const mapped = (rules ?? []).flatMap((rule): EffectiveEgressRule[] => {
+    let ports = toSdkPortRanges(rule.ports);
+    const destination = rule.destination;
+    switch (destination.oneofKind) {
+      case "httpsHostname":
+        // A hostname grant is HTTPS only; anything but one TCP 443 range is noise.
+        if (ports !== undefined && !(ports.length === 1 && ports.every(isHttps443))) {
+          ports = undefined;
+        }
+        return [{ dnsName: destination.httpsHostname, ...withPorts(ports) }];
+      case "cidr":
+        return [{ cidr: toSdkCidrBlock(destination.cidr), ...withPorts(ports) }];
+      case "tenant":
+        return [{ tenant: toSdkTenantScope(destination.tenant), ...withPorts(ports) }];
+      case "any":
+        return [{ any: true, ...withPorts(ports) }];
+      case "selector": {
+        const { namespaceLabels, podLabels } = destination.selector;
+        return [
+          {
+            selector: {
+              podLabels: { ...podLabels },
+              ...(Object.keys(namespaceLabels).length === 0
+                ? {}
+                : { namespaceLabels: { ...namespaceLabels } }),
+            },
+            ...withPorts(ports),
+          },
+        ];
+      }
+      default:
+        return [];
+    }
+  });
+  return mapped.length === 0 ? undefined : mapped;
+}
+
+function toSdkEffectiveIngress(
+  rules: readonly ProtoIngressRule[] | undefined,
+): readonly EffectiveIngressRule[] | undefined {
+  const mapped = (rules ?? []).flatMap((rule): EffectiveIngressRule[] => {
+    const ports = withPorts(toSdkPortRanges(rule.ports));
+    const source = rule.source;
+    switch (source.oneofKind) {
+      case "cidr":
+        return [{ cidr: toSdkCidrBlock(source.cidr), ...ports }];
+      case "tenant":
+        return [{ tenant: toSdkTenantScope(source.tenant), ...ports }];
+      case "any":
+        return [{ any: true, ...ports }];
+      default:
+        return [];
+    }
+  });
+  return mapped.length === 0 ? undefined : mapped;
+}
+
+function withPorts(ports: readonly SdkPortRange[] | undefined): {
+  readonly ports?: readonly SdkPortRange[];
+} {
+  return ports === undefined ? {} : { ports };
+}
+
+function toSdkPortRanges(ports: readonly ProtoPortRange[]): readonly SdkPortRange[] | undefined {
+  if (ports.length === 0) {
+    return undefined;
+  }
+  return ports.map((port) => ({
+    port: port.port,
+    ...(port.endPort === 0 ? {} : { endPort: port.endPort }),
+    ...(port.protocol === "" ? {} : { protocol: port.protocol }),
+  }));
+}
+
+function isHttps443(port: SdkPortRange): boolean {
+  return (
+    port.port === 443 &&
+    (port.endPort === undefined || port.endPort === 443) &&
+    (port.protocol === undefined || port.protocol.toUpperCase() === "TCP")
+  );
+}
+
+function toSdkCidrBlock(block: ProtoCidrBlock): SdkCidrBlock {
+  return {
+    cidr: block.cidr,
+    ...(block.except.length === 0 ? {} : { exceptCidrs: [...block.except] }),
+  };
+}
+
+function toSdkTenantScope(scope: TenantScope): SdkTenantScope {
+  switch (scope) {
+    case TenantScope.SAME_USER:
+      return "same_user";
+    case TenantScope.SAME_ORG:
+      return "same_org";
+    case TenantScope.SANDBOX_NETWORK:
+      return "sandbox_network";
+    default:
+      return "unspecified";
+  }
 }
 
 function toSdkServiceUrls(

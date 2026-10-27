@@ -15,6 +15,8 @@ import type { DataPlaneOptions } from "./data-plane.js";
 import type { MountedFiles, SandboxFiles } from "./files.js";
 import type { SandboxLogs } from "./logs.js";
 import type {
+  EffectiveEgressRule,
+  EffectiveIngressRule,
   HttpsEndpointStatus,
   NetworkOptions,
   Service,
@@ -428,6 +430,25 @@ export interface SandboxExposedPort {
 
 export type SandboxResourceSpec = ResourceSpec;
 
+/** Observed state of one container. The sandbox `status` stays primary-owned. */
+export interface SandboxContainerStatus {
+  readonly name: string;
+  readonly status: SandboxStatus;
+  /** Set only once the container is `completed`, `failed`, or `terminated`. */
+  readonly exitCode?: number;
+  readonly restartCount: number;
+}
+
+/** Client-side counters for `exec()` / `commands.run()` calls on one handle. */
+export interface SandboxExecStats {
+  readonly execCount: number;
+  readonly execCompletedOk: number;
+  /** Non-zero exits without `check: true`. */
+  readonly execCompletedNonzero: number;
+  /** Calls that threw, including a `check: true` non-zero exit. */
+  readonly execFailures: number;
+}
+
 export interface SandboxMetadata {
   /** Server creation time, distinct from the container start time. */
   readonly createdAt?: Date;
@@ -437,7 +458,16 @@ export interface SandboxMetadata {
    * when the backend does not report it.
    */
   readonly control?: SandboxControl;
+  readonly attachedVolumeIds?: readonly string[];
+  readonly containerStatuses?: readonly SandboxContainerStatus[];
   readonly dnsEgressNames?: readonly string[];
+  readonly effectiveEgress?: readonly EffectiveEgressRule[];
+  readonly effectiveIngress?: readonly EffectiveIngressRule[];
+  /**
+   * Runtime class the runner assigned. `"<node-default>"` means no
+   * RuntimeClass (the node's default runtime).
+   */
+  readonly effectiveRuntimeClass?: string;
   readonly exitCode?: number;
   readonly exposedPorts?: readonly SandboxExposedPort[];
   readonly resourceLimits?: SandboxResourceSpec;
@@ -489,8 +519,14 @@ export interface Sandbox {
    * platform control, so compare against `"container_engine"`.
    */
   readonly control: SandboxControl | undefined;
+  readonly attachedVolumeIds: readonly string[] | undefined;
+  readonly containerStatuses: readonly SandboxContainerStatus[] | undefined;
   readonly dnsEgressNames: readonly string[] | undefined;
+  readonly effectiveEgress: readonly EffectiveEgressRule[] | undefined;
+  readonly effectiveIngress: readonly EffectiveIngressRule[] | undefined;
+  readonly effectiveRuntimeClass: string | undefined;
   readonly endpointShareToken?: string | undefined;
+  readonly execStats: SandboxExecStats;
   readonly exitCode: number | undefined;
   readonly exposedPorts: readonly SandboxExposedPort[] | undefined;
   readonly resourceLimits: SandboxResourceSpec | undefined;
@@ -503,6 +539,8 @@ export interface Sandbox {
   readonly startedAt: Date | undefined;
   readonly status: SandboxStatus | undefined;
   readonly statusReason: string | undefined;
+  /** Client time when this handle last applied a backend status response. */
+  readonly statusUpdatedAt: Date | undefined;
   exec(command: CommandInput, options?: ExecOptions): Promise<ProcessResult>;
   inspect(options?: RequestOptions): Promise<GetSandboxResult>;
   getStatus(options?: RequestOptions): Promise<SandboxStatus>;

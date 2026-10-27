@@ -187,6 +187,12 @@ function createTrackingClient(): TrackingClient {
       tags: [],
       commands,
       control: undefined,
+      attachedVolumeIds: undefined,
+      containerStatuses: undefined,
+      effectiveEgress: undefined,
+      effectiveIngress: undefined,
+      effectiveRuntimeClass: undefined,
+      execStats: { execCount: 0, execCompletedOk: 0, execCompletedNonzero: 0, execFailures: 0 },
       delete: async () => {
         deletedSandboxIds.push(sandboxId);
       },
@@ -221,6 +227,7 @@ function createTrackingClient(): TrackingClient {
       startedAt: undefined,
       status,
       statusReason: undefined,
+      statusUpdatedAt: undefined,
       stop: async () => undefined,
       wait: async () => sandbox,
       async [Symbol.asyncDispose]() {

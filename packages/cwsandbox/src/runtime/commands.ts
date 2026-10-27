@@ -33,17 +33,36 @@ export async function execCommand(
   validateExecOptions(options);
   const { check, cwd, signal, timeoutMs } = options;
   const normalizedCommand = normalizeCommand(command);
+  const stats = runtime.execStats;
+  if (stats !== undefined) {
+    stats.execCount += 1;
+  }
 
-  const result = await runtime.transport.exec({
-    command: normalizedCommand,
-    ...(runtime.dataPlaneMode === undefined ? {} : { dataPlaneMode: runtime.dataPlaneMode }),
-    sandboxId: runtime.sandboxId,
-    ...(cwd !== undefined ? { cwd } : {}),
-    ...(signal !== undefined ? { signal } : {}),
-    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
-  });
+  let result: ProcessResult;
+  try {
+    result = await runtime.transport.exec({
+      command: normalizedCommand,
+      ...(runtime.dataPlaneMode === undefined ? {} : { dataPlaneMode: runtime.dataPlaneMode }),
+      sandboxId: runtime.sandboxId,
+      ...(cwd !== undefined ? { cwd } : {}),
+      ...(signal !== undefined ? { signal } : {}),
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+    });
+    throwIfCheckedFailed(result, check);
+  } catch (error) {
+    if (stats !== undefined) {
+      stats.execFailures += 1;
+    }
+    throw error;
+  }
 
-  throwIfCheckedFailed(result, check);
+  if (stats !== undefined) {
+    if (result.exitCode === 0) {
+      stats.execCompletedOk += 1;
+    } else {
+      stats.execCompletedNonzero += 1;
+    }
+  }
   return result;
 }
 

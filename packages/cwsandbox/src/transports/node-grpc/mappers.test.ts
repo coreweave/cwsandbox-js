@@ -19,6 +19,7 @@ import {
   SnapshotState,
   SnapshotTrigger,
   State,
+  TenantScope,
   Visibility,
   type CreateSandboxFromTemplateRequest,
   type ExecResponse,
@@ -1508,6 +1509,136 @@ describe("node transport mappers", () => {
       expect(mixed.dnsEgressNames).toEqual(["pypi.org"]);
       expect(none).not.toHaveProperty("dnsEgressNames");
     });
+
+    it("maps full effective egress and ingress rule sets", () => {
+      const result = toSdkGetSandboxResult(
+        ProtoSandbox.create({
+          sandboxId: "sandbox-123",
+          status: {
+            effectiveEgress: [
+              { destination: { httpsHostname: "pypi.org", oneofKind: "httpsHostname" } },
+              {
+                destination: { httpsHostname: "a.example", oneofKind: "httpsHostname" },
+                ports: [{ endPort: 0, port: 443, protocol: "tcp" }],
+              },
+              {
+                destination: { httpsHostname: "b.example", oneofKind: "httpsHostname" },
+                ports: [{ endPort: 0, port: 8443, protocol: "" }],
+              },
+              {
+                destination: {
+                  cidr: { cidr: "10.0.0.0/8", except: ["10.1.0.0/16"] },
+                  oneofKind: "cidr",
+                },
+                ports: [{ endPort: 2000, port: 1000, protocol: "UDP" }],
+              },
+              { destination: { oneofKind: "cidr", cidr: { cidr: "192.0.2.0/24", except: [] } } },
+              { destination: { oneofKind: "tenant", tenant: TenantScope.SAME_ORG } },
+              { destination: { oneofKind: "tenant", tenant: 99 as TenantScope } },
+              { destination: { any: true, oneofKind: "any" } },
+              {
+                destination: {
+                  oneofKind: "selector",
+                  selector: { namespaceLabels: {}, podLabels: { app: "db" } },
+                },
+              },
+              {
+                destination: {
+                  oneofKind: "selector",
+                  selector: { namespaceLabels: { team: "ml" }, podLabels: { app: "db" } },
+                },
+              },
+              { destination: { oneofKind: undefined } },
+            ],
+            effectiveIngress: [
+              {
+                ports: [{ endPort: 0, port: 8080, protocol: "" }],
+                source: { cidr: { cidr: "0.0.0.0/0", except: [] }, oneofKind: "cidr" },
+              },
+              { source: { oneofKind: "tenant", tenant: TenantScope.SAME_USER } },
+              { source: { any: true, oneofKind: "any" } },
+              { source: { oneofKind: undefined } },
+            ],
+            state: State.RUNNING,
+          },
+        }),
+      );
+
+      expect(result.effectiveEgress).toEqual([
+        { dnsName: "pypi.org" },
+        { dnsName: "a.example", ports: [{ port: 443, protocol: "tcp" }] },
+        { dnsName: "b.example" },
+        {
+          cidr: { cidr: "10.0.0.0/8", exceptCidrs: ["10.1.0.0/16"] },
+          ports: [{ endPort: 2000, port: 1000, protocol: "UDP" }],
+        },
+        { cidr: { cidr: "192.0.2.0/24" } },
+        { tenant: "same_org" },
+        { tenant: "unspecified" },
+        { any: true },
+        { selector: { podLabels: { app: "db" } } },
+        { selector: { namespaceLabels: { team: "ml" }, podLabels: { app: "db" } } },
+      ]);
+      expect(result.effectiveIngress).toEqual([
+        { cidr: { cidr: "0.0.0.0/0" }, ports: [{ port: 8080 }] },
+        { tenant: "same_user" },
+        { any: true },
+      ]);
+    });
+
+    it("maps container statuses, runtime class, and attached volumes", () => {
+      const result = toSdkSandboxInfo(
+        ProtoSandbox.create({
+          sandboxId: "sandbox-123",
+          status: {
+            attachedVolumeIds: ["vol-1", "vol-2"],
+            containerStatuses: [
+              { exitCode: 0, name: "main", restartCount: 0, state: State.RUNNING },
+              { exitCode: 3, name: "sidecar", restartCount: 2, state: State.FAILED },
+              { exitCode: 0, name: "init", restartCount: 0, state: State.COMPLETED },
+              { exitCode: 7, name: "future", restartCount: 1, state: 99 as State },
+            ],
+            effectiveRuntimeClass: "gvisor",
+            state: State.RUNNING,
+          },
+        }),
+      );
+
+      expect(result.containerStatuses).toEqual([
+        { name: "main", restartCount: 0, status: "running" },
+        { exitCode: 3, name: "sidecar", restartCount: 2, status: "failed" },
+        { exitCode: 0, name: "init", restartCount: 0, status: "completed" },
+        { name: "future", restartCount: 1, status: "unspecified" },
+      ]);
+      expect(result.effectiveRuntimeClass).toBe("gvisor");
+      expect(result.attachedVolumeIds).toEqual(["vol-1", "vol-2"]);
+    });
+
+    it.each([toSdkGetSandboxResult, toSdkStartSandboxResult, toSdkSandboxInfo])(
+      "omits absent read-back fields",
+      (map) => {
+        const result = map(
+          ProtoSandbox.create({
+            sandboxId: "sandbox-123",
+            status: {
+              effectiveEgress: [{ destination: { oneofKind: undefined } }],
+              effectiveIngress: [{ source: { oneofKind: undefined } }],
+              state: State.RUNNING,
+            },
+          }),
+        );
+
+        for (const key of [
+          "attachedVolumeIds",
+          "containerStatuses",
+          "effectiveEgress",
+          "effectiveIngress",
+          "effectiveRuntimeClass",
+        ]) {
+          expect(result).not.toHaveProperty(key);
+        }
+      },
+    );
 
     it("maps get responses with observed exitCode zero", () => {
       const result = toSdkGetSandboxResult(

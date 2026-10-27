@@ -46,6 +46,8 @@ import {
   type TlsPassthroughEndpoint,
   type TlsPassthroughEndpointStatus,
   type NetworkOptions,
+  type EffectiveEgressRule,
+  type EffectiveIngressRule,
   type EgressRule,
   type ObjectStoragePermission,
   type ProcessResult,
@@ -53,7 +55,9 @@ import {
   type Sandbox,
   type SandboxAnnotations,
   type SandboxClient,
+  type SandboxContainerStatus,
   type SandboxControl,
+  type SandboxExecStats,
   type SandboxExposedPort,
   type SandboxInfo,
   type SandboxList,
@@ -493,8 +497,24 @@ test("public API types", async () => {
   const sandboxTag: SandboxTag = "project-demo";
   const sandboxExposedPort: SandboxExposedPort = { name: "http", port: 8000, protocol: "tcp" };
   const sandboxResourceSpec: SandboxResourceSpec = { cpu: "1", memory: "1Gi" };
+  const containerStatus: SandboxContainerStatus = {
+    exitCode: 0,
+    name: "main",
+    restartCount: 0,
+    status: "completed",
+  };
+  const effectiveEgressRule: EffectiveEgressRule = {
+    cidr: { cidr: "10.0.0.0/8", exceptCidrs: ["10.1.0.0/16"] },
+    ports: [{ endPort: 2000, port: 1000, protocol: "UDP" }],
+  };
+  const effectiveIngressRule: EffectiveIngressRule = { tenant: "same_org" };
   const sandboxMetadata: SandboxMetadata = {
+    attachedVolumeIds: ["vol-1"],
+    containerStatuses: [containerStatus],
     dnsEgressNames: ["pypi.org"],
+    effectiveEgress: [effectiveEgressRule, { dnsName: "pypi.org" }],
+    effectiveIngress: [effectiveIngressRule],
+    effectiveRuntimeClass: "gvisor",
     exposedPorts: [sandboxExposedPort],
     resourceLimits: sandboxResourceSpec,
     resourceRequests: sandboxResourceSpec,
@@ -560,6 +580,19 @@ test("public API types", async () => {
   >();
   expectTypeOf(httpsStatus.url).toEqualTypeOf<string>();
   expectTypeOf(sandbox.dnsEgressNames).toEqualTypeOf<readonly string[] | undefined>();
+  expectTypeOf(sandbox.attachedVolumeIds).toEqualTypeOf<readonly string[] | undefined>();
+  expectTypeOf(sandbox.containerStatuses).toEqualTypeOf<
+    readonly SandboxContainerStatus[] | undefined
+  >();
+  expectTypeOf(sandbox.effectiveEgress).toEqualTypeOf<readonly EffectiveEgressRule[] | undefined>();
+  expectTypeOf(sandbox.effectiveIngress).toEqualTypeOf<
+    readonly EffectiveIngressRule[] | undefined
+  >();
+  expectTypeOf(sandbox.effectiveRuntimeClass).toEqualTypeOf<string | undefined>();
+  expectTypeOf(sandbox.execStats).toEqualTypeOf<SandboxExecStats>();
+  expectTypeOf(sandbox.statusUpdatedAt).toEqualTypeOf<Date | undefined>();
+  expectTypeOf<SandboxInfo>().not.toHaveProperty("statusUpdatedAt");
+  expectTypeOf<SandboxInfo>().not.toHaveProperty("execStats");
   expectTypeOf(sandbox.exposedPorts).toEqualTypeOf<readonly SandboxExposedPort[] | undefined>();
   expectTypeOf(sandbox.resourceRequests).toEqualTypeOf<SandboxResourceSpec | undefined>();
   expectTypeOf(sandbox.resourceLimits).toEqualTypeOf<SandboxResourceSpec | undefined>();
