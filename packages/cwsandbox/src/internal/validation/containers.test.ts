@@ -5,7 +5,7 @@
 import { describe, expect, it } from "vitest";
 
 import { CWSandboxValidationError } from "../../errors.js";
-import type { Container } from "../../public/containers.js";
+import type { Container, VolumeMount } from "../../public/containers.js";
 import type { SandboxRunOptions } from "../../public/sandbox.js";
 import { validateContainerTarget, validateContainersOption } from "./containers.js";
 
@@ -63,6 +63,26 @@ describe("validateContainersOption", () => {
       "empty volume name",
       [{ image: "busybox", volumeMounts: [{ mountPath: "/data", volume: "" }] }],
       /volumeMounts\[0]\.volume cannot be empty/,
+    ],
+    [
+      "null volume mount",
+      [{ image: "busybox", volumeMounts: [null as unknown as VolumeMount] }],
+      /volumeMounts\[0] must be an object/,
+    ],
+    [
+      "volume mount without mountPath",
+      [{ image: "busybox", volumeMounts: [{ volume: "shared" } as unknown as VolumeMount] }],
+      /volumeMounts\[0]\.mountPath is required/,
+    ],
+    [
+      "non-string volume mountPath",
+      [
+        {
+          image: "busybox",
+          volumeMounts: [{ mountPath: 1, volume: "shared" } as unknown as VolumeMount],
+        },
+      ],
+      /volumeMounts\[0]\.mountPath is required/,
     ],
     [
       "conflicting secrets",

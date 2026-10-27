@@ -125,6 +125,30 @@ describe("container option", () => {
     ]);
   });
 
+  it("passes container through the atomic StreamExec write fallback", async () => {
+    const seen: [string, string | undefined, string | undefined][] = [];
+    const fileAdapter: FileAdapter = createFakeFileAdapter({
+      async write(request) {
+        seen.push(["write", request.container, undefined]);
+        throw new CWSandboxFileError("too large", {
+          metadata: { size_bytes: "1" },
+          reason: CWSANDBOX_FILE_TOO_LARGE,
+        });
+      },
+      async writeStream(request) {
+        seen.push(["writeStream", request.container, request.mode]);
+      },
+    });
+    const sandbox = await createClient(createFakeTransport(), fileAdapter).create();
+
+    await sandbox.files.write("/tmp/a", "x", { container: "cache" });
+
+    expect(seen).toEqual([
+      ["write", "cache", undefined],
+      ["writeStream", "cache", "atomic"],
+    ]);
+  });
+
   it("rejects a non-string container", async () => {
     const sandbox = await createClient().create();
 

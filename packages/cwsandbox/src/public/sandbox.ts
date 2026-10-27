@@ -561,7 +561,9 @@ export interface SandboxMetadata {
   /**
    * Container spec echoed by the backend. `primary` is set on the primary
    * (the first row when none is flagged), so the list is a valid `containers`
-   * create option.
+   * create option, except on engine sandboxes (`control === "container_engine"`):
+   * they echo one image-less `cws-engine` row that cannot be sent back to
+   * create. Fields the SDK's `Container` type does not model are omitted.
    */
   readonly containers?: readonly Container[];
   readonly dnsEgressNames?: readonly string[];
@@ -629,8 +631,11 @@ export interface Sandbox {
   readonly control: SandboxControl | undefined;
   readonly attachedVolumeIds?: readonly string[] | undefined;
   readonly containerStatuses?: readonly SandboxContainerStatus[] | undefined;
-  /** Container spec from the latest backend response that reported it. */
-  readonly containers: readonly Container[] | undefined;
+  /**
+   * Container spec from the latest backend response that reported it. See
+   * `SandboxMetadata.containers` for when it can be passed back to create.
+   */
+  readonly containers?: readonly Container[] | undefined;
   readonly dnsEgressNames: readonly string[] | undefined;
   readonly effectiveEgress?: readonly EffectiveEgressRule[] | undefined;
   readonly effectiveIngress?: readonly EffectiveIngressRule[] | undefined;

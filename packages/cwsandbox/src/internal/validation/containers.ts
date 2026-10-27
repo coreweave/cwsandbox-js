@@ -148,8 +148,14 @@ function validateVolumeMounts(mounts: Container["volumeMounts"], field: string):
     throw new CWSandboxValidationError(`${field} must be an array.`);
   }
   for (const [index, mount] of mounts.entries()) {
+    if (mount === null || typeof mount !== "object" || Array.isArray(mount)) {
+      throw new CWSandboxValidationError(`${field}[${index}] must be an object.`);
+    }
     if (typeof mount.volume !== "string" || mount.volume === "") {
       throw new CWSandboxValidationError(`${field}[${index}].volume cannot be empty`);
+    }
+    if (typeof mount.mountPath !== "string") {
+      throw new CWSandboxValidationError(`${field}[${index}].mountPath is required.`);
     }
     validateMountPath(mount.mountPath, `${field}[${index}].mountPath`);
     if (mount.readOnly !== undefined && typeof mount.readOnly !== "boolean") {

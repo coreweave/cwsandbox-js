@@ -879,7 +879,10 @@ const cacheLogs = await sandbox.logs.read({ container: "cache" });
 Exec, `commands.start`, `shell`, `logs.*`, and `files.*` accept `container`;
 omit it (or pass an empty string) to target the primary. `sandbox.containers`
 echoes the container spec with `primary` set on the primary, so it can be passed
-back to `create({ containers })`. The names `cws-engine`, `dns-egress`,
+back to `create({ containers })`. The exception is an engine sandbox
+(`control === "container_engine"`), which echoes one image-less `cws-engine` row
+that create rejects. Fields the SDK's `Container` type does not model are not
+echoed, so a copy created from the list does not carry them. The names `cws-engine`, `dns-egress`,
 `dns-egress-probe`, and `cw-object-store-agent*` are reserved.
 
 ### Tags
