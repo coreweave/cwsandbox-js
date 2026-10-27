@@ -315,6 +315,10 @@ console.log(result.stdout);
 sandbox lifecycle readiness, not application readiness: if your main process starts an HTTP server
 or performs setup, wait for that app-specific condition with commands, logs, files, or services.
 
+If the backend accepts the start request but the readiness wait rejects (the sandbox fails, for
+example on an image pull error, or `timeoutMs` elapses), these helpers best-effort stop the
+sandbox and rethrow the original readiness error. A cleanup failure never replaces that error.
+
 Pass `waitUntilRunning: false` when you need a handle immediately after the backend accepts the
 start request:
 
@@ -1001,8 +1005,7 @@ are not inherited). Field-level replacement details live on
 
 If creation returns an accepted sandbox but the readiness wait rejects, the
 SDK best-effort stops it. `waitUntilRunning: false` returns immediately after
-accept with no automatic cleanup. `create` / `run` do not yet follow this
-readiness-failure cleanup behavior.
+accept with no automatic cleanup.
 
 `placementMode` is not available; CKS placement is only via non-empty
 `runnerIds`. `ResourceOptions` is CPU and memory only (no GPU). `secrets: []`

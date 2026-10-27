@@ -28,7 +28,19 @@ export type WithSandboxCallback<TResult> = (sandbox: Sandbox) => Promise<TResult
 
 /** Public interface returned by all CWSandbox client factories. */
 export interface SandboxClient {
+  /**
+   * Waits for `running` by default. If creation returns an accepted sandbox but
+   * the readiness wait rejects, the SDK best-effort stops it and rethrows the
+   * original readiness error. `waitUntilRunning: false` returns immediately
+   * after accept with no automatic cleanup.
+   */
   create(options?: SandboxRunOptions): Promise<Sandbox>;
+  /**
+   * Runs `command` and waits for `running` by default. If creation returns an
+   * accepted sandbox but the readiness wait rejects, the SDK best-effort stops
+   * it and rethrows the original readiness error. `waitUntilRunning: false`
+   * returns immediately after accept with no automatic cleanup.
+   */
   run(command: CommandInput, options?: SandboxRunOptions): Promise<Sandbox>;
   get(sandboxId: SandboxId, options?: RequestOptions): Promise<GetSandboxResult>;
   fromId(sandboxId: SandboxId, options?: FromIdOptions): Promise<Sandbox>;
