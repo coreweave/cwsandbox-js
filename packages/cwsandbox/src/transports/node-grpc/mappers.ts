@@ -11,6 +11,7 @@ import { normalizeFileContent, normalizeMountedFiles } from "../../internal/moun
 import { normalizeDnsName } from "../../internal/network.js";
 import { isAdvancedResources } from "../../internal/resources.js";
 import { groupSecretsByStore, normalizeSecrets } from "../../internal/secrets.js";
+import { isRegisteredVolume } from "../../internal/validation/file-system-snapshot.js";
 import type { Command, ProcessResult } from "../../public/commands.js";
 import type {
   CidrBlock as SdkCidrBlock,
@@ -364,9 +365,7 @@ type VolumeCreateFields = {
   readonly volumes?: StartSandboxRequest["volumes"];
 };
 
-function scratchVolumesFromRequest(
-  request: VolumeCreateFields,
-): readonly ScratchVolumeOptions[] | undefined {
+function volumesFromRequest(request: VolumeCreateFields): StartSandboxRequest["volumes"] {
   if (request.volumes !== undefined) {
     return request.volumes;
   }
@@ -404,7 +403,7 @@ function toProtoScratchSource(
 function toProtoVolumes(
   request: VolumeCreateFields,
 ): ReturnType<typeof SandboxVolume.create>[] | undefined {
-  const volumes = scratchVolumesFromRequest(request);
+  const volumes = volumesFromRequest(request);
   if (volumes === undefined) {
     return undefined;
   }
@@ -412,10 +411,9 @@ function toProtoVolumes(
   return volumes.map((volume) =>
     SandboxVolume.create({
       name: volume.name,
-      source: {
-        oneofKind: "scratch",
-        scratch: toProtoScratchSource(volume),
-      },
+      source: isRegisteredVolume(volume)
+        ? { oneofKind: "volumeId", volumeId: volume.volumeId }
+        : { oneofKind: "scratch", scratch: toProtoScratchSource(volume) },
     }),
   );
 }
@@ -423,7 +421,7 @@ function toProtoVolumes(
 function toProtoVolumeMounts(
   request: VolumeCreateFields,
 ): ReturnType<typeof VolumeMount.create>[] | undefined {
-  const volumes = scratchVolumesFromRequest(request);
+  const volumes = volumesFromRequest(request);
   if (volumes === undefined) {
     return undefined;
   }
@@ -432,6 +430,9 @@ function toProtoVolumeMounts(
     VolumeMount.create({
       mountPath: volume.mountPath,
       volume: volume.name,
+      ...(isRegisteredVolume(volume)
+        ? { readOnly: volume.readOnly === true, subPath: volume.subPath ?? "" }
+        : {}),
     }),
   );
 }
@@ -672,6 +673,7 @@ export function toProtoListSandboxesRequest(
     showTerminated: request.showTerminated ?? false,
     state: toProtoState(request.status),
     tags: [...(request.tags ?? [])],
+    volumeIds: [...(request.volumeIds ?? [])],
   });
 }
 

@@ -137,6 +137,22 @@ export interface ScratchVolumeOptions {
 }
 
 /**
+ * Mount an existing registered Volume on the primary container. The Volume
+ * must already exist in the organization.
+ */
+export interface RegisteredVolumeOptions {
+  /** Unique name within the sandbox (shared with scratch volume names). */
+  readonly name: string;
+  /** Registered Volume ID. */
+  readonly volumeId: string;
+  /** Absolute directory to mount (not `/`). Same rules as scratch mounts. */
+  readonly mountPath: string;
+  /** Relative path inside the Volume to mount instead of its root. */
+  readonly subPath?: string;
+  readonly readOnly?: boolean;
+}
+
+/**
  * Convenience single-mount scratch volume for snapshot/restore.
  *
  * Maps to a scratch volume named `workspace` mounted at `mountPath` on the
@@ -211,11 +227,12 @@ export interface SandboxRunOptions extends RequestOptions, DataPlaneOptions, Cre
   /** Registry credentials for pulling the primary container image. */
   readonly imagePullCredentials?: ImagePullCredentials;
   /**
-   * Named scratch volumes. Mutually exclusive with `fileSystemSnapshot`.
-   * Must be non-empty. `snapshot()` fails client-side when this process
-   * created more than one scratch.
+   * Named scratch volumes and registered Volume mounts (entries with
+   * `volumeId`). Mutually exclusive with `fileSystemSnapshot`. Must be
+   * non-empty. `snapshot()` fails client-side when this process created more
+   * than one scratch.
    */
-  readonly volumes?: readonly ScratchVolumeOptions[];
+  readonly volumes?: readonly (ScratchVolumeOptions | RegisteredVolumeOptions)[];
   readonly maxLifetimeSeconds?: Seconds;
   readonly mountedFiles?: MountedFiles;
   readonly network?: NetworkOptions;
@@ -450,6 +467,8 @@ export interface ListSandboxesOptions extends RequestOptions {
   readonly showTerminated?: boolean;
   readonly status?: SandboxStatus;
   readonly tags?: readonly SandboxTag[];
+  /** Only sandboxes attached to any of these registered Volume IDs. */
+  readonly volumeIds?: readonly string[];
 }
 
 /**

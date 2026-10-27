@@ -719,6 +719,25 @@ await client.create({
 `stop({ snapshotOnStop })` is not supported. Capture with `sandbox.snapshot()`
 before stop or delete.
 
+### Registered volumes
+
+Mount an existing registered Volume by adding an entry with `volumeId` to
+`volumes`. Names and mount paths must be unique across scratch and registered
+entries. `subPath` mounts a relative path inside the Volume, and `readOnly`
+mounts it read-only. Registered volumes are not scratches, so `snapshot()`
+ignores them. This SDK does not create or manage Volumes.
+
+```ts
+await client.create({
+  volumes: [
+    { name: "workspace", mountPath: "/workspace" },
+    { name: "datasets", volumeId: "vol-123", mountPath: "/data", readOnly: true },
+  ],
+});
+
+const attached = await client.listAll({ volumeIds: ["vol-123"] });
+```
+
 ### Object storage access
 
 Mint temporary object-storage credentials for the sandbox at create time

@@ -154,6 +154,7 @@ export type {
   ListSandboxesOptions,
   ListSandboxesResult,
   ObjectStoragePermission,
+  RegisteredVolumeOptions,
   Sandbox,
   SandboxAnnotations,
   SandboxContainerStatus,

@@ -935,6 +935,17 @@ describe("SandboxClient", () => {
       await expect(client.listAll({ pageSize: -1 })).rejects.toThrow(CWSandboxValidationError);
     });
 
+    it("rejects invalid volumeIds list filters before the transport", async () => {
+      const client = createClient();
+
+      await expect(client.list({ volumeIds: ["vol-1", "vol-1"] })).rejects.toThrow(
+        "volumeIds contains duplicate value: vol-1",
+      );
+      await expect(client.list({ volumeIds: [""] })).rejects.toThrow(
+        "volumeIds must not contain empty values",
+      );
+    });
+
     it("rejects removed v1beta2 list keys before the transport", async () => {
       let listCalls = 0;
       const transport: SandboxTransport = {

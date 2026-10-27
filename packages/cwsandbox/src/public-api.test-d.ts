@@ -23,6 +23,7 @@ import {
   type FileWrites,
   type FileSystemSnapshotOptions,
   type FileSystemSnapshotResult,
+  type RegisteredVolumeOptions,
   type ScratchVolumeOptions,
   type SecurityContext,
   type GetSandboxResult,
@@ -445,6 +446,18 @@ test("public API types", async () => {
   ).toEqualTypeOf<ReturnType<SandboxClient["create"]>>();
   // @ts-expect-error seccompProfile is a closed set of values
   void client.create({ securityContext: { seccompProfile: "Localhost" } });
+  const registeredVolume: RegisteredVolumeOptions = {
+    mountPath: "/data",
+    name: "data",
+    readOnly: true,
+    volumeId: "vol-123",
+  };
+  expectTypeOf(client.create({ volumes: [...namedVolumes, registeredVolume] })).toEqualTypeOf<
+    ReturnType<SandboxClient["create"]>
+  >();
+  expectTypeOf(client.list({ volumeIds: ["vol-123"] })).toEqualTypeOf<
+    ReturnType<SandboxClient["list"]>
+  >();
   expectTypeOf<ObjectStoragePermission>().toEqualTypeOf<"read" | "read-write">();
 
   const command: string[] = ["echo"];

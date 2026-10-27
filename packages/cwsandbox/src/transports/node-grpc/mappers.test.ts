@@ -827,6 +827,40 @@ describe("node transport mappers", () => {
       ]);
     });
 
+    it("maps registered volumes onto volumeId sources and primary mounts", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        volumes: [
+          { mountPath: "/workspace", name: "workspace" },
+          {
+            mountPath: "/data",
+            name: "data",
+            readOnly: true,
+            subPath: "team/a",
+            volumeId: "vol-1",
+          },
+          { mountPath: "/models", name: "models", volumeId: "vol-2" },
+        ],
+      });
+
+      expect(request.sandbox?.spec?.volumes).toEqual([
+        {
+          name: "workspace",
+          source: {
+            oneofKind: "scratch",
+            scratch: { medium: 0, restoreFromSnapshotId: "", size: "" },
+          },
+        },
+        { name: "data", source: { oneofKind: "volumeId", volumeId: "vol-1" } },
+        { name: "models", source: { oneofKind: "volumeId", volumeId: "vol-2" } },
+      ]);
+      expect(primaryContainer(request)?.volumeMounts).toEqual([
+        { mountPath: "/workspace", readOnly: false, subPath: "", volume: "workspace" },
+        { mountPath: "/data", readOnly: true, subPath: "team/a", volume: "data" },
+        { mountPath: "/models", readOnly: false, subPath: "", volume: "models" },
+      ]);
+    });
+
     it("maps objectStorageAccess onto spec", () => {
       const request = toProtoCreateRequest({
         command: ["python"],
@@ -2157,6 +2191,7 @@ describe("node transport mappers", () => {
         status: "running",
         tags: ["tag-a"],
         timeoutMs: 1500,
+        volumeIds: ["vol-1", "vol-2"],
       });
 
       expect(request).toMatchObject({
@@ -2166,6 +2201,7 @@ describe("node transport mappers", () => {
         showTerminated: true,
         state: State.RUNNING,
         tags: ["tag-a"],
+        volumeIds: ["vol-1", "vol-2"],
       });
     });
 

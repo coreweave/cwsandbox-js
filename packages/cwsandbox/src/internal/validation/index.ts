@@ -357,6 +357,7 @@ export function validateListSandboxesOptions(options: ListSandboxesOptions): voi
   validateOptionalBoolean(options.showTerminated, "showTerminated");
   validateUniqueStringList(options.runnerIds, "runnerIds");
   validateTags(options.tags);
+  validateUniqueStringList(options.volumeIds, "volumeIds");
 }
 
 export function validateLogReadOptions(options: LogReadOptions): void {
