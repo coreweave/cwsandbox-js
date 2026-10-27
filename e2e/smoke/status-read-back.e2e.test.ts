@@ -92,7 +92,7 @@ describeWithCredentials("live status read-back smoke", { sequential: true }, () 
         expect(listed?.effectiveRuntimeClass).toBe(sandbox.effectiveRuntimeClass);
         const discovered = await client.fromId(sandbox.sandboxId);
         expect(discovered.effectiveEgress).toEqual(sandbox.effectiveEgress);
-        expect(discovered.execStats.execCount).toBe(0);
+        expect(discovered.execStats?.execCount).toBe(0);
       } finally {
         await sandbox.stop({ missingOk: true });
       }

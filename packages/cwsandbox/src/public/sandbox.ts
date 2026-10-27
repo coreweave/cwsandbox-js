@@ -364,10 +364,14 @@ export interface SandboxRunFromFileOptions
    */
   readonly runnerIds?: readonly string[];
   /**
-   * Idempotency key. Repeating the same request with the same key returns the
-   * original sandbox instead of creating another. The same key with different
-   * `contents` bytes (even whitespace) is rejected with
-   * `CWSANDBOX_REQUEST_ID_CONFLICT`. Defaults to a fresh UUID per call.
+   * Idempotency key that makes an ambiguous create error (for example a
+   * timeout or dropped connection) safe to retry: repeating the same request
+   * with the same key returns the original sandbox instead of creating
+   * another. The same key with different `contents` bytes (even whitespace) is
+   * rejected with `CWSANDBOX_REQUEST_ID_CONFLICT`. After a readiness failure
+   * the SDK may already have stopped the sandbox, so retry with a new key, or
+   * pass `waitUntilRunning: false` and call `wait()` yourself. Defaults to a
+   * fresh UUID per call.
    */
   readonly requestId?: string;
   readonly tags?: readonly SandboxTag[];
@@ -519,14 +523,18 @@ export interface Sandbox {
    * platform control, so compare against `"container_engine"`.
    */
   readonly control: SandboxControl | undefined;
-  readonly attachedVolumeIds: readonly string[] | undefined;
-  readonly containerStatuses: readonly SandboxContainerStatus[] | undefined;
+  readonly attachedVolumeIds?: readonly string[] | undefined;
+  readonly containerStatuses?: readonly SandboxContainerStatus[] | undefined;
   readonly dnsEgressNames: readonly string[] | undefined;
-  readonly effectiveEgress: readonly EffectiveEgressRule[] | undefined;
-  readonly effectiveIngress: readonly EffectiveIngressRule[] | undefined;
-  readonly effectiveRuntimeClass: string | undefined;
+  readonly effectiveEgress?: readonly EffectiveEgressRule[] | undefined;
+  readonly effectiveIngress?: readonly EffectiveIngressRule[] | undefined;
+  readonly effectiveRuntimeClass?: string | undefined;
   readonly endpointShareToken?: string | undefined;
-  readonly execStats: SandboxExecStats;
+  /**
+   * Exec counters for this handle. Optional only so existing `Sandbox`
+   * implementations keep compiling; SDK handles always set it.
+   */
+  readonly execStats?: SandboxExecStats;
   readonly exitCode: number | undefined;
   readonly exposedPorts: readonly SandboxExposedPort[] | undefined;
   readonly resourceLimits: SandboxResourceSpec | undefined;
@@ -540,7 +548,7 @@ export interface Sandbox {
   readonly status: SandboxStatus | undefined;
   readonly statusReason: string | undefined;
   /** Client time when this handle last applied a backend status response. */
-  readonly statusUpdatedAt: Date | undefined;
+  readonly statusUpdatedAt?: Date | undefined;
   exec(command: CommandInput, options?: ExecOptions): Promise<ProcessResult>;
   inspect(options?: RequestOptions): Promise<GetSandboxResult>;
   getStatus(options?: RequestOptions): Promise<SandboxStatus>;

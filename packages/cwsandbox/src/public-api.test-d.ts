@@ -589,7 +589,7 @@ test("public API types", async () => {
     readonly EffectiveIngressRule[] | undefined
   >();
   expectTypeOf(sandbox.effectiveRuntimeClass).toEqualTypeOf<string | undefined>();
-  expectTypeOf(sandbox.execStats).toEqualTypeOf<SandboxExecStats>();
+  expectTypeOf(sandbox.execStats).toEqualTypeOf<SandboxExecStats | undefined>();
   expectTypeOf(sandbox.statusUpdatedAt).toEqualTypeOf<Date | undefined>();
   expectTypeOf<SandboxInfo>().not.toHaveProperty("statusUpdatedAt");
   expectTypeOf<SandboxInfo>().not.toHaveProperty("execStats");
