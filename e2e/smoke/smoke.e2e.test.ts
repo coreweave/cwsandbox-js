@@ -625,6 +625,27 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
     );
 
     it(
+      "completes a burst of concurrent writes and reads on one sandbox",
+      async () => {
+        // Enough concurrent unary file calls to trip the runner's overload limit.
+        const count = 12;
+        const activeSandbox = currentSandbox();
+        const files = Array.from({ length: count }, (_, index) => ({
+          content: `burst ${index} ${randomUUID()}`,
+          path: `/tmp/cwsandbox-js-burst-${sharedTag}-${index}.txt`,
+        }));
+
+        await Promise.all(files.map((file) => activeSandbox.files.write(file.path, file.content)));
+        const texts = await Promise.all(
+          files.map((file) => activeSandbox.files.readText(file.path)),
+        );
+
+        expect(texts).toEqual(files.map((file) => file.content));
+      },
+      testTimeoutMs,
+    );
+
+    it(
       "throws a typed error for a missing file",
       async () => {
         const error = await rejectAndNarrow(
