@@ -11,6 +11,10 @@ SPDX-PackageName: cwsandbox
 - Decode `google.rpc.BadRequest` from gRPC status details. Transport errors
   expose `fieldViolations` (`{ field, description }[]`, empty when absent),
   matching the Python SDK's `field_violations`.
+- Large file reads (`files.readStream`, and `files.read` above the unary
+  limit) no longer crawl at about 0.5 MiB/s or fail with
+  `CWSandboxStreamTruncatedError`. The gRPC channels now use a 16 MiB HTTP/2
+  receive window instead of the 64 KiB default.
 
 ## 1.0.0
 
