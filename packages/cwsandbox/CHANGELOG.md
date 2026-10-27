@@ -14,6 +14,14 @@ SPDX-PackageName: cwsandbox
   `requests` and `limits`. `resourceRequests` / `resourceLimits` include
   `gpu` when the server echoes it. `runFromFile` `defaultResources` still
   rejects GPU.
+- `exec` with `timeoutMs` now stays within the timeout when a direct-mode call
+  is retried on a new runner because its shard is retiring. The retry's lease
+  wait and RPC get only the time left; before, the retry got a full
+  `timeoutMs` again. If no time is left, `exec` throws `CWSandboxTimeoutError`
+  with the retiring error as its `cause` instead of retrying. In `direct` mode,
+  a retry lease wait that runs out of time also throws `CWSandboxTimeoutError`
+  rather than `CWSandboxUnavailableError`. Calls without `timeoutMs` are
+  unchanged.
 - Decode `google.rpc.BadRequest` from gRPC status details. Transport errors
   expose `fieldViolations` (`{ field, description }[]`, empty when absent),
   matching the Python SDK's `field_violations`.

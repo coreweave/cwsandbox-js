@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-PackageName: cwsandbox
 
+import { CWSandboxTimeoutError } from "../../errors.js";
 import type {
   CommandProcess,
   CommandProcessWithStdin,
@@ -266,15 +267,40 @@ export class GrpcSandboxTransport implements SandboxTransport {
   }
 
   public async exec(request: ExecRequest): Promise<ProcessResult> {
+    // The first lease wait is outside the command budget. A retry on a new
+    // runner gets only what is left of it, including its own lease wait.
+    let deadline: number | undefined;
+    const withRemainingTimeout = (): ExecRequest =>
+      deadline === undefined
+        ? request
+        : { ...request, timeoutMs: Math.max(0, deadline - Date.now()) };
+    const timedOut = (cause: unknown, message = "Exec command timed out."): CWSandboxTimeoutError =>
+      new CWSandboxTimeoutError(message, {
+        cause,
+        operation: "Exec command",
+        sandboxId: request.sandboxId,
+        transport: "grpc",
+      });
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      const lease = await this.acquireDirectLease(request, SandboxDataPermission.EXEC);
+      let lease: DirectDataPlaneLease | undefined;
+      try {
+        lease = await this.acquireDirectLease(withRemainingTimeout(), SandboxDataPermission.EXEC);
+      } catch (error) {
+        if (deadline !== undefined && deadline <= Date.now()) {
+          throw timedOut(error, "Exec command timed out while reconnecting.");
+        }
+        throw error;
+      }
+      if (request.timeoutMs !== undefined) {
+        deadline ??= Date.now() + request.timeoutMs;
+      }
       let discard = false;
       try {
+        const rpcOptions = toRpcOptions(withRemainingTimeout());
         const response = await withGrpcErrorMapping(
           "Exec command",
           () =>
-            (lease?.client ?? this.client).exec(toProtoExecRequest(request), toRpcOptions(request))
-              .response,
+            (lease?.client ?? this.client).exec(toProtoExecRequest(request), rpcOptions).response,
           request.sandboxId,
         );
         return toSdkProcessResult(request.command, response);
@@ -284,6 +310,9 @@ export class GrpcSandboxTransport implements SandboxTransport {
           await lease.discard();
         }
         if (lease !== undefined && attempt === 0 && isRunnerShardRetiringError(error)) {
+          if (deadline !== undefined && deadline <= Date.now()) {
+            throw timedOut(error);
+          }
           continue;
         }
         throw error;
