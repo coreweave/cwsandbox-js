@@ -10,7 +10,12 @@
  * leaves it terminating or terminal when listed by its tag.
  */
 
-import type { SandboxClient, SandboxInfo, SandboxStatus } from "@coreweave/cwsandbox";
+import {
+  CWSandboxTimeoutError,
+  type SandboxClient,
+  type SandboxInfo,
+  type SandboxStatus,
+} from "@coreweave/cwsandbox";
 import { createSandboxClientFromEnv } from "@coreweave/cwsandbox/node";
 import { beforeAll, describe, expect, it } from "vitest";
 
@@ -49,7 +54,10 @@ describeWithCredentials("live readiness-failure cleanup smoke", { sequential: tr
           thrown = error;
         }
         logCaughtError(`${LOG_PREFIX} run`, thrown);
-        expect(thrown).toBeInstanceOf(Error);
+        // A timeout, not a backend-reported failure, is the case where cleanup
+        // matters: a sandbox the backend already failed would list as stopped
+        // with or without the SDK's stop.
+        expect(thrown).toBeInstanceOf(CWSandboxTimeoutError);
 
         const sandboxes = await listUntilStopped(client, tag);
         console.log(LOG_PREFIX, "listed", sandboxes);
