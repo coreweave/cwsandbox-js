@@ -29,6 +29,7 @@ import { validateSecrets } from "../secrets.js";
 import { validateAnnotations } from "./annotations.js";
 import { validateSandboxVolumeCreateOptions } from "./file-system-snapshot.js";
 import { validateObjectStorageAccess } from "./object-storage.js";
+import { validateSecurityContext } from "./security-context.js";
 import { validateUniqueStringList } from "./string-list.js";
 import { validateTags } from "./tags.js";
 
@@ -90,6 +91,9 @@ export function validateSandboxRunOptions(options: SandboxRunOptions): void {
   validateResources(options.resources);
   validateSecrets(options.secrets, options.environmentVariables);
   validateUniqueStringList(options.runnerIds, "runnerIds");
+  validateOptionalNonBlankString(options.runtimeClass, "runtimeClass");
+  validateSecurityContext(options.securityContext);
+  validateOptionalNonBlankString(options.workingDir, "workingDir");
   validateTags(options.tags);
   validateOptionalBoolean(options.waitUntilRunning, "waitUntilRunning");
   validateDataPlaneMode(options.dataPlaneMode);
@@ -618,17 +622,20 @@ function requireArrayOfRecordsIfPresent(value: unknown, name: string): void {
   }
 }
 
+const TEMPLATE_UNSUPPORTED_KEYS = [
+  "imagePullCredentials",
+  "objectStorageAccess",
+  "runtimeClass",
+  "securityContext",
+  "workingDir",
+] as const;
+
 function rejectUnsupportedTemplateKeys(options: object): void {
   const record = options as Record<string, unknown>;
-  if (record["imagePullCredentials"] !== undefined) {
-    throw new CWSandboxValidationError(
-      "imagePullCredentials is not supported with template sandboxes.",
-    );
-  }
-  if (record["objectStorageAccess"] !== undefined) {
-    throw new CWSandboxValidationError(
-      "objectStorageAccess is not supported with template sandboxes.",
-    );
+  for (const key of TEMPLATE_UNSUPPORTED_KEYS) {
+    if (record[key] !== undefined) {
+      throw new CWSandboxValidationError(`${key} is not supported with template sandboxes.`);
+    }
   }
 }
 

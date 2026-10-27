@@ -71,6 +71,28 @@ export interface ImagePullCredentials {
   readonly store: string;
 }
 
+export type SeccompProfile = "RuntimeDefault" | "Unconfined";
+
+/**
+ * In-guest privilege for the primary container. These settings stay inside
+ * the sandbox isolation boundary, and the runner policy clamps which values
+ * are permitted. Omitted fields keep the image and platform defaults.
+ */
+export interface SecurityContext {
+  /** UID for the entrypoint. Omit to use the image user. */
+  readonly runAsUser?: number;
+  /** GID for the entrypoint. Omit to use the image group. */
+  readonly runAsGroup?: number;
+  /** Run privileged inside the isolation boundary. Policy-gated. */
+  readonly privileged?: boolean;
+  readonly allowPrivilegeEscalation?: boolean;
+  readonly readOnlyRootFilesystem?: boolean;
+  /** Linux capabilities to add, for example `"SYS_PTRACE"`. */
+  readonly capabilitiesAdd?: readonly string[];
+  readonly capabilitiesDrop?: readonly string[];
+  readonly seccompProfile?: SeccompProfile;
+}
+
 export type WaitTargetStatus = "completed" | "paused" | "running" | "terminal";
 
 export interface WaitOptions extends RequestOptions {
@@ -198,6 +220,14 @@ export interface SandboxRunOptions extends RequestOptions, DataPlaneOptions, Cre
   readonly objectStorageAccess?: SandboxObjectStorageAccess;
   readonly resources?: ResourceOptions;
   readonly runnerIds?: readonly string[];
+  /**
+   * Runtime-class pin (for example `"gvisor"`). The runner policy must allow
+   * the value; a disallowed pin is rejected, never rewritten. Omit to use the
+   * policy default.
+   */
+  readonly runtimeClass?: string;
+  /** In-guest privilege for the primary container, clamped by runner policy. */
+  readonly securityContext?: SecurityContext;
   readonly services?: readonly Service[];
   /**
    * Secret-store references to resolve server-side and inject as environment variables.
@@ -213,6 +243,8 @@ export interface SandboxRunOptions extends RequestOptions, DataPlaneOptions, Cre
    * the backend accepts the start request.
    */
   readonly waitUntilRunning?: boolean;
+  /** Working directory for the primary container command. Omit for the image default. */
+  readonly workingDir?: string;
 }
 
 /**

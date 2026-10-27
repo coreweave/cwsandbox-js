@@ -172,6 +172,8 @@ export type {
   SandboxRunOptions,
   SandboxStatus,
   SandboxTag,
+  SeccompProfile,
+  SecurityContext,
   StartSandboxResult,
   StopOptions,
   WaitOptions,

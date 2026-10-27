@@ -788,6 +788,29 @@ await client.run(["python"], {
 The SDK validates the shape. GPU capacity, quota, and type availability are
 checked by the server. `runFromFile` `defaultResources` does not accept GPU.
 
+### Runtime class, working directory, and security context
+
+`runtimeClass` pins the sandbox runtime class. The runner policy must allow the
+value; a disallowed pin is rejected, never rewritten. Omit it to use the policy
+default. `workingDir` sets the primary container's working directory.
+`securityContext` sets in-guest privilege for the primary container, inside the
+sandbox isolation boundary; the runner policy clamps which values are allowed.
+
+```ts
+await client.run(["python", "main.py"], {
+  runtimeClass: "gvisor",
+  workingDir: "/workspace",
+  securityContext: {
+    runAsUser: 1000,
+    runAsGroup: 1000,
+    capabilitiesDrop: ["NET_RAW"],
+    seccompProfile: "RuntimeDefault",
+  },
+});
+```
+
+These options are not supported by `runFromFile` or `runFromTemplate`.
+
 ### Tags
 
 Tags are useful for discovery and cleanup:

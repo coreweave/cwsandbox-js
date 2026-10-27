@@ -827,6 +827,59 @@ describe("node transport mappers", () => {
       expect(primaryContainer(request)?.volumeMounts).toEqual([]);
       expect(request.sandbox?.spec?.objectStorageAccess).toBeUndefined();
     });
+
+    it("maps runtimeClass, workingDir, and securityContext", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        runtimeClass: "gvisor",
+        securityContext: {
+          allowPrivilegeEscalation: false,
+          capabilitiesAdd: ["SYS_PTRACE"],
+          capabilitiesDrop: ["NET_RAW"],
+          privileged: false,
+          readOnlyRootFilesystem: true,
+          runAsGroup: 0,
+          runAsUser: 1000,
+          seccompProfile: "RuntimeDefault",
+        },
+        workingDir: "/workspace",
+      });
+
+      expect(request.sandbox?.spec?.runtimeClass).toBe("gvisor");
+      expect(primaryContainer(request)?.workingDir).toBe("/workspace");
+      expect(primaryContainer(request)?.securityContext).toEqual({
+        allowPrivilegeEscalation: false,
+        capabilitiesAdd: ["SYS_PTRACE"],
+        capabilitiesDrop: ["NET_RAW"],
+        privileged: false,
+        readOnlyRootFilesystem: true,
+        runAsGroup: 0,
+        runAsUser: 1000,
+        seccompProfile: "RuntimeDefault",
+      });
+    });
+
+    it("leaves unset securityContext fields unset", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        securityContext: { runAsUser: 1000 },
+      });
+
+      expect(primaryContainer(request)?.securityContext).toEqual({
+        capabilitiesAdd: [],
+        capabilitiesDrop: [],
+        runAsUser: 1000,
+        seccompProfile: "",
+      });
+    });
+
+    it("omits runtimeClass, workingDir, and securityContext when unset", () => {
+      const request = toProtoCreateRequest({ command: ["python"] });
+
+      expect(request.sandbox?.spec?.runtimeClass).toBe("");
+      expect(primaryContainer(request)?.workingDir).toBe("");
+      expect(primaryContainer(request)?.securityContext).toBeUndefined();
+    });
   });
 
   describe("create from template requests", () => {

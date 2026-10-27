@@ -24,6 +24,7 @@ import {
   type FileSystemSnapshotOptions,
   type FileSystemSnapshotResult,
   type ScratchVolumeOptions,
+  type SecurityContext,
   type GetSandboxResult,
   type LogEntry,
   type LogEntryStream,
@@ -432,6 +433,12 @@ test("public API types", async () => {
       volumes: namedVolumes,
     }),
   ).toEqualTypeOf<ReturnType<SandboxClient["create"]>>();
+  const securityContext: SecurityContext = { runAsUser: 1000, seccompProfile: "RuntimeDefault" };
+  expectTypeOf(
+    client.create({ runtimeClass: "gvisor", securityContext, workingDir: "/workspace" }),
+  ).toEqualTypeOf<ReturnType<SandboxClient["create"]>>();
+  // @ts-expect-error seccompProfile is a closed set of values
+  void client.create({ securityContext: { seccompProfile: "Localhost" } });
   expectTypeOf<ObjectStoragePermission>().toEqualTypeOf<"read" | "read-write">();
 
   const command: string[] = ["echo"];

@@ -44,6 +44,7 @@ import type {
   SandboxObjectStorageAccess,
   SandboxStatus,
   ScratchVolumeOptions,
+  SecurityContext as SdkSecurityContext,
   StartSandboxResult,
 } from "../../public/sandbox.js";
 import type {
@@ -78,6 +79,7 @@ import {
   SandboxSpec,
   SandboxVolume,
   ScratchVolume,
+  SecurityContext as ProtoSecurityContext,
   Service as ProtoService,
   ServiceProtocol,
   SnapshotState,
@@ -133,6 +135,7 @@ export function toProtoCreateRequest(request: StartSandboxRequest): CreateSandbo
         ...(network === undefined ? {} : { network }),
         ...(objectStorageAccess === undefined ? {} : { objectStorageAccess }),
         ...(runnerIds.length === 0 ? {} : { mode: SandboxMode.CKS, runnerIds }),
+        ...(request.runtimeClass === undefined ? {} : { runtimeClass: request.runtimeClass }),
         services: toProtoServices(request.services),
         tags: [...(request.tags ?? [])],
         ...(volumes === undefined ? {} : { volumes }),
@@ -325,7 +328,30 @@ function toProtoContainer(request: StartSandboxRequest): ReturnType<typeof Conta
       })),
       storeName: group.store,
     })),
+    ...(request.securityContext === undefined
+      ? {}
+      : { securityContext: toProtoSecurityContext(request.securityContext) }),
     ...(volumeMounts === undefined ? {} : { volumeMounts }),
+    ...(request.workingDir === undefined ? {} : { workingDir: request.workingDir }),
+  });
+}
+
+function toProtoSecurityContext(
+  context: SdkSecurityContext,
+): ReturnType<typeof ProtoSecurityContext.create> {
+  return ProtoSecurityContext.create({
+    ...(context.runAsUser === undefined ? {} : { runAsUser: context.runAsUser }),
+    ...(context.runAsGroup === undefined ? {} : { runAsGroup: context.runAsGroup }),
+    ...(context.privileged === undefined ? {} : { privileged: context.privileged }),
+    ...(context.allowPrivilegeEscalation === undefined
+      ? {}
+      : { allowPrivilegeEscalation: context.allowPrivilegeEscalation }),
+    ...(context.readOnlyRootFilesystem === undefined
+      ? {}
+      : { readOnlyRootFilesystem: context.readOnlyRootFilesystem }),
+    capabilitiesAdd: [...(context.capabilitiesAdd ?? [])],
+    capabilitiesDrop: [...(context.capabilitiesDrop ?? [])],
+    seccompProfile: context.seccompProfile ?? "",
   });
 }
 
