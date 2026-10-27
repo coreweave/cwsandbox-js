@@ -1438,6 +1438,8 @@ Copy `.env.example` for local experiments:
 CWSANDBOX_API_KEY=
 CWSANDBOX_BASE_URL=https://api.cwsandbox.com
 # CWSANDBOX_TEMPLATE_ID=   # optional reduced runFromTemplate smoke
+# CWSANDBOX_SMOKE_RUNTIME_CLASS=   # optional runtimeClass smoke
+# CWSANDBOX_SMOKE_VOLUME_ID=       # optional registered-volume smoke (mounted read-only)
 WANDB_API_KEY=
 WANDB_ENTITY=
 WANDB_PROJECT=
