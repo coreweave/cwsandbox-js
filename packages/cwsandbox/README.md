@@ -272,9 +272,12 @@ polled through until a real terminal outcome. Explicit `targetStatus` values:
 `paused` and `completed` stay exact-match; `terminal` still means any terminal
 status (`completed` / `failed` / `terminated`).
 
-Status polling uses an internal backoff (about 200ms toward 2s). Transient Get
-failures (`unavailable`, request deadline, `resource_exhausted`) are retried within
-an internal ~30s budget; the wait’s absolute `timeoutMs` deadline also clamps that
+Status polling uses an internal backoff (about 200ms toward 2s). For sandboxes
+this client created, poll sleeps are capped at 500ms while the sandbox is
+`pending` or `creating` during the first 15s after the create request; adopted
+sandboxes (`fromId`, `list`), server retry hints and `stop()`'s terminal wait keep
+the normal schedule. Transient Get failures (`unavailable`, request deadline,
+`resource_exhausted`) are retried within an internal ~30s budget; the wait’s absolute `timeoutMs` deadline also clamps that
 burst so retries cannot overrun the waiter. `NOT_FOUND` is not retried on
 observe-only waits. When the server includes AIP-193 `RetryInfo`, the SDK honors
 `retryDelayMs` (capped at 10s). If wait observes `completed` without `exitCode`, it

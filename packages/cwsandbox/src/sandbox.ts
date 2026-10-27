@@ -99,7 +99,10 @@ export class Sandbox implements PublicSandbox {
   private statusUpdatedAtMs: number | undefined;
   private stopPromise: Promise<void> | undefined;
   // Cleared once startup is over or a stop begins, so later waits keep the
-  // normal backoff (Python parity).
+  // normal backoff (Python parity). A wait already in flight keeps its own
+  // copy and may keep capping after stop() starts, until the sandbox leaves
+  // pending/creating or the 15s window ends. Python checks this on every poll;
+  // the difference is a few extra Gets at most.
   private startupPollStartedAt: number | undefined;
 
   public constructor(options: SandboxOptions) {

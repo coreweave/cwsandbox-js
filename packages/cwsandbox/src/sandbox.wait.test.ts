@@ -904,7 +904,7 @@ describe("startup poll cadence", () => {
     expect(clock.sleeps).toEqual(OLD_BACKOFF_MS);
   });
 
-  it("does not shorten a server retry hint", async () => {
+  it("does not shorten a server retry hint while the sandbox is creating", async () => {
     const clock = startupClock();
     let getCalls = 0;
     const runtime: SandboxRuntime = {
@@ -913,10 +913,10 @@ describe("startup poll cadence", () => {
         ...createFakeTransport(),
         async get(request) {
           getCalls += 1;
-          if (getCalls === 1) {
+          if (getCalls === 2) {
             throw new CWSandboxUnavailableError("busy", { retryDelayMs: 5_000 });
           }
-          return { sandboxId: request.sandboxId, status: getCalls === 2 ? "creating" : "running" };
+          return { sandboxId: request.sandboxId, status: getCalls === 1 ? "creating" : "running" };
         },
       },
     };
@@ -927,7 +927,25 @@ describe("startup poll cadence", () => {
       startupPollStartedAt: 1_000,
     });
 
-    expect(clock.sleeps).toEqual([5_000, 200]);
+    // The hint arrives after a creating poll, inside the window.
+    expect(clock.sleeps).toEqual([200, 5_000]);
+  });
+
+  it("closes the window once inspect() sees a non-starting status", async () => {
+    const statuses: GetSandboxResult["status"][] = [
+      "running",
+      ...Array(7).fill("creating"),
+      "running",
+    ];
+    const sandbox = await createClient(createFakeTransport(statuses)).run(["echo", "hello"], {
+      waitUntilRunning: false,
+    });
+    await sandbox.inspect();
+
+    const sleeps: number[] = [];
+    await sandbox.wait({ sleep: async (ms: number) => void sleeps.push(ms) } as WaitOptions);
+
+    expect(sleeps).toEqual(OLD_BACKOFF_MS);
   });
 
   it("caps waits on created sandboxes only, until stop", async () => {
