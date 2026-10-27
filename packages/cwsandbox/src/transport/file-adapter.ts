@@ -10,6 +10,7 @@ import type { SandboxId } from "../public/sandbox.js";
 export type { FileChunkSource };
 
 export interface ReadFileRequest extends RequestOptions {
+  readonly container?: string;
   readonly dataPlaneMode?: DataPlaneMode;
   readonly path: string;
   readonly sandboxId: SandboxId;
@@ -21,12 +22,14 @@ export interface ReadFileResult {
 
 export interface WriteFileRequest extends RequestOptions {
   readonly content: Uint8Array;
+  readonly container?: string;
   readonly dataPlaneMode?: DataPlaneMode;
   readonly path: string;
   readonly sandboxId: SandboxId;
 }
 
 export interface ReadStreamRequest extends RequestOptions {
+  readonly container?: string;
   readonly dataPlaneMode?: DataPlaneMode;
   readonly path: string;
   readonly sandboxId: SandboxId;
@@ -38,6 +41,7 @@ export interface ReadStreamRequest extends RequestOptions {
 }
 
 export interface WriteStreamRequest extends RequestOptions {
+  readonly container?: string;
   readonly dataPlaneMode?: DataPlaneMode;
   /**
    * `'direct'` for `files.writeStream` — a mid-stream error may leave a partial

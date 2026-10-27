@@ -16,7 +16,9 @@ import {
   type CommandInput,
   type CommandProcessWithStdin,
   type CommandProcessStatus,
+  type Container,
   type DataPlaneMode,
+  type FileOptions,
   type FileReadResult,
   type FileTextReadResult,
   type FileWrite,
@@ -85,6 +87,7 @@ import {
   type TerminalResult,
   type TerminalSession,
   type WaitOptions,
+  type VolumeMount,
   type WaitTargetStatus,
 } from "./index.js";
 import {
@@ -902,4 +905,26 @@ test("public API types", async () => {
   void logResumeCursor;
   void logEntry;
   void logRawChunk;
+});
+
+test("multi-container types", async () => {
+  const mount: VolumeMount = { mountPath: "/workspace", volume: "workspace" };
+  const containers: readonly Container[] = [
+    { image: "python:3.11", name: "main", primary: true, resources: { cpu: "1" } },
+    { args: ["--save", ""], image: "redis:7", name: "cache", resources: { cpu: "1" } },
+    { image: "busybox", name: "helper", resources: { cpu: "1" }, volumeMounts: [mount] },
+  ];
+  const sandbox = await client.create({ containers });
+  expectTypeOf(sandbox.containers).toEqualTypeOf<readonly Container[] | undefined>();
+  // @ts-expect-error Container.command is a single string; use args for the rest.
+  const invalid: Container = { command: ["redis-server"], image: "redis:7" };
+  void invalid;
+
+  const fileOptions: FileOptions = { container: "cache", timeoutMs: 1 };
+  expectTypeOf(sandbox.files.read("/tmp/a", fileOptions)).toEqualTypeOf<Promise<Uint8Array>>();
+  expectTypeOf(sandbox.exec(["hostname"], { container: "cache" })).toEqualTypeOf<
+    ReturnType<typeof sandbox.exec>
+  >();
+  expectTypeOf(sandbox.shell({ container: "cache" })).toEqualTypeOf<Promise<TerminalSession>>();
+  expectTypeOf(sandbox.logs.stream({ container: "cache" })).toEqualTypeOf<Promise<LogStream>>();
 });

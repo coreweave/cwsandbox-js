@@ -6,6 +6,7 @@ import { DEFAULT_KEEP_ALIVE_COMMAND } from "./defaults.js";
 import { normalizeCommand } from "./internal/commands.js";
 import { ignoreMissingSandbox } from "./internal/delete.js";
 import { readFromFileContents } from "./internal/from-file-contents.js";
+import { validateContainersOption } from "./internal/validation/containers.js";
 import { scratchVolumeNamesFromRunOptions } from "./internal/validation/file-system-snapshot.js";
 import {
   validateDeleteOptions,
@@ -69,7 +70,11 @@ export class SandboxClient implements SandboxClientInterface {
   }
 
   public async create(options: SandboxRunOptions = {}): Promise<PublicSandbox> {
-    return this.run(DEFAULT_KEEP_ALIVE_COMMAND, options);
+    // Each container's command is its own; the keep-alive only fills in for a single image.
+    return this.start(
+      options.containers === undefined ? DEFAULT_KEEP_ALIVE_COMMAND : undefined,
+      options,
+    );
   }
 
   /**
@@ -79,13 +84,24 @@ export class SandboxClient implements SandboxClientInterface {
    * after accept with no automatic cleanup. `create` delegates here.
    */
   public async run(command: CommandInput, options: SandboxRunOptions = {}): Promise<PublicSandbox> {
+    return this.start(command, options);
+  }
+
+  private async start(
+    command: CommandInput | undefined,
+    options: SandboxRunOptions,
+  ): Promise<PublicSandbox> {
     const transport = this.transport;
     const fileAdapter = this.fileAdapter;
-    const normalizedCommand = normalizeCommand(command);
+    const normalizedCommand = command === undefined ? undefined : normalizeCommand(command);
     validateSandboxRunOptions(options);
+    validateContainersOption(options, command !== undefined);
     const { dataPlaneMode, waitUntilRunning, ...startOptions } = options;
     const startupPollStartedAt = Date.now();
-    const result = await transport.start({ ...startOptions, command: normalizedCommand });
+    const result = await transport.start({
+      ...startOptions,
+      ...(normalizedCommand === undefined ? {} : { command: normalizedCommand }),
+    });
     const scratchVolumeNames = scratchVolumeNamesFromRunOptions(options);
 
     const sandbox = new SandboxImpl({

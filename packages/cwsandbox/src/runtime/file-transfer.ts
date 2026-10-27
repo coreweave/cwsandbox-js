@@ -14,9 +14,8 @@ import {
   fileOperationCapBytes,
   recordObservedFileOpCap,
 } from "../internal/file-limits.js";
-import type { RequestOptions } from "../public/common.js";
 import type { DataPlaneMode } from "../public/data-plane.js";
-import type { FileChunkSource } from "../public/files.js";
+import type { FileChunkSource, FileOptions } from "../public/files.js";
 import type { SandboxId } from "../public/sandbox.js";
 import type { FileAdapter } from "../transport/file-adapter.js";
 
@@ -32,7 +31,7 @@ export class FileTransfer {
     private readonly dataPlaneMode?: DataPlaneMode,
   ) {}
 
-  public async readSingle(path: string, options: RequestOptions): Promise<Uint8Array> {
+  public async readSingle(path: string, options: FileOptions): Promise<Uint8Array> {
     try {
       const result = await this.adapter.read({
         ...options,
@@ -56,11 +55,7 @@ export class FileTransfer {
     }
   }
 
-  public async writeSingle(
-    path: string,
-    bytes: Uint8Array,
-    options: RequestOptions,
-  ): Promise<void> {
+  public async writeSingle(path: string, bytes: Uint8Array, options: FileOptions): Promise<void> {
     const size = bytes.byteLength;
 
     if (size > MAX_AUTO_FALLBACK_BYTES) {
@@ -111,11 +106,7 @@ export class FileTransfer {
     }
   }
 
-  public writeStream(
-    path: string,
-    source: FileChunkSource,
-    options: RequestOptions,
-  ): Promise<void> {
+  public writeStream(path: string, source: FileChunkSource, options: FileOptions): Promise<void> {
     return this.adapter.writeStream({
       ...options,
       ...(this.dataPlaneMode === undefined ? {} : { dataPlaneMode: this.dataPlaneMode }),
@@ -126,7 +117,7 @@ export class FileTransfer {
     });
   }
 
-  public readStream(path: string, options: RequestOptions): AsyncIterable<Uint8Array> {
+  public readStream(path: string, options: FileOptions): AsyncIterable<Uint8Array> {
     return this.adapter.readStream({
       ...options,
       ...(this.dataPlaneMode === undefined ? {} : { dataPlaneMode: this.dataPlaneMode }),
@@ -137,7 +128,7 @@ export class FileTransfer {
 
   private async readViaSingleStreamExec(
     path: string,
-    options: RequestOptions,
+    options: FileOptions,
     expectedSize?: number,
   ): Promise<Uint8Array> {
     const chunks: Uint8Array[] = [];
@@ -205,7 +196,7 @@ export class FileTransfer {
   private async writeViaAtomicStreamExec(
     path: string,
     bytes: Uint8Array,
-    options: RequestOptions,
+    options: FileOptions,
   ): Promise<void> {
     await this.adapter.writeStream({
       ...options,

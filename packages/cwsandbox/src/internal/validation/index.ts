@@ -6,6 +6,7 @@ import { CWSandboxValidationError } from "../../errors.js";
 import type { ExecOptions, ShellOptions, StartCommandOptions } from "../../public/commands.js";
 import type { RequestOptions } from "../../public/common.js";
 import type { DataPlaneMode } from "../../public/data-plane.js";
+import type { FileOptions } from "../../public/files.js";
 import type { LogReadOptions, LogStreamOptions } from "../../public/logs.js";
 import type {
   DeleteOptions,
@@ -27,6 +28,7 @@ import { validateNetworkOptions } from "../network.js";
 import { validateResources } from "../resources.js";
 import { validateSecrets } from "../secrets.js";
 import { validateAnnotations } from "./annotations.js";
+import { validateContainerTarget } from "./containers.js";
 import { validateSandboxVolumeCreateOptions } from "./file-system-snapshot.js";
 import { validateObjectStorageAccess } from "./object-storage.js";
 import { validateSecurityContext } from "./security-context.js";
@@ -35,6 +37,11 @@ import { validateTags } from "./tags.js";
 
 export function validateRequestOptions(options: RequestOptions): void {
   validateNonNegativeFinite(options.timeoutMs, "timeoutMs");
+}
+
+export function validateFileOptions(options: FileOptions): void {
+  validateRequestOptions(options);
+  validateContainerTarget(options.container);
 }
 
 export function validateSnapshotOptions(options: SnapshotOptions): void {
@@ -54,6 +61,7 @@ export function validateStartCommandOptions(options: StartCommandOptions): void 
 
 export function validateShellOptions(options: ShellOptions): void {
   validateRequestOptions(options);
+  validateContainerTarget(options.container);
   validateOptionalPositiveInteger(options.cols, "cols");
   validateOptionalPositiveInteger(options.rows, "rows");
 }
@@ -61,6 +69,7 @@ export function validateShellOptions(options: ShellOptions): void {
 function validateCommandOptions(options: ExecOptions | StartCommandOptions): void {
   validateRequestOptions(options);
   validateOptionalBoolean(options.check, "check");
+  validateContainerTarget(options.container);
   validateOptionalNonBlankString(options.cwd, "cwd");
   if ("stdin" in options) {
     validateOptionalBoolean(options.stdin, "stdin");
@@ -370,6 +379,7 @@ export function validateLogReadOptions(options: LogReadOptions): void {
 
 export function validateLogStreamOptions(options: LogStreamOptions): void {
   validateRequestOptions(options);
+  validateContainerTarget(options.container);
   validateNonNegativeInteger(options.tailLines, "tailLines");
   validateOptionalBoolean(options.follow, "follow");
   validateOptionalBoolean(options.timestamps, "timestamps");

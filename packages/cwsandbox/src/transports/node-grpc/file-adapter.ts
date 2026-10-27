@@ -43,6 +43,7 @@ import {
   SandboxDataPermission,
   WriteFileRequest as ProtoWriteFileRequest,
 } from "./generated/coreweave/sandbox/v1/sandbox.js";
+import { toProtoContainerTarget } from "./mappers.js";
 import {
   HINTED_RETRY_MAX_ATTEMPTS,
   type HintedRetryOptions,
@@ -326,6 +327,7 @@ async function grpcWriteFile(
   const call = async (timeoutMs: number | undefined) =>
     client.writeFile(
       ProtoWriteFileRequest.create({
+        container: toProtoContainerTarget(request.container),
         content: request.content,
         path: request.path,
         sandboxId: request.sandboxId,
@@ -353,6 +355,7 @@ async function grpcReadFile(
   const call = async (timeoutMs: number | undefined) =>
     client.readFile(
       ProtoReadFileRequest.create({
+        container: toProtoContainerTarget(request.container),
         path: request.path,
         sandboxId: request.sandboxId,
       }),
@@ -433,6 +436,7 @@ async function* grpcReadStreamIterator(
     session = await startExecSession(streamingClient, {
       command: ["/bin/sh", "-c", READ_STREAM_SCRIPT, "cwsandbox-read-file-streaming", request.path],
       sandboxId: request.sandboxId,
+      ...(request.container === undefined ? {} : { container: request.container }),
       ...(request.signal !== undefined ? { signal: request.signal } : {}),
       ...(catTimeoutMs === undefined ? {} : { timeoutMs: catTimeoutMs }),
     });
@@ -546,6 +550,7 @@ async function grpcWriteStream(
   const session = await startExecSession(streamingClient, {
     command: args,
     sandboxId: request.sandboxId,
+    ...(request.container === undefined ? {} : { container: request.container }),
     stdin: true,
     ...(request.signal !== undefined ? { signal: request.signal } : {}),
     ...(request.timeoutMs !== undefined ? { timeoutMs: request.timeoutMs } : {}),
@@ -644,6 +649,7 @@ async function statFileSize(
     const session = await startExecSession(streamingClient, {
       command: ["/bin/sh", "-c", STAT_SCRIPT, "cwsandbox-stat", request.path],
       sandboxId: request.sandboxId,
+      ...(request.container === undefined ? {} : { container: request.container }),
       ...(request.signal !== undefined ? { signal: request.signal } : {}),
       timeoutMs,
     });

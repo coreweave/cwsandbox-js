@@ -276,7 +276,7 @@ function createContractTransport(): {
       async start(request) {
         calls.start.push(request);
         return {
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           status: "running",
         };
       },

@@ -5,6 +5,7 @@
 import { commandForWorkingDirectory } from "../../internal/commands.js";
 import type { StartCommandRequest, StartShellRequest } from "../../transport/types.js";
 import { ExecStreamRequest } from "./generated/coreweave/sandbox/v1/sandbox.js";
+import { toProtoContainerTarget } from "./mappers.js";
 
 export interface StreamingRequestWriter {
   complete(): Promise<void>;
@@ -16,7 +17,7 @@ export function toStreamingInitRequest(request: StartCommandRequest): ExecStream
     message: {
       init: {
         command: commandForWorkingDirectory(request.command, request.cwd),
-        container: "",
+        container: toProtoContainerTarget(request.container),
         env: {},
         sandboxId: request.sandboxId,
         tty: false,
@@ -33,7 +34,7 @@ export function toStreamingShellInitRequest(request: StartShellRequest): ExecStr
     message: {
       init: {
         command: [...request.command],
-        container: "",
+        container: toProtoContainerTarget(request.container),
         env: {},
         sandboxId: request.sandboxId,
         tty: true,

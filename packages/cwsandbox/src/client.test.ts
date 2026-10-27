@@ -2443,7 +2443,7 @@ describe("SandboxClient", () => {
       const transport: SandboxTransport = {
         ...createFakeTransport(),
         async start(request) {
-          events.push(`start:${request.command[0]}`);
+          events.push(`start:${request.command?.[0]}`);
           return {
             sandboxId: "sandbox-for-keepalive",
             status: "creating",

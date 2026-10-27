@@ -162,6 +162,8 @@ pnpm --dir examples/tanstack typecheck
 - `sandbox.commands.start(...)` streams command output and optionally accepts stdin.
 - `sandbox.files.*` reads and writes sandbox files (`readStream` / `writeStream` for incremental transfers).
 - `sandbox.logs.*` reads or streams the sandbox main process logs.
+- `create({ containers })` runs a primary plus sidecars; pass `container` to exec, shell,
+  logs, and file calls to target a non-primary container.
 - `sandbox.wait(...)`, `sandbox.stop(...)`, and `sandbox.delete(...)` manage lifecycle.
   `stop()` requests shutdown and waits until the sandbox is terminal; use
   `wait({ targetStatus: "terminal" })` to observe completion without sending Stop.
@@ -834,6 +836,48 @@ await client.run(["python", "main.py"], {
 ```
 
 These options are not supported by `runFromFile` or `runFromTemplate`.
+
+### Multiple Containers
+
+`containers` runs several containers in one sandbox, in place of
+`containerImage`, `environmentVariables`, `mountedFiles`, `resources`,
+`secrets`, and the `run()` command. With more than one container, every
+container needs a `name` and `resources`, and exactly one sets `primary: true`.
+The primary owns the sandbox lifecycle. A container without `command` runs its
+image entrypoint; `create()` adds no keep-alive command.
+
+```ts
+const sandbox = await client.create({
+  containers: [
+    {
+      name: "main",
+      image: "python:3.11",
+      command: "sleep",
+      args: ["infinity"],
+      primary: true,
+      resources: { cpu: "500m", memory: "512Mi" },
+    },
+    {
+      name: "cache",
+      image: "redis:7",
+      resources: { cpu: "250m", memory: "256Mi" },
+      volumeMounts: [{ volume: "shared", mountPath: "/shared" }],
+    },
+  ],
+  // Sandbox-level volumes mount on the primary; other containers use volumeMounts.
+  volumes: [{ name: "shared", mountPath: "/shared" }],
+});
+
+await sandbox.exec(["redis-cli", "ping"], { container: "cache" });
+await sandbox.files.write("/shared/config.txt", "ready", { container: "cache" });
+const cacheLogs = await sandbox.logs.read({ container: "cache" });
+```
+
+Exec, `commands.start`, `shell`, `logs.*`, and `files.*` accept `container`;
+omit it (or pass an empty string) to target the primary. `sandbox.containers`
+echoes the container spec with `primary` set on the primary, so it can be passed
+back to `create({ containers })`. The names `cws-engine`, `dns-egress`,
+`dns-egress-probe`, and `cw-object-store-agent*` are reserved.
 
 ### Tags
 

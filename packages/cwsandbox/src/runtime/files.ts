@@ -11,11 +11,11 @@ import {
   validateFileWrites,
   validateReadPaths,
 } from "../internal/mounted-files.js";
-import { validateRequestOptions } from "../internal/validation/index.js";
-import type { RequestOptions } from "../public/common.js";
+import { validateFileOptions } from "../internal/validation/index.js";
 import type {
   FileChunkSource,
   FileContent,
+  FileOptions,
   FileReadResult,
   FileTextReadResult,
   FileWrites,
@@ -38,9 +38,9 @@ export function createSandboxFiles(fileTransfer: FileTransfer): SandboxFiles {
 function readStreamingFile(
   fileTransfer: FileTransfer,
   path: string,
-  options: RequestOptions = {},
+  options: FileOptions = {},
 ): AsyncIterable<Uint8Array> {
-  validateRequestOptions(options);
+  validateFileOptions(options);
   if (typeof path !== "string" || path.length === 0) {
     throw new CWSandboxValidationError("readStream path must be a non-empty string.");
   }
@@ -51,9 +51,9 @@ async function writeStreamingFile(
   fileTransfer: FileTransfer,
   path: string,
   source: FileChunkSource,
-  options: RequestOptions = {},
+  options: FileOptions = {},
 ): Promise<void> {
-  validateRequestOptions(options);
+  validateFileOptions(options);
   if (typeof path !== "string" || path.length === 0) {
     throw new CWSandboxValidationError("writeStream path must be a non-empty string.");
   }
@@ -63,19 +63,19 @@ async function writeStreamingFile(
 function readFile(
   fileTransfer: FileTransfer,
   path: string,
-  options?: RequestOptions,
+  options?: FileOptions,
 ): Promise<Uint8Array>;
 function readFile(
   fileTransfer: FileTransfer,
   paths: readonly string[],
-  options?: RequestOptions,
+  options?: FileOptions,
 ): Promise<FileReadResult>;
 async function readFile(
   fileTransfer: FileTransfer,
   pathOrPaths: string | readonly string[],
-  options: RequestOptions = {},
+  options: FileOptions = {},
 ): Promise<FileReadResult | Uint8Array> {
-  validateRequestOptions(options);
+  validateFileOptions(options);
 
   if (typeof pathOrPaths !== "string") {
     validateReadPaths(pathOrPaths);
@@ -94,19 +94,19 @@ async function readFile(
 function readTextFile(
   fileTransfer: FileTransfer,
   path: string,
-  options?: RequestOptions,
+  options?: FileOptions,
 ): Promise<string>;
 function readTextFile(
   fileTransfer: FileTransfer,
   paths: readonly string[],
-  options?: RequestOptions,
+  options?: FileOptions,
 ): Promise<FileTextReadResult>;
 async function readTextFile(
   fileTransfer: FileTransfer,
   pathOrPaths: string | readonly string[],
-  options: RequestOptions = {},
+  options: FileOptions = {},
 ): Promise<FileTextReadResult | string> {
-  validateRequestOptions(options);
+  validateFileOptions(options);
 
   if (typeof pathOrPaths === "string") {
     return textDecoder.decode(await fileTransfer.readSingle(pathOrPaths, options));
@@ -125,22 +125,22 @@ async function writeFile(
   fileTransfer: FileTransfer,
   path: string,
   content: FileContent,
-  options?: RequestOptions,
+  options?: FileOptions,
 ): Promise<void>;
 async function writeFile(
   fileTransfer: FileTransfer,
   files: FileWrites,
-  options?: RequestOptions,
+  options?: FileOptions,
 ): Promise<void>;
 async function writeFile(
   fileTransfer: FileTransfer,
   pathOrFiles: FileWrites | string,
-  contentOrOptions?: FileContent | RequestOptions,
-  maybeOptions: RequestOptions = {},
+  contentOrOptions?: FileContent | FileOptions,
+  maybeOptions: FileOptions = {},
 ): Promise<void> {
   if (typeof pathOrFiles !== "string") {
-    const options = contentOrOptions as RequestOptions | undefined;
-    validateRequestOptions(options ?? {});
+    const options = contentOrOptions as FileOptions | undefined;
+    validateFileOptions(options ?? {});
     validateFileWrites(pathOrFiles);
     await mapWithConcurrency(
       normalizeFileWrites(pathOrFiles),
@@ -156,7 +156,7 @@ async function writeFile(
     return;
   }
 
-  validateRequestOptions(maybeOptions);
+  validateFileOptions(maybeOptions);
   await fileTransfer.writeSingle(
     pathOrFiles,
     normalizeFileContent(contentOrOptions as FileContent),

@@ -17,6 +17,7 @@ export async function startShell(
 
   return runtime.transport.startShell({
     ...(options.cols === undefined ? {} : { cols: options.cols }),
+    ...(options.container === undefined ? {} : { container: options.container }),
     command:
       options.command === undefined ? DEFAULT_SHELL_COMMAND : normalizeCommand(options.command),
     ...(runtime.dataPlaneMode === undefined ? {} : { dataPlaneMode: runtime.dataPlaneMode }),
