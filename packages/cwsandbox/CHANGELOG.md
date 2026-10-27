@@ -40,6 +40,15 @@ SPDX-PackageName: cwsandbox
   unknown-size StreamExec fallback at 256 MiB, cancel the stream, and throw
   `CWSandboxFileError` with reason `CWSANDBOX_FILE_TOO_LARGE`. Before, the
   fallback buffered the whole file. Use `files.readStream` for larger files.
+- Direct `files.read()` / `files.write()` now honor `RetryInfo` when the runner
+  rejects the call as overloaded (`RESOURCE_EXHAUSTED`,
+  `CWSANDBOX_RUNNER_OVERLOADED`): up to 3 calls, delay at most 10s, within
+  `timeoutMs`. If it stays overloaded, `dataPlaneMode: "auto"` sends that call
+  through the Gateway; `"direct"` throws `CWSandboxResourceExhaustedError` with
+  `retryDelayMs`. Overloaded reads no longer fall back to a StreamExec re-read.
+  Concurrent file calls on one sandbox that used to fail now succeed in auto
+  mode. An overloaded call can take a few seconds longer to return or fail; a
+  `timeoutMs` shorter than 5s plus the server's delay skips the retries.
 
 ## 1.0.0
 

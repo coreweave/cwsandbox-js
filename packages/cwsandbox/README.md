@@ -1247,15 +1247,18 @@ without one, no new deadline is added. Aborting the `signal` during a wait stops
 calls. A not-found answer on a retried delete counts as deleted. `stop()` applies the
 same retry to its status check and Stop RPC, without the caller's timeout or signal (see
 the stop section above). Other operations (exec, streams, writes, create, list, and other
-gets) do not add this retry. When the retries run out, the last error is thrown.
+gets) do not retry on `UNAVAILABLE`. When the retries run out, the last error is
+thrown.
 
 `files.read()` and `files.write()` over a direct data-plane connection also wait and retry
 when the runner rejects the call as overloaded (gRPC `RESOURCE_EXHAUSTED` with reason
 `CWSANDBOX_RUNNER_OVERLOADED` and a `RetryInfo` delay), with the same limits: up to 3
-calls, a delay of at most 10s, and the `timeoutMs` budget. If the runner is still
-overloaded, `dataPlaneMode: "auto"` falls back to the Gateway for that call within the time
-left; `dataPlaneMode: "direct"` throws `CWSandboxResourceExhaustedError` with
-`retryDelayMs` set.
+calls, a delay of at most 10s, and the `timeoutMs` budget. An overloaded rejection without
+`RetryInfo`, or with a delay over 10s, is not retried. If the runner is still overloaded,
+`dataPlaneMode: "auto"` sends that call through the Gateway within the time left, and
+`dataPlaneMode: "direct"` throws `CWSandboxResourceExhaustedError` carrying the server's
+`retryDelayMs`. Auto mode also throws that error, without trying the Gateway, when less
+than 1s of `timeoutMs` is left.
 
 ```ts
 import { CWSANDBOX_FILE_TOO_LARGE } from "@coreweave/cwsandbox";

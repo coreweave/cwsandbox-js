@@ -289,9 +289,13 @@ describe("retryHintedUnavailable policy", () => {
   });
 
   it("retries a hinted overloaded rejection only when the predicate accepts it", async () => {
+    const log = vi.fn<(message: string) => void>();
     const first = scripted(overloaded(1), "ok");
-    await expect(run(first.attempt, { retryable: isRunnerOverloaded })).resolves.toBe("ok");
+    await expect(run(first.attempt, { log, retryable: isRunnerOverloaded })).resolves.toBe("ok");
     expect(first.timeouts).toHaveLength(2);
+    expect(log.mock.calls[0]?.[0]).toContain(
+      `after RESOURCE_EXHAUSTED: reason=${CWSANDBOX_RUNNER_OVERLOADED}`,
+    );
 
     const error = overloaded(1);
     const second = scripted(error, "ok");
@@ -311,7 +315,7 @@ describe("retryHintedUnavailable policy", () => {
     const log = vi.fn<(message: string) => void>();
     await run(scripted(hinted(), hinted(), "ok").attempt, { log });
     expect(log).toHaveBeenCalledTimes(2);
-    expect(log.mock.calls[0]?.[0]).toContain(RUNNER_UNAVAILABLE);
+    expect(log.mock.calls[0]?.[0]).toContain(`after UNAVAILABLE: reason=${RUNNER_UNAVAILABLE}`);
     expect(log.mock.calls[0]?.[0]).toContain("attempt=2/3");
   });
 });
@@ -692,21 +696,16 @@ describe("file adapter overloaded direct retry", () => {
       expect(gateway.fn).not.toHaveBeenCalled();
     });
 
-    it("stops after 3 direct calls and falls back to the Gateway, not StreamExec", async () => {
+    it("stops after 3 direct calls and falls back to the Gateway", async () => {
       const direct = op.direct([overloaded(), overloaded(), overloaded()]);
       const gateway = unary(op.ok);
-      const streamExec = vi.fn();
-      const { acquire, adapter } = adapterWith(direct, {
-        ...op.gateway(gateway.fn),
-        streamExec,
-      } as never);
+      const { acquire, adapter } = adapterWith(direct, op.gateway(gateway.fn));
 
       const pending = op.call(adapter);
       await vi.advanceTimersByTimeAsync(2_000);
       await expect(pending).resolves.toEqual(name === "read" ? op.ok : undefined);
       expect(op.calls(direct).fn).toHaveBeenCalledTimes(3);
       expect(gateway.fn).toHaveBeenCalledTimes(1);
-      expect(streamExec).not.toHaveBeenCalled();
       expect(acquire).toHaveBeenCalledTimes(1);
       expect(direct.lease.discard).not.toHaveBeenCalled();
       expect(direct.lease.release).toHaveBeenCalledWith({ discard: false });
@@ -741,6 +740,39 @@ describe("file adapter overloaded direct retry", () => {
       });
       expect(op.calls(direct).fn).toHaveBeenCalledTimes(1);
       expect(gateway.fn).not.toHaveBeenCalled();
+    });
+
+    function directTakes(elapsedMs: number) {
+      const direct = op.direct([]);
+      op.calls(direct).fn.mockImplementation(() => {
+        vi.setSystemTime(Date.now() + elapsedMs);
+        return { response: Promise.reject(overloaded()) };
+      });
+      return direct;
+    }
+
+    it("throws the overload when under 1 s is left for the Gateway", async () => {
+      const direct = directTakes(9_001);
+      const gateway = unary(op.ok);
+      const { adapter } = adapterWith(direct, op.gateway(gateway.fn));
+
+      await expect(op.call(adapter, { timeoutMs: 10_000 })).rejects.toMatchObject({
+        name: "CWSandboxResourceExhaustedError",
+        reason: CWSANDBOX_RUNNER_OVERLOADED,
+        retryDelayMs: 1_000,
+      });
+      expect(op.calls(direct).fn).toHaveBeenCalledTimes(1);
+      expect(gateway.fn).not.toHaveBeenCalled();
+    });
+
+    it("gives the Gateway exactly 1 s when that is what is left", async () => {
+      const direct = directTakes(9_000);
+      const gateway = unary(op.ok);
+      const { adapter } = adapterWith(direct, op.gateway(gateway.fn));
+
+      await op.call(adapter, { timeoutMs: 10_000 });
+      expect(op.calls(direct).fn).toHaveBeenCalledTimes(1);
+      expect(gateway.timeouts).toEqual([1_000]);
     });
 
     it("never uses the Gateway in direct mode", async () => {

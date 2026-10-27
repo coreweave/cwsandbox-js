@@ -10,7 +10,11 @@ import {
   CWSandboxTransportError,
   CWSandboxValidationError,
 } from "../errors.js";
-import { CWSANDBOX_FILE_TOO_LARGE } from "../internal/error-info.js";
+import {
+  CWSANDBOX_ERROR_DOMAIN,
+  CWSANDBOX_FILE_TOO_LARGE,
+  CWSANDBOX_RUNNER_OVERLOADED,
+} from "../internal/error-info.js";
 import {
   DEFAULT_FILE_OPERATION_CAP_BYTES,
   MAX_AUTO_FALLBACK_BYTES,
@@ -205,6 +209,50 @@ describe("FileTransfer", () => {
     const result = await transfer.readSingle("/tmp/edge.bin", {});
 
     expect(result.byteLength).toBe(MAX_AUTO_FALLBACK_BYTES);
+  });
+
+  it("rethrows a trusted runner-overloaded read without the StreamExec fallback", async () => {
+    const overloaded = new CWSandboxResourceExhaustedError("Read file failed: overloaded", {
+      domain: CWSANDBOX_ERROR_DOMAIN,
+      operation: "Read file",
+      reason: CWSANDBOX_RUNNER_OVERLOADED,
+      retryDelayMs: 1_000,
+    });
+    let streamed = 0;
+    const adapter = createFakeAdapter({
+      read: async () => {
+        throw overloaded;
+      },
+      readStream: () => {
+        streamed += 1;
+        return emptyChunks();
+      },
+    });
+    const transfer = new FileTransfer("sbx", adapter);
+
+    await expect(transfer.readSingle("/tmp/a.bin", {})).rejects.toBe(overloaded);
+    expect(streamed).toBe(0);
+  });
+
+  it("keeps the StreamExec fallback for a bare RESOURCE_EXHAUSTED read", async () => {
+    let streamed = 0;
+    const adapter = createFakeAdapter({
+      read: async () => {
+        throw new CWSandboxResourceExhaustedError("Read file failed: exhausted", {
+          operation: "Read file",
+        });
+      },
+      readStream: () => {
+        streamed += 1;
+        return (async function* () {
+          yield new Uint8Array([4, 2]);
+        })();
+      },
+    });
+    const transfer = new FileTransfer("sbx", adapter);
+
+    await expect(transfer.readSingle("/tmp/a.bin", {})).resolves.toEqual(new Uint8Array([4, 2]));
+    expect(streamed).toBe(1);
   });
 });
 

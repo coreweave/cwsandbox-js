@@ -40,6 +40,7 @@ export interface HintedRetryOptions {
 }
 
 interface Hint {
+  readonly code: string;
   readonly delayMs: number;
   readonly reason: string | undefined;
 }
@@ -57,7 +58,7 @@ function hintOf(error: unknown, retryable: (error: RpcError) => boolean): Hint |
   if (delayMs === undefined || !(delayMs >= 0)) {
     return undefined;
   }
-  return { delayMs, reason: parsed?.reason };
+  return { code: error.code, delayMs, reason: parsed?.reason };
 }
 
 function isUnavailable(error: RpcError): boolean {
@@ -122,7 +123,7 @@ export async function retryHintedUnavailable<T>(
         throw error;
       }
       log(
-        `Retrying ${options.operation} after transient unavailability: ` +
+        `Retrying ${options.operation} after ${hint.code}: ` +
           `reason=${hint.reason ?? "none"} attempt=${attempts + 1}/${maxAttempts} ` +
           `delay=${Math.round(sleepMs)}ms`,
       );

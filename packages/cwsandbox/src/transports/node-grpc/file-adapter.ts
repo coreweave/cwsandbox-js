@@ -52,6 +52,13 @@ import {
 import { toRpcOptions, withGrpcErrorMapping } from "./rpc.js";
 
 /**
+ * Least time left for the Gateway fallback after overload retries run out.
+ * Below it, throw the overload so a starved call does not turn it into a
+ * timeout. Matches the 1s auto-mode budget for setting up the direct path.
+ */
+const OVERLOAD_GATEWAY_MIN_MS = 1_000;
+
+/**
  * Explicit `files.writeStream` script: direct `cat >` (no temp-and-rename).
  * A mid-stream cancel or transport error may leave a partial file.
  */
@@ -275,7 +282,7 @@ async function withRetiringFileRetry<TRequest extends ReadFileRequest | WriteFil
 
   // Overload retries ran out: send the call through the Gateway in the time left.
   const remaining = deadline === undefined ? undefined : deadline - Date.now();
-  if (remaining !== undefined && remaining <= 0) {
+  if (remaining !== undefined && remaining < OVERLOAD_GATEWAY_MIN_MS) {
     throw overloaded;
   }
   return run(
