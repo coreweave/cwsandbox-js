@@ -316,8 +316,10 @@ sandbox lifecycle readiness, not application readiness: if your main process sta
 or performs setup, wait for that app-specific condition with commands, logs, files, or services.
 
 If the backend accepts the start request but the readiness wait rejects (the sandbox fails, for
-example on an image pull error, or `timeoutMs` elapses), these helpers best-effort stop the
-sandbox and rethrow the original readiness error. A cleanup failure never replaces that error.
+example on an image pull error, `timeoutMs` elapses, or the caller's `signal` aborts), these
+helpers best-effort stop the sandbox and rethrow the original readiness error. A cleanup failure
+never replaces that error. Cleanup does not use the caller's `signal`, by design, so an abort or
+timeout rejection can arrive up to about 30 seconds later while the stop runs.
 
 Pass `waitUntilRunning: false` when you need a handle immediately after the backend accepts the
 start request:
