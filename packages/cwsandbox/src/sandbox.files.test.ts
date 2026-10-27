@@ -444,6 +444,33 @@ describe("Sandbox files", () => {
     await expect(sandbox.files.read("/tmp/large.bin")).resolves.toEqual(content);
   });
 
+  it("refuses batch readText resource-exhausted fallbacks past the auto-fallback ceiling", async () => {
+    // Reuse one buffer so the fake stream passes the ceiling without allocating it.
+    const chunk = new Uint8Array(16 * 1024 * 1024);
+    const fileAdapter = createFakeFileAdapter({
+      async read() {
+        throw new CWSandboxResourceExhaustedError("resource exhausted", {
+          operation: "Read file",
+          sandboxId: "sandbox-for-echo",
+        });
+      },
+      readStream() {
+        return asyncIterableFrom(Array.from({ length: 17 }, () => chunk));
+      },
+    });
+    const sandbox = await createClient(undefined, fileAdapter).run(["echo", "hello"]);
+
+    const error = await sandbox.files.readText(["/tmp/huge.txt"]).then(
+      () => "resolved",
+      (value: unknown) => value,
+    );
+    expect(error).toMatchObject({
+      filepath: "/tmp/huge.txt",
+      message: expect.stringContaining("files.readStream()"),
+      reason: CWSANDBOX_FILE_TOO_LARGE,
+    });
+  });
+
   it("rejects fallback reads that deliver fewer bytes than reported size", async () => {
     const fileAdapter = createFakeFileAdapter({
       async read() {

@@ -6,11 +6,15 @@ import { describe, expect, it } from "vitest";
 
 import {
   CWSandboxFileError,
+  CWSandboxResourceExhaustedError,
   CWSandboxTransportError,
   CWSandboxValidationError,
 } from "../errors.js";
 import { CWSANDBOX_FILE_TOO_LARGE } from "../internal/error-info.js";
-import { DEFAULT_FILE_OPERATION_CAP_BYTES } from "../internal/file-limits.js";
+import {
+  DEFAULT_FILE_OPERATION_CAP_BYTES,
+  MAX_AUTO_FALLBACK_BYTES,
+} from "../internal/file-limits.js";
 import type { FileAdapter, WriteStreamRequest } from "../transport/file-adapter.js";
 import { FileTransfer } from "./file-transfer.js";
 
@@ -139,6 +143,48 @@ describe("FileTransfer", () => {
     const transfer = new FileTransfer("sbx", adapter);
 
     await expect(transfer.readSingle("/tmp/a.bin", {})).rejects.toBeInstanceOf(CWSandboxFileError);
+  });
+
+  it("stops and cancels an unknown-size fallback read at the auto-fallback ceiling", async () => {
+    // Reuse one buffer so the fake stream passes the ceiling without allocating it.
+    const chunk = new Uint8Array(16 * 1024 * 1024);
+    let pulled = 0;
+    let cancelled = false;
+    const adapter = createFakeAdapter({
+      read: async () => {
+        throw new CWSandboxResourceExhaustedError("resource exhausted");
+      },
+      readStream: () =>
+        (async function* () {
+          try {
+            for (let i = 0; i < MAX_AUTO_FALLBACK_BYTES / chunk.byteLength + 4; i += 1) {
+              pulled += 1;
+              yield chunk;
+            }
+          } finally {
+            cancelled = true;
+          }
+        })(),
+    });
+    const transfer = new FileTransfer("sbx", adapter);
+
+    const error = await transfer.readSingle("/tmp/huge.bin", {}).then(
+      () => "resolved",
+      (value: unknown) => value,
+    );
+
+    expect(error).toBeInstanceOf(CWSandboxFileError);
+    expect(error).toMatchObject({
+      filepath: "/tmp/huge.bin",
+      message: expect.stringContaining("files.readStream()"),
+      metadata: expect.objectContaining({
+        bytes_delivered: String(MAX_AUTO_FALLBACK_BYTES + chunk.byteLength),
+        max_size_bytes: String(MAX_AUTO_FALLBACK_BYTES),
+      }),
+      reason: CWSANDBOX_FILE_TOO_LARGE,
+    });
+    expect(pulled).toBe(MAX_AUTO_FALLBACK_BYTES / chunk.byteLength + 1);
+    expect(cancelled).toBe(true);
   });
 });
 
