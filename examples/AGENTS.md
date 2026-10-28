@@ -27,6 +27,7 @@ SDK patterns; use `weave/` / `tanstack/` for integrations with extra dependencie
 | `sdk/stdin-streaming.ts`        | `async function main()` | stdin writer                     |
 | `sdk/large-file-streaming.ts`   | `async function main()` | file streams                     |
 | `sdk/resource-configuration.ts` | `async function main()` | resources                        |
+| `sdk/multi-container.ts`        | `async function main()` | primary + sidecar containers     |
 | `sdk/error-handling.ts`         | `async function main()` | typed errors                     |
 | `sdk/direct-data-plane.ts`      | `async function main()` | direct mTLS transport policy     |
 | `sdk/reconnect-to-sandbox.ts`   | CLI flags               | `fromId`                         |

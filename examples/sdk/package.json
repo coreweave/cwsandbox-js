@@ -12,6 +12,7 @@
     "stdin-streaming": "tsx stdin-streaming.ts",
     "large-file-streaming": "tsx large-file-streaming.ts",
     "resource-configuration": "tsx resource-configuration.ts",
+    "multi-container": "tsx multi-container.ts",
     "error-handling": "tsx error-handling.ts",
     "reconnect-to-sandbox": "tsx reconnect-to-sandbox.ts",
     "delete-sandboxes": "tsx delete-sandboxes.ts",
