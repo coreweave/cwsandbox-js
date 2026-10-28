@@ -72,6 +72,12 @@ export class SandboxClient implements SandboxClientInterface {
     return this.run(DEFAULT_KEEP_ALIVE_COMMAND, options);
   }
 
+  /**
+   * If creation returns an accepted sandbox but the readiness wait rejects, the
+   * SDK best-effort stops it (without the caller's abort signal) and rethrows
+   * the original readiness error. `waitUntilRunning: false` returns immediately
+   * after accept with no automatic cleanup. `create` delegates here.
+   */
   public async run(command: CommandInput, options: SandboxRunOptions = {}): Promise<PublicSandbox> {
     const transport = this.transport;
     const fileAdapter = this.fileAdapter;
@@ -91,10 +97,12 @@ export class SandboxClient implements SandboxClientInterface {
     });
 
     if (waitUntilRunning !== false) {
-      await sandbox.wait({
-        ...(options.signal === undefined ? {} : { signal: options.signal }),
-        ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
-      });
+      try {
+        await sandbox.wait(waitRequestOptions(options));
+      } catch (error) {
+        await this.stopAfterFailedReadiness(sandbox);
+        throw error;
+      }
     }
 
     return sandbox;

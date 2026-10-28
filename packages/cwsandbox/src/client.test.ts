@@ -153,6 +153,145 @@ describe("SandboxClient", () => {
       });
     });
 
+    it("stops the accepted sandbox when the run readiness wait sees a failed status", async () => {
+      const stoppedSandboxIds: string[] = [];
+      const getStatuses: string[] = [];
+      // Not a real backend sequence: `failed` is terminal. The cleanup stop's
+      // status check sees `running` here only so that a stop RPC is sent,
+      // which proves the cleanup ran. The realistic case is the next test.
+      const base = createFakeTransport(["failed", "running"]);
+      const transport: SandboxTransport = {
+        ...base,
+        async get(request) {
+          const result = await base.get(request);
+          getStatuses.push(result.status);
+          return result;
+        },
+        async stop(request) {
+          stoppedSandboxIds.push(request.sandboxId);
+          await base.stop(request);
+        },
+      };
+
+      await expect(createClient(transport).run(["echo", "hello"])).rejects.toBeInstanceOf(
+        CWSandboxFailedError,
+      );
+      expect(stoppedSandboxIds).toEqual(["sandbox-for-echo"]);
+      expect(getStatuses).toEqual(["failed", "running", "terminated"]);
+    });
+
+    it("sends no stop request when the run readiness wait sees a terminal failed status", async () => {
+      const getStatuses: string[] = [];
+      let stopCalls = 0;
+      const base = createFakeTransport(["failed"]);
+      const transport: SandboxTransport = {
+        ...base,
+        async get(request) {
+          const result = await base.get(request);
+          getStatuses.push(result.status);
+          return result;
+        },
+        async stop() {
+          stopCalls += 1;
+        },
+      };
+
+      await expect(createClient(transport).run(["echo", "hello"])).rejects.toBeInstanceOf(
+        CWSandboxFailedError,
+      );
+      expect(getStatuses).toEqual(["failed", "failed"]);
+      expect(stopCalls).toBe(0);
+    });
+
+    it("stops the accepted sandbox and rejects with the abort reason when run is aborted", async () => {
+      const controller = new AbortController();
+      const reason = new Error("caller aborted");
+      const stopRequests: Parameters<SandboxTransport["stop"]>[0][] = [];
+      const base = createFakeTransport(["creating"]);
+      const transport: SandboxTransport = {
+        ...base,
+        async get(request) {
+          const result = await base.get(request);
+          controller.abort(reason);
+          return result;
+        },
+        async stop(request) {
+          stopRequests.push(request);
+          await base.stop(request);
+        },
+      };
+
+      await expect(
+        createClient(transport).run(["echo", "hello"], { signal: controller.signal }),
+      ).rejects.toBe(reason);
+      expect(stopRequests.map((request) => request.sandboxId)).toEqual(["sandbox-for-echo"]);
+    });
+
+    it("stops the accepted sandbox when the create readiness wait times out", async () => {
+      const stopRequests: Parameters<SandboxTransport["stop"]>[0][] = [];
+      const base = createFakeTransport(["creating"]);
+      const transport: SandboxTransport = {
+        ...base,
+        async stop(request) {
+          stopRequests.push(request);
+          await base.stop(request);
+        },
+      };
+
+      await expect(createClient(transport).create({ timeoutMs: 20 })).rejects.toBeInstanceOf(
+        CWSandboxTimeoutError,
+      );
+      expect(stopRequests.map((request) => request.sandboxId)).toEqual(["sandbox-for-/bin/sh"]);
+    });
+
+    it("rethrows the run readiness error when cleanup stop also fails", async () => {
+      const readinessError = new Error("readiness failed");
+      const stopError = new Error("stop failed");
+      let getCalls = 0;
+      let stopCalls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async get(request) {
+          getCalls += 1;
+          if (getCalls === 1) {
+            throw readinessError;
+          }
+          return { sandboxId: request.sandboxId, status: "running" };
+        },
+        async stop() {
+          stopCalls += 1;
+          throw stopError;
+        },
+      };
+
+      let thrown: unknown;
+      try {
+        await createClient(transport).run(["echo", "hello"]);
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBe(readinessError);
+      expect(stopCalls).toBe(1);
+    });
+
+    it("does not stop the sandbox when run skips the readiness wait", async () => {
+      let stopCalls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(["failed"]),
+        async stop() {
+          stopCalls += 1;
+        },
+      };
+
+      const sandbox = await createClient(transport).run(["echo", "hello"], {
+        waitUntilRunning: false,
+      });
+
+      expect(sandbox.sandboxId).toBe("sandbox-for-echo");
+      expect(stopCalls).toBe(0);
+    });
+
     it("reconnects to an existing sandbox by id", async () => {
       let getRequest: Parameters<SandboxTransport["get"]>[0] | undefined;
       const transport: SandboxTransport = {
@@ -2215,6 +2354,27 @@ describe("SandboxClient", () => {
           throw callbackError;
         }),
       ).rejects.toBe(callbackError);
+    });
+
+    it("stops the sandbox and skips the callback when withSandbox readiness fails", async () => {
+      const stoppedSandboxIds: string[] = [];
+      // Not a real backend sequence: `failed` is terminal. The cleanup stop's
+      // status check sees `running` only so that a stop RPC proves cleanup ran.
+      const base = createFakeTransport(["failed", "running"]);
+      const callback = vi.fn<() => void>();
+      const transport: SandboxTransport = {
+        ...base,
+        async stop(request) {
+          stoppedSandboxIds.push(request.sandboxId);
+          await base.stop(request);
+        },
+      };
+
+      await expect(
+        createClient(transport).withSandbox(["echo", "hello"], callback),
+      ).rejects.toBeInstanceOf(CWSandboxFailedError);
+      expect(callback).not.toHaveBeenCalled();
+      expect(stoppedSandboxIds).toEqual(["sandbox-for-echo"]);
     });
 
     it("throws a typed validation error for empty withSandbox commands", async () => {

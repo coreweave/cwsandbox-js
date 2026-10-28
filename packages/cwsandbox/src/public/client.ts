@@ -28,7 +28,23 @@ export type WithSandboxCallback<TResult> = (sandbox: Sandbox) => Promise<TResult
 
 /** Public interface returned by all CWSandbox client factories. */
 export interface SandboxClient {
+  /**
+   * Waits for `running` by default. If creation returns an accepted sandbox but
+   * the readiness wait rejects (failure, `timeoutMs`, or abort), the SDK
+   * best-effort stops it and rethrows the original readiness error. Cleanup
+   * does not use the caller's `signal`, so the rejection can arrive up to about
+   * 30 seconds later. `waitUntilRunning: false` returns immediately after
+   * accept with no automatic cleanup.
+   */
   create(options?: SandboxRunOptions): Promise<Sandbox>;
+  /**
+   * Runs `command` and waits for `running` by default. If creation returns an
+   * accepted sandbox but the readiness wait rejects (failure, `timeoutMs`, or
+   * abort), the SDK best-effort stops it and rethrows the original readiness
+   * error. Cleanup does not use the caller's `signal`, so the rejection can
+   * arrive up to about 30 seconds later. `waitUntilRunning: false` returns
+   * immediately after accept with no automatic cleanup.
+   */
   run(command: CommandInput, options?: SandboxRunOptions): Promise<Sandbox>;
   get(sandboxId: SandboxId, options?: RequestOptions): Promise<GetSandboxResult>;
   fromId(sandboxId: SandboxId, options?: FromIdOptions): Promise<Sandbox>;
@@ -39,10 +55,22 @@ export interface SandboxClient {
   getSnapshot(snapshotId: string, options?: RequestOptions): Promise<FileSystemSnapshotResult>;
   listSnapshots(options?: ListSnapshotsOptions): Promise<readonly FileSystemSnapshotResult[]>;
   deleteSnapshot(snapshotId: string, options?: DeleteSnapshotOptions): Promise<void>;
+  /**
+   * Starts a sandbox like `create` / `run` and always stops it after the
+   * callback returns or throws. A readiness failure (including abort or
+   * `timeoutMs`) stops the sandbox, skips the callback, and can reject up to
+   * about 30 seconds later while cleanup runs.
+   */
   withSandbox<TResult>(
     callback: WithSandboxCallback<TResult>,
     options?: SandboxRunOptions,
   ): Promise<TResult>;
+  /**
+   * Starts a sandbox like `create` / `run` and always stops it after the
+   * callback returns or throws. A readiness failure (including abort or
+   * `timeoutMs`) stops the sandbox, skips the callback, and can reject up to
+   * about 30 seconds later while cleanup runs.
+   */
   withSandbox<TResult>(
     command: CommandInput,
     callback: WithSandboxCallback<TResult>,

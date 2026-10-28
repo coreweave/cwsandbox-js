@@ -15,6 +15,13 @@ SPDX-PackageName: cwsandbox
   limit) no longer crawl at about 0.5 MiB/s or fail with
   `CWSandboxStreamTruncatedError`. The gRPC channels now use a 16 MiB HTTP/2
   receive window instead of the 64 KiB default.
+- `create`, `run`, and `withSandbox` now best-effort `stop` an accepted
+  sandbox when the readiness wait rejects (failed status, `timeoutMs`, or
+  abort) and rethrow the original error, matching `runFromTemplate` and
+  `runFromFile`. Cleanup does not use the caller's `signal`, so the rejection
+  can arrive up to about 30s later. To keep the sandbox after a failed
+  readiness wait, pass `waitUntilRunning: false` and call `sandbox.wait()`
+  yourself.
 
 ## 1.0.0
 
