@@ -703,10 +703,27 @@ try {
 ```
 
 `isSnapshotError` recognizes snapshot-specific failures across existing error
-classes; it does not mean a failure is retryable. Provisioning errors have the
-specific `CWSandboxSnapshotBucketProvisioningError` type and remain instances of
-`CWSandboxUnavailableError`. Authentication and generic transport errors retain
-their existing classification.
+classes; it does not mean a failure is retryable. Snapshot error classes expose
+`fileSystemSnapshotId` when the snapshot is known (from the poll, the
+`getSnapshot` / `deleteSnapshot` argument, or the restore ID on create).
+
+| Class                                      | Also an instance of         | When                                                                |
+| ------------------------------------------ | --------------------------- | ------------------------------------------------------------------- |
+| `CWSandboxSnapshotFailedError`             | `CWSandboxSnapshotError`    | The snapshot reached `failed`                                       |
+| `CWSandboxSnapshotSizeExceededError`       | `CWSandboxSnapshotError`    | `CWSANDBOX_FSS_SIZE_EXCEEDED`                                       |
+| `CWSandboxSnapshotQuotaExceededError`      | `CWSandboxSnapshotError`    | `CWSANDBOX_FSS_QUOTA_EXCEEDED`                                      |
+| `CWSandboxSnapshotBucketMismatchError`     | `CWSandboxSnapshotError`    | `CWSANDBOX_FSS_BUCKET_MISMATCH`                                     |
+| `CWSandboxSnapshotBucketProvisioningError` | `CWSandboxUnavailableError` | First-use storage is being provisioned                              |
+| `CWSandboxSnapshotBackendThrottledError`   | `CWSandboxUnavailableError` | `CWSANDBOX_FSS_BACKEND_THROTTLED` or `CWSANDBOX_FSS_INFLIGHT_LIMIT` |
+| `CWSandboxSnapshotWaitTimeoutError`        | `CWSandboxTimeoutError`     | The snapshot was not ready in time; it may still complete           |
+
+`instanceof CWSandboxSnapshotError` matches only the terminal classes. The
+provisioning, throttled and wait-timeout classes keep their unavailable or
+timeout parent, so use `isSnapshotError` to match every snapshot failure.
+Not-found, not-supported and not-ready snapshot failures keep their existing
+classes and are recognized by `isSnapshotError` through their reason.
+Authentication and generic transport errors retain their existing
+classification.
 
 `fileSystemSnapshot` and `volumes` cannot be used together. For a named mount
 or more than one scratch, pass `volumes`. `snapshot()` cannot choose among

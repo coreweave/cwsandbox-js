@@ -6,6 +6,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   isSnapshotError,
+  CWSandboxSnapshotError,
+  CWSandboxSnapshotFailedError,
+  CWSandboxSnapshotWaitTimeoutError,
   CWSandboxTimeoutError,
   CWSandboxTransportError,
   CWSandboxUnavailableError,
@@ -176,8 +179,12 @@ describe("sandbox.snapshot", () => {
     );
 
     expect(isSnapshotError(error)).toBe(true);
+    expect(error).toBeInstanceOf(CWSandboxSnapshotFailedError);
+    expect(error).toBeInstanceOf(CWSandboxSnapshotError);
     expect(error).toBeInstanceOf(CWSandboxTransportError);
     expect(error).not.toBeInstanceOf(CWSandboxTimeoutError);
+    expect((error as CWSandboxSnapshotFailedError).fileSystemSnapshotId).toBe("snap-fail");
+    expect((error as CWSandboxSnapshotFailedError).reason).toBe("archive exploded");
     expect((error as CWSandboxTransportError).message).toContain("snap-fail");
     expect((error as CWSandboxTransportError).message).toContain("archive exploded");
   });
@@ -198,14 +205,18 @@ describe("sandbox.snapshot", () => {
       transport,
     };
 
-    await expect(
-      captureFileSystemSnapshot(runtime, {
-        now: clock.now,
-        random: () => 0,
-        sleep: clock.sleep,
-        timeoutMs: 1_000,
-      }),
-    ).rejects.toThrow(CWSandboxTimeoutError);
+    const error: unknown = await captureFileSystemSnapshot(runtime, {
+      now: clock.now,
+      random: () => 0,
+      sleep: clock.sleep,
+      timeoutMs: 1_000,
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(CWSandboxSnapshotWaitTimeoutError);
+    expect(error).toBeInstanceOf(CWSandboxTimeoutError);
+    expect(error).not.toBeInstanceOf(CWSandboxSnapshotError);
+    expect((error as CWSandboxSnapshotWaitTimeoutError).fileSystemSnapshotId).toBe("snap-slow");
+    expect((error as CWSandboxSnapshotWaitTimeoutError).reason).toBe("CWSANDBOX_FSS_WAIT_TIMEOUT");
   });
 
   it("does not retry Create on DEADLINE_EXCEEDED", async () => {
@@ -397,7 +408,8 @@ it("caps custom snapshot retries at the archive deadline", async () => {
       timeoutMs: 1_000,
     },
   ).catch((caught: unknown) => caught);
-  expect(error).toBeInstanceOf(CWSandboxTimeoutError);
+  expect(error).toBeInstanceOf(CWSandboxSnapshotWaitTimeoutError);
+  expect((error as CWSandboxSnapshotWaitTimeoutError).fileSystemSnapshotId).toBeUndefined();
   expect(isSnapshotError(error)).toBe(true);
   expect(calls).toBe(1);
   expect(timer.now()).toBe(6_000); // Includes the existing 5s observation slack.

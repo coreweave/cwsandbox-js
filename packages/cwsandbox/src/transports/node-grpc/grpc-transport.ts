@@ -104,18 +104,21 @@ export class GrpcSandboxTransport implements SandboxTransport {
   public async start(request: StartSandboxRequest): Promise<StartSandboxResult> {
     // Build once so all capacity retries reuse the same body and request ID.
     const body = toProtoCreateRequest(request);
-    const response = await withGrpcErrorMapping("Start sandbox", () =>
-      retryCreateCapacity(
-        (timeoutMs) =>
-          this.client.createSandbox(
-            body,
-            toRpcOptions({
-              ...(request.signal === undefined ? {} : { signal: request.signal }),
-              ...(timeoutMs === undefined ? {} : { timeoutMs }),
-            }),
-          ).response,
-        request,
-      ),
+    const response = await withGrpcErrorMapping(
+      "Start sandbox",
+      () =>
+        retryCreateCapacity(
+          (timeoutMs) =>
+            this.client.createSandbox(
+              body,
+              toRpcOptions({
+                ...(request.signal === undefined ? {} : { signal: request.signal }),
+                ...(timeoutMs === undefined ? {} : { timeoutMs }),
+              }),
+            ).response,
+          request,
+        ),
+      restoreErrorContext(request),
     );
 
     return toSdkStartSandboxResult(response);
@@ -126,18 +129,21 @@ export class GrpcSandboxTransport implements SandboxTransport {
   ): Promise<StartSandboxResult> {
     // Build once so all capacity retries reuse the same body and request ID.
     const body = toProtoCreateFromTemplateRequest(request);
-    const response = await withGrpcErrorMapping("Create sandbox from template", () =>
-      retryCreateCapacity(
-        (timeoutMs) =>
-          this.client.createSandboxFromTemplate(
-            body,
-            toRpcOptions({
-              ...(request.signal === undefined ? {} : { signal: request.signal }),
-              ...(timeoutMs === undefined ? {} : { timeoutMs }),
-            }),
-          ).response,
-        request,
-      ),
+    const response = await withGrpcErrorMapping(
+      "Create sandbox from template",
+      () =>
+        retryCreateCapacity(
+          (timeoutMs) =>
+            this.client.createSandboxFromTemplate(
+              body,
+              toRpcOptions({
+                ...(request.signal === undefined ? {} : { signal: request.signal }),
+                ...(timeoutMs === undefined ? {} : { timeoutMs }),
+              }),
+            ).response,
+          request,
+        ),
+      restoreErrorContext(request),
     );
 
     return toSdkStartSandboxResult(response);
@@ -244,6 +250,7 @@ export class GrpcSandboxTransport implements SandboxTransport {
           }),
           toRpcOptions(request),
         ).response,
+      { fileSystemSnapshotId: request.snapshotId },
     );
 
     return toSdkFileSystemSnapshot(response);
@@ -280,6 +287,7 @@ export class GrpcSandboxTransport implements SandboxTransport {
           }),
           toRpcOptions(request),
         ).response,
+      { fileSystemSnapshotId: request.snapshotId },
     );
   }
 
@@ -568,4 +576,12 @@ async function settleDirectLease(
     await lease.discard();
   }
   await lease.release({ discard });
+}
+
+/** Attach the convenience restore snapshot ID to create errors. */
+function restoreErrorContext(request: StartSandboxRequest | StartSandboxFromTemplateRequest): {
+  readonly fileSystemSnapshotId?: string;
+} {
+  const snapshotId = request.fileSystemSnapshot?.restoreFromSnapshotId;
+  return snapshotId === undefined || snapshotId === "" ? {} : { fileSystemSnapshotId: snapshotId };
 }

@@ -4,7 +4,7 @@
 
 import { randomUUID } from "node:crypto";
 
-import type { SandboxClient } from "@coreweave/cwsandbox";
+import { CWSandboxNotFoundError, isSnapshotError, type SandboxClient } from "@coreweave/cwsandbox";
 import { createSandboxClientFromEnv } from "@coreweave/cwsandbox/node";
 import { beforeAll, describe, expect, it } from "vitest";
 
@@ -21,6 +21,16 @@ describeWithCredentials("live file-system snapshot smoke", { sequential: true },
 
   beforeAll(() => {
     client = createSandboxClientFromEnv();
+  });
+
+  it("reports an unknown snapshot ID as a not-found snapshot error", async () => {
+    const error: unknown = await client
+      .getSnapshot(`missing-${randomUUID()}`)
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(CWSandboxNotFoundError);
+    expect(isSnapshotError(error)).toBe(true);
+    expect((error as CWSandboxNotFoundError).reason).toBe("CWSANDBOX_FSS_NOT_FOUND");
   });
 
   it(

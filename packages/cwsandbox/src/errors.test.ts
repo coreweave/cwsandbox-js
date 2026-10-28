@@ -11,16 +11,23 @@ import {
   CWSandboxFileError,
   CWSandboxNotImplementedError,
   CWSandboxResourceExhaustedError,
+  CWSandboxSnapshotBackendThrottledError,
   CWSandboxSnapshotBucketMismatchError,
+  CWSandboxSnapshotBucketProvisioningError,
+  CWSandboxSnapshotError,
+  CWSandboxSnapshotFailedError,
   CWSandboxSnapshotQuotaExceededError,
   CWSandboxSnapshotSizeExceededError,
+  CWSandboxSnapshotWaitTimeoutError,
   CWSandboxStreamBackpressureError,
   CWSandboxStreamTruncatedError,
   CWSandboxTerminalStateUnavailableError,
   CWSandboxTimeoutError,
   CWSandboxTransportError,
+  CWSandboxUnavailableError,
   CWSandboxValidationError,
   isCWSandboxError,
+  isSnapshotError,
 } from "./errors.js";
 import { STREAM_BACKPRESSURE, STREAM_TRUNCATED } from "./internal/error-info.js";
 
@@ -161,5 +168,90 @@ describe("SDK error boundaries", () => {
     expect(error.code).toBe("execution_error");
     expect(error.result).toBeUndefined();
     expect(error.streamCode).toBe(STREAM_TRUNCATED);
+  });
+});
+
+describe("snapshot error hierarchy", () => {
+  const terminal = [
+    CWSandboxSnapshotFailedError,
+    CWSandboxSnapshotSizeExceededError,
+    CWSandboxSnapshotQuotaExceededError,
+    CWSandboxSnapshotBucketMismatchError,
+  ] as const;
+  const cases = [
+    {
+      ErrorClass: CWSandboxSnapshotError,
+      parent: CWSandboxTransportError,
+      code: "transport_error",
+    },
+    ...terminal.map((ErrorClass) => ({
+      ErrorClass,
+      parent: CWSandboxSnapshotError,
+      code: "transport_error",
+    })),
+    {
+      ErrorClass: CWSandboxSnapshotBucketProvisioningError,
+      parent: CWSandboxUnavailableError,
+      code: "unavailable",
+    },
+    {
+      ErrorClass: CWSandboxSnapshotBackendThrottledError,
+      parent: CWSandboxUnavailableError,
+      code: "unavailable",
+    },
+    {
+      ErrorClass: CWSandboxSnapshotWaitTimeoutError,
+      parent: CWSandboxTimeoutError,
+      code: "timeout_error",
+    },
+  ] as const;
+  const allClasses = cases.map(({ ErrorClass }) => ErrorClass);
+
+  it.each(cases)("$ErrorClass.name: parent, code, name and snapshot ID", (testCase) => {
+    const { ErrorClass, parent, code } = testCase;
+    const error = new ErrorClass("snapshot failed", { fileSystemSnapshotId: "snap-123" });
+    const blank = new ErrorClass("snapshot failed");
+
+    expect(error).toBeInstanceOf(parent);
+    expect(error).toBeInstanceOf(CWSandboxTransportError);
+    expect(error.code).toBe(code);
+    expect(error.name).toBe(ErrorClass.name);
+    expect(error.fileSystemSnapshotId).toBe("snap-123");
+    expect(blank.fileSystemSnapshotId).toBeUndefined();
+    expect(isSnapshotError(error)).toBe(true);
+  });
+
+  it.each(cases)("$ErrorClass.name: instanceof matrix", ({ ErrorClass }) => {
+    const error = new ErrorClass("snapshot failed");
+    const inSnapshotBase =
+      ErrorClass === CWSandboxSnapshotError || terminal.some((c) => c === ErrorClass);
+
+    expect(error instanceof CWSandboxSnapshotError).toBe(inSnapshotBase);
+    expect(error instanceof CWSandboxUnavailableError).toBe(
+      ErrorClass === CWSandboxSnapshotBucketProvisioningError ||
+        ErrorClass === CWSandboxSnapshotBackendThrottledError,
+    );
+    expect(error instanceof CWSandboxTimeoutError).toBe(
+      ErrorClass === CWSandboxSnapshotWaitTimeoutError,
+    );
+    const siblings = allClasses.filter(
+      (Other) => Other !== ErrorClass && Other !== CWSandboxSnapshotError,
+    );
+    expect(siblings.filter((Other) => error instanceof Other)).toEqual([]);
+  });
+
+  it("isSnapshotError matches trusted FSS reasons and rejects others", () => {
+    const trusted = { domain: "cwsandbox.com", reason: "CWSANDBOX_FSS_NOT_READY" };
+
+    expect(isSnapshotError(new CWSandboxTransportError("not ready", trusted))).toBe(true);
+    expect(isSnapshotError(new CWSandboxNotImplementedError("off", trusted))).toBe(true);
+    expect(
+      isSnapshotError(
+        new CWSandboxTransportError("spoof", { ...trusted, domain: "evil.example.com" }),
+      ),
+    ).toBe(false);
+    expect(isSnapshotError(new CWSandboxTimeoutError("generic"))).toBe(false);
+    expect(isSnapshotError(new CWSandboxUnavailableError("generic"))).toBe(false);
+    expect(isSnapshotError(new Error("plain"))).toBe(false);
   });
 });

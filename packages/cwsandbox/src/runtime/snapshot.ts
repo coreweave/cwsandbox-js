@@ -8,9 +8,11 @@ import { DEFAULT_SNAPSHOT_TIMEOUT_MS, SNAPSHOT_OBSERVATION_SLACK_MS } from "../d
 import {
   type CWSandboxError,
   CWSandboxTimeoutError,
-  CWSandboxSnapshotError,
+  CWSandboxSnapshotFailedError,
+  CWSandboxSnapshotWaitTimeoutError,
   CWSandboxValidationError,
 } from "../errors.js";
+import { CWSANDBOX_ERROR_DOMAIN, CWSANDBOX_FSS_WAIT_TIMEOUT } from "../internal/error-info.js";
 import {
   DEFAULT_MAX_POLL_INTERVAL_MS,
   DEFAULT_POLL_BACKOFF_FACTOR,
@@ -199,11 +201,15 @@ async function waitForSnapshotReady(
     }
     if (record.state === "failed") {
       const reason = record.stateReason === undefined ? "" : `: ${record.stateReason}`;
-      throw new CWSandboxSnapshotError(`File-system snapshot '${snapshotId}' failed${reason}.`, {
-        operation: SNAPSHOT_OPERATION,
-        sandboxId: runtime.sandboxId,
-        ...(record.stateReason === undefined ? {} : { reason: record.stateReason }),
-      });
+      throw new CWSandboxSnapshotFailedError(
+        `File-system snapshot '${snapshotId}' failed${reason}.`,
+        {
+          fileSystemSnapshotId: snapshotId,
+          operation: SNAPSHOT_OPERATION,
+          sandboxId: runtime.sandboxId,
+          ...(record.stateReason === undefined ? {} : { reason: record.stateReason }),
+        },
+      );
     }
 
     const remainingMs = deadline - now();
@@ -244,15 +250,16 @@ async function getRecordWithReadyWaitDeadline(
 }
 
 function throwSnapshotTimeout(sandboxId: string, snapshotId?: string): never {
-  throw new CWSandboxTimeoutError(
+  throw new CWSandboxSnapshotWaitTimeoutError(
     snapshotId === undefined
       ? `Timed out creating a file-system snapshot for sandbox '${sandboxId}'.`
       : `Timed out waiting for file-system snapshot '${snapshotId}' to become ready.`,
     {
       operation: SNAPSHOT_OPERATION,
       sandboxId,
-      domain: "cwsandbox.com",
-      reason: "CWSANDBOX_FSS_WAIT_TIMEOUT",
+      domain: CWSANDBOX_ERROR_DOMAIN,
+      reason: CWSANDBOX_FSS_WAIT_TIMEOUT,
+      ...(snapshotId === undefined ? {} : { fileSystemSnapshotId: snapshotId }),
     },
   );
 }
