@@ -41,6 +41,7 @@ One workspace package with self-contained scripts (same deps). Typecheck is part
 | `stdin-streaming.ts`        | stdin writer                                  | `pnpm --dir examples/sdk stdin-streaming`                    |
 | `large-file-streaming.ts`   | `files.writeStream` / `readStream`            | `pnpm --dir examples/sdk large-file-streaming`               |
 | `resource-configuration.ts` | flat + requests/limits resources              | `pnpm --dir examples/sdk resource-configuration`             |
+| `multi-container.ts`        | primary + sidecar, `container` targeting      | `pnpm --dir examples/sdk multi-container`                    |
 | `run-from-template.ts`      | `runFromTemplate` + `withSandboxFromTemplate` | `pnpm --dir examples/sdk run-from-template`                  |
 | `run-from-file.ts`          | `runFromFile` + `withSandboxFromFile`         | `pnpm --dir examples/sdk run-from-file`                      |
 | `error-handling.ts`         | execution / not-found errors                  | `pnpm --dir examples/sdk error-handling`                     |
