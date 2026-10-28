@@ -22,7 +22,7 @@ import type {
   ServiceUrl,
   TlsPassthroughEndpointStatus,
 } from "../../public/network.js";
-import type { ResourceOptions, ResourceSpec } from "../../public/resources.js";
+import type { GpuSpec, ResourceOptions, ResourceSpec } from "../../public/resources.js";
 import type {
   FileSystemSnapshotResult,
   FileSystemSnapshotState,
@@ -82,6 +82,7 @@ import {
   VolumeMount,
   type ExecResponse as ProtoExecResponse,
   type FileSystemSnapshot as ProtoFileSystemSnapshot,
+  type Gpu,
   type Sandbox as ProtoSandboxMessage,
   type ServiceStatus as ProtoServiceStatus,
 } from "./generated/coreweave/sandbox/v1/sandbox.js";
@@ -523,25 +524,42 @@ function toProtoResourceRequirements(
     return undefined;
   }
 
+  // GPU is not a burst dimension, so it goes on both sides, as in the Python SDK.
   if (isAdvancedResources(resources)) {
     return ResourceRequirements.create({
-      limits: toProtoResources(resources.limits),
-      requests: toProtoResources(resources.requests),
+      limits: toProtoResources(resources.limits, resources.gpu),
+      requests: toProtoResources(resources.requests, resources.gpu),
     });
   }
 
-  const spec = toProtoResources(resources);
+  const spec = toProtoResources(resources, resources.gpu);
   return ResourceRequirements.create({
     limits: spec,
     requests: spec,
   });
 }
 
-function toProtoResources(spec: ResourceSpec): ReturnType<typeof Resources.create> {
+function toProtoResources(
+  spec: Omit<ResourceSpec, "gpu">,
+  gpu: GpuSpec | undefined,
+): ReturnType<typeof Resources.create> {
   return Resources.create({
     cpu: spec.cpu ?? "",
     memory: spec.memory ?? "",
+    ...(gpu === undefined ? {} : { gpu: toProtoGpu(gpu) }),
   });
+}
+
+function toProtoGpu(gpu: GpuSpec): Gpu {
+  return {
+    count: String(gpu.count),
+    selector:
+      gpu.type !== undefined
+        ? { oneofKind: "type", type: gpu.type }
+        : gpu.memoryGb !== undefined
+          ? { oneofKind: "memoryGb", memoryGb: String(gpu.memoryGb) }
+          : { oneofKind: undefined },
+  };
 }
 
 export function toProtoExecRequest(
@@ -843,12 +861,31 @@ function toSdkResourceSpec(resource: Resources | undefined): ResourceSpec | unde
     return undefined;
   }
 
+  const gpu = resource.gpu === undefined ? undefined : toSdkGpuSpec(resource.gpu);
   const spec: ResourceSpec = {
     ...(resource.cpu === "" ? {} : { cpu: resource.cpu }),
     ...(resource.memory === "" ? {} : { memory: resource.memory }),
+    ...(gpu === undefined ? {} : { gpu }),
   };
 
-  return spec.cpu === undefined && spec.memory === undefined ? undefined : spec;
+  return Object.keys(spec).length === 0 ? undefined : spec;
+}
+
+function toSdkGpuSpec(gpu: Gpu): GpuSpec | undefined {
+  const count = Number(gpu.count);
+  if (!Number.isSafeInteger(count) || count < 1) {
+    return undefined;
+  }
+  switch (gpu.selector.oneofKind) {
+    case "type":
+      return gpu.selector.type === "" ? { count } : { count, type: gpu.selector.type };
+    case "memoryGb": {
+      const memoryGb = Number(gpu.selector.memoryGb);
+      return Number.isSafeInteger(memoryGb) && memoryGb > 0 ? { count, memoryGb } : { count };
+    }
+    default:
+      return { count };
+  }
 }
 
 function toDate(timestamp: ProtoTimestamp | undefined): Date | undefined {

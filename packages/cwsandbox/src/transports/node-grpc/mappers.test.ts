@@ -232,6 +232,57 @@ describe("node transport mappers", () => {
       });
     });
 
+    it("maps flat GPU resources onto both requests and limits", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        resources: { cpu: "2", memory: "8Gi", gpu: { count: 1 } },
+      });
+      const expected = {
+        cpu: "2",
+        gpu: { count: "1", selector: { oneofKind: undefined } },
+        memory: "8Gi",
+      };
+
+      expect(primaryContainer(request)?.resourceRequirements).toEqual({
+        limits: expected,
+        requests: expected,
+      });
+    });
+
+    it("maps GPU-only resources", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        resources: { gpu: { count: 2, type: "H100" } },
+      });
+      const expected = {
+        cpu: "",
+        gpu: { count: "2", selector: { oneofKind: "type", type: "H100" } },
+        memory: "",
+      };
+
+      expect(primaryContainer(request)?.resourceRequirements).toEqual({
+        limits: expected,
+        requests: expected,
+      });
+    });
+
+    it("maps the GPU next to advanced resources onto both requests and limits", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        resources: {
+          gpu: { count: 1, memoryGb: 80 },
+          limits: { cpu: "4", memory: "8Gi" },
+          requests: { cpu: "1", memory: "1Gi" },
+        },
+      });
+      const gpu = { count: "1", selector: { oneofKind: "memoryGb", memoryGb: "80" } };
+
+      expect(primaryContainer(request)?.resourceRequirements).toEqual({
+        limits: { cpu: "4", gpu, memory: "8Gi" },
+        requests: { cpu: "1", gpu, memory: "1Gi" },
+      });
+    });
+
     it("maps listen-only services", () => {
       const request = toProtoCreateRequest({
         command: ["python"],
@@ -958,6 +1009,24 @@ describe("node transport mappers", () => {
       ).toBeGreaterThan(0);
     });
 
+    it("maps GPU resources onto the replacement primary container", () => {
+      const request = toProtoCreateFromTemplateRequest({
+        templateId,
+        containerImage: "python:3.12",
+        resources: { gpu: { count: 1, type: "A100" } },
+      });
+      const expected = {
+        cpu: "",
+        gpu: { count: "1", selector: { oneofKind: "type", type: "A100" } },
+        memory: "",
+      };
+
+      expect(request.overrides?.containers[0]?.resourceRequirements).toEqual({
+        limits: expected,
+        requests: expected,
+      });
+    });
+
     it("maps supplied container overlay fields onto the replacement container", () => {
       const withVolumes = toProtoCreateFromTemplateRequest({
         templateId,
@@ -1246,6 +1315,56 @@ describe("node transport mappers", () => {
         startedAt: new Date(1_710_000_000_123),
         status: "running",
       });
+    });
+
+    it("maps echoed GPU resources into resource read-back", () => {
+      const result = toSdkGetSandboxResult(
+        ProtoSandbox.create({
+          sandboxId: "sandbox-123",
+          status: {
+            effectiveResourceRequirements: {
+              limits: {
+                cpu: "2",
+                gpu: { count: "1", selector: { oneofKind: "type", type: "H100" } },
+                memory: "8Gi",
+              },
+              requests: {
+                cpu: "",
+                gpu: { count: "2", selector: { oneofKind: "memoryGb", memoryGb: "80" } },
+                memory: "",
+              },
+            },
+            state: State.RUNNING,
+          },
+        }),
+      );
+
+      expect(result.resourceLimits).toEqual({
+        cpu: "2",
+        gpu: { count: 1, type: "H100" },
+        memory: "8Gi",
+      });
+      expect(result.resourceRequests).toEqual({ gpu: { count: 2, memoryGb: 80 } });
+    });
+
+    it("omits an echoed GPU without a positive count", () => {
+      const result = toSdkGetSandboxResult(
+        ProtoSandbox.create({
+          sandboxId: "sandbox-123",
+          status: {
+            effectiveResourceRequirements: {
+              limits: {
+                cpu: "2",
+                gpu: { count: "0", selector: { oneofKind: undefined } },
+                memory: "",
+              },
+            },
+            state: State.RUNNING,
+          },
+        }),
+      );
+
+      expect(result.resourceLimits).toEqual({ cpu: "2" });
     });
 
     it("copies a non-empty create-time endpointShareToken and omits Get/List tokens", () => {
