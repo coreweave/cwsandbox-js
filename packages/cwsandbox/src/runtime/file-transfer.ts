@@ -149,6 +149,26 @@ export class FileTransfer {
       sandboxId: this.sandboxId,
       ...(expectedSize === undefined ? {} : { expectedSize }),
     })) {
+      // Remote size may be unknown here (resource-exhausted fallback), so cap
+      // the buffer as it grows. Throwing ends iteration and cancels the stream.
+      if (totalBytes + chunk.byteLength > MAX_AUTO_FALLBACK_BYTES) {
+        throw new CWSandboxFileError(
+          `Refusing to read '${path}': file exceeds the auto-fallback ceiling of ` +
+            `${MAX_AUTO_FALLBACK_BYTES} bytes. Use files.readStream() to stream large files.`,
+          {
+            filepath: path,
+            metadata: {
+              bytes_delivered: String(totalBytes + chunk.byteLength),
+              filepath: path,
+              max_size_bytes: String(MAX_AUTO_FALLBACK_BYTES),
+              operation: "read_file",
+            },
+            operation: "Read file",
+            reason: CWSANDBOX_FILE_TOO_LARGE,
+            sandboxId: this.sandboxId,
+          },
+        );
+      }
       chunks.push(chunk);
       totalBytes += chunk.byteLength;
     }

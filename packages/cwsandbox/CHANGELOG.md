@@ -22,6 +22,10 @@ SPDX-PackageName: cwsandbox
   can arrive up to about 30s later. To keep the sandbox after a failed
   readiness wait, pass `waitUntilRunning: false` and call `sandbox.wait()`
   yourself.
+- `files.read` and `files.readText` (single and batch) now stop the
+  unknown-size StreamExec fallback at 256 MiB, cancel the stream, and throw
+  `CWSandboxFileError` with reason `CWSANDBOX_FILE_TOO_LARGE`. Before, the
+  fallback buffered the whole file. Use `files.readStream` for larger files.
 
 ## 1.0.0
 
