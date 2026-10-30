@@ -1124,6 +1124,84 @@ describe("SandboxClient", () => {
       ).rejects.toThrow(CWSandboxValidationError);
     });
 
+    it.each([
+      { cpu: "2", memory: "8Gi", gpu: { count: 1 } },
+      { gpu: { count: 2, type: "H100" } },
+      { gpu: { count: 1, memoryGb: 80 } },
+      { requests: { cpu: "1" }, limits: { cpu: "2" }, gpu: { count: 1 } },
+    ] as const)("passes valid GPU resources %j to the transport", async (resources) => {
+      let startRequest: Parameters<SandboxTransport["start"]>[0] | undefined;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async start(request) {
+          startRequest = request;
+          return { sandboxId: "sandbox-gpu", status: "running" };
+        },
+      };
+
+      await createClient(transport).run(["python"], { resources, waitUntilRunning: false });
+
+      expect(startRequest?.resources).toEqual(resources);
+    });
+
+    it.each([
+      [{ gpu: {} }, /resources\.gpu\.count must be a positive integer/],
+      [{ gpu: { count: 0 } }, /resources\.gpu\.count must be a positive integer/],
+      [{ gpu: { count: -1 } }, /resources\.gpu\.count must be a positive integer/],
+      [{ gpu: { count: 1.5 } }, /resources\.gpu\.count must be a positive integer/],
+      [{ gpu: { count: "1" } }, /resources\.gpu\.count must be a positive integer/],
+      [{ gpu: { count: true } }, /resources\.gpu\.count must be a positive integer/],
+      [{ gpu: { count: 1, type: "" } }, /resources\.gpu\.type must be a non-empty string/],
+      [{ gpu: { count: 1, type: 1 } }, /resources\.gpu\.type must be a non-empty string/],
+      [{ gpu: { count: 1, memoryGb: 0 } }, /resources\.gpu\.memoryGb must be a positive integer/],
+      [{ gpu: { count: 1, memoryGb: 8.5 } }, /resources\.gpu\.memoryGb must be a positive integer/],
+      [
+        { gpu: { count: 1, type: "H100", memoryGb: 80 } },
+        /resources\.gpu must not set both type and memoryGb/,
+      ],
+      [{ gpu: { count: 1, memory_gb: 80 } }, /resources\.gpu\.memory_gb is not a recognized/],
+      [{ gpu: 1 }, /resources\.gpu must be an object/],
+      [{ gpu: null }, /resources\.gpu must be an object/],
+      [
+        { requests: { cpu: "1" }, limits: { cpu: "2" }, gpu: { count: 0 } },
+        /resources\.gpu\.count must be a positive integer/,
+      ],
+      [
+        { requests: { cpu: "1", gpu: { count: 1 } }, limits: { cpu: "2" } },
+        /resources\.requests\.gpu is not supported; set resources\.gpu instead/,
+      ],
+      [
+        { requests: { cpu: "1" }, limits: { cpu: "2", gpu: { count: 1 } } },
+        /resources\.limits\.gpu is not supported; set resources\.gpu instead/,
+      ],
+    ])("rejects invalid GPU resources %j before the transport", async (resources, message) => {
+      let startCalls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async start() {
+          startCalls += 1;
+          throw new Error("transport should not be called");
+        },
+      };
+
+      await expect(
+        createClient(transport).run(["python"], { resources: resources as never }),
+      ).rejects.toThrow(message);
+      await expect(
+        createClient(transport).run(["python"], { resources: resources as never }),
+      ).rejects.toThrow(CWSandboxValidationError);
+      expect(startCalls).toBe(0);
+    });
+
+    it("rejects invalid GPU resources on template overrides", async () => {
+      await expect(
+        createClient().runFromTemplate("template-123", {
+          containerImage: "python:3.12",
+          resources: { gpu: { count: 0 } },
+        }),
+      ).rejects.toThrow(/resources\.gpu\.count must be a positive integer/);
+    });
+
     it("throws a typed validation error for invalid selector values", async () => {
       const client = createClient();
 

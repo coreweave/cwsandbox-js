@@ -39,6 +39,7 @@ import {
   type MountedFiles,
   type Endpoint,
   type EndpointAuth,
+  type GpuSpec,
   type HttpsEndpoint,
   type HttpsEndpointStatus,
   type ImagePullCredentials,
@@ -271,6 +272,31 @@ test("public API types", async () => {
       },
     }),
   ).toEqualTypeOf<ReturnType<SandboxClient["run"]>>();
+  const gpuSpec: GpuSpec = { count: 1, type: "H100" };
+  expectTypeOf(
+    client.run(["python"], {
+      resources: { cpu: "2", memory: "8Gi", gpu: gpuSpec },
+    }),
+  ).toEqualTypeOf<ReturnType<SandboxClient["run"]>>();
+  expectTypeOf(
+    client.run(["python"], {
+      resources: {
+        gpu: { count: 1, memoryGb: 80 },
+        limits: { cpu: "4" },
+        requests: { cpu: "1" },
+      },
+    }),
+  ).toEqualTypeOf<ReturnType<SandboxClient["run"]>>();
+  void client.run(["python"], {
+    resources: {
+      limits: { cpu: "4" },
+      // @ts-expect-error GPU is set next to requests and limits, not inside them
+      requests: { cpu: "1", gpu: { count: 1 } },
+    },
+  });
+  // @ts-expect-error GPU count is required
+  const gpuWithoutCount: GpuSpec = { type: "H100" };
+  void gpuWithoutCount;
   expectTypeOf(
     client.run(["python"], {
       runnerIds: ["runner-id"],
@@ -536,6 +562,7 @@ test("public API types", async () => {
   expectTypeOf(sandbox.exposedPorts).toEqualTypeOf<readonly SandboxExposedPort[] | undefined>();
   expectTypeOf(sandbox.resourceRequests).toEqualTypeOf<SandboxResourceSpec | undefined>();
   expectTypeOf(sandbox.resourceLimits).toEqualTypeOf<SandboxResourceSpec | undefined>();
+  expectTypeOf<NonNullable<SandboxResourceSpec["gpu"]>>().toEqualTypeOf<GpuSpec>();
   expectTypeOf(sandbox.statusReason).toEqualTypeOf<string | undefined>();
   expectTypeOf(sandbox.inspect()).toEqualTypeOf<Promise<GetSandboxResult>>();
   expectTypeOf(sandbox.inspect({ timeoutMs: 1 })).toEqualTypeOf<Promise<GetSandboxResult>>();

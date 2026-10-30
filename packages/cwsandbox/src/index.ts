@@ -124,6 +124,7 @@ export type {
   TlsPassthroughEndpointStatus,
 } from "./public/network.js";
 export type {
+  GpuSpec,
   ResourceOptions,
   ResourceRequestsAndLimits,
   ResourceSpec,
