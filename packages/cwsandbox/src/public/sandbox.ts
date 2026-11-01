@@ -279,8 +279,7 @@ export interface SandboxRunFromTemplateOptions
   readonly network?: NetworkOptions;
   /**
    * Requires `containerImage`. When replacing the container, omitted values
-   * are not inherited from the template. CPU and memory only; GPU is not
-   * supported on `ResourceOptions`.
+   * are not inherited from the template.
    */
   readonly resources?: ResourceOptions;
   /**

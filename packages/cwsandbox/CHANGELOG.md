@@ -8,6 +8,12 @@ SPDX-PackageName: cwsandbox
 
 ## Unreleased
 
+- Add GPU resources on create and on template container overrides:
+  `resources.gpu` (`{ count, type?, memoryGb? }`), matching the Python SDK's
+  `gpu` resource option. In requests/limits form, `gpu` sits next to
+  `requests` and `limits`. `resourceRequests` / `resourceLimits` include
+  `gpu` when the server echoes it. `runFromFile` `defaultResources` still
+  rejects GPU.
 - Decode `google.rpc.BadRequest` from gRPC status details. Transport errors
   expose `fieldViolations` (`{ field, description }[]`, empty when absent),
   matching the Python SDK's `field_violations`.

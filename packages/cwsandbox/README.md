@@ -758,6 +758,33 @@ await client.run(["python"], {
 });
 ```
 
+Request GPUs with `gpu`. `count` is required. Select a model with `type` or a
+minimum VRAM with `memoryGb` (not both), or omit both to accept any GPU. GPUs
+are not a burst dimension, so with requests/limits `gpu` sits next to them, not
+inside either side:
+
+```ts
+await client.run(["nvidia-smi", "-L"], {
+  containerImage: "nvidia/cuda:12.4.1-base-ubuntu22.04",
+  resources: {
+    cpu: "2",
+    memory: "8Gi",
+    gpu: { count: 1 },
+  },
+});
+
+await client.run(["python"], {
+  resources: {
+    requests: { cpu: "1", memory: "4Gi" },
+    limits: { cpu: "4", memory: "8Gi" },
+    gpu: { count: 1, memoryGb: 40 },
+  },
+});
+```
+
+The SDK validates the shape. GPU capacity, quota, and type availability are
+checked by the server. `runFromFile` `defaultResources` does not accept GPU.
+
 ### Tags
 
 Tags are useful for discovery and cleanup:
@@ -1010,10 +1037,9 @@ SDK best-effort stops it. `waitUntilRunning: false` returns immediately after
 accept with no automatic cleanup.
 
 `placementMode` is not available; CKS placement is only via non-empty
-`runnerIds`. `ResourceOptions` is CPU and memory only (no GPU). `secrets: []`
-requires `containerImage`. `volumes: []` is rejected. `snapshot()` with multiple
-inherited scratches is a backend error; one inherited scratch can infer the
-volume.
+`runnerIds`. `secrets: []` requires `containerImage`. `volumes: []` is
+rejected. `snapshot()` with multiple inherited scratches is a backend error; one
+inherited scratch can infer the volume.
 
 Prefer `withSandboxFromTemplate` for short-lived work. Use `await using` with
 `runFromTemplate` for a direct handle with scoped cleanup:

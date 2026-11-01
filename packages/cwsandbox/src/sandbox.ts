@@ -401,7 +401,10 @@ function awaitWithRequestOptions(
 }
 
 function cloneResourceSpec(spec: SandboxResourceSpec | undefined): SandboxResourceSpec | undefined {
-  return spec === undefined ? undefined : { ...spec };
+  if (spec === undefined) {
+    return undefined;
+  }
+  return spec.gpu === undefined ? { ...spec } : { ...spec, gpu: { ...spec.gpu } };
 }
 
 function cloneExposedPorts(
