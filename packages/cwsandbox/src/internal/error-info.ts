@@ -58,6 +58,8 @@ export const CWSANDBOX_COMMAND_TIMEOUT = "CWSANDBOX_COMMAND_TIMEOUT";
 export const CWSANDBOX_RUNNER_UNAVAILABLE = "CWSANDBOX_RUNNER_UNAVAILABLE";
 export const CWSANDBOX_BACKEND_UNAVAILABLE = "CWSANDBOX_BACKEND_UNAVAILABLE";
 export const CWSANDBOX_RUNNER_SHARD_RETIRING = "CWSANDBOX_RUNNER_SHARD_RETIRING";
+/** The runner refused the request as overloaded (direct file calls, Create placement). */
+export const CWSANDBOX_RUNNER_OVERLOADED = "CWSANDBOX_RUNNER_OVERLOADED";
 
 export const UNAVAILABLE_REASONS: ReadonlySet<string> = new Set([
   CWSANDBOX_RUNNER_UNAVAILABLE,
@@ -88,4 +90,13 @@ export function isSandboxNotFound(
   }
 
   return error.domain === CWSANDBOX_ERROR_DOMAIN && error.reason === reason;
+}
+
+/** A mapped transport error with the trusted runner-overloaded reason. */
+export function isRunnerOverloadedError(error: unknown): boolean {
+  return (
+    error instanceof CWSandboxTransportError &&
+    error.domain === CWSANDBOX_ERROR_DOMAIN &&
+    error.reason === CWSANDBOX_RUNNER_OVERLOADED
+  );
 }

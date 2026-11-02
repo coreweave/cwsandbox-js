@@ -5,7 +5,11 @@
 import { describe, expect, it } from "vitest";
 
 import { CWSandboxResourceExhaustedError, CWSandboxTransportError } from "../errors.js";
-import { CWSANDBOX_FILE_TOO_LARGE } from "./error-info.js";
+import {
+  CWSANDBOX_ERROR_DOMAIN,
+  CWSANDBOX_FILE_TOO_LARGE,
+  CWSANDBOX_RUNNER_OVERLOADED,
+} from "./error-info.js";
 import { shouldFallbackRead, shouldFallbackWrite } from "./file-fallback-signals.js";
 import { MAX_AUTO_FALLBACK_BYTES } from "./file-limits.js";
 
@@ -27,6 +31,32 @@ describe("file fallback signals", () => {
     Object.defineProperty(error, "code", { value: "resource_exhausted" });
 
     expect(shouldFallbackRead(error)).toEqual({ fallback: true });
+  });
+
+  it("does not fall back reads on a trusted runner-overloaded rejection", () => {
+    const error = new CWSandboxResourceExhaustedError("Read file failed: overloaded", {
+      domain: CWSANDBOX_ERROR_DOMAIN,
+      operation: "Read file",
+      reason: CWSANDBOX_RUNNER_OVERLOADED,
+      retryDelayMs: 1_000,
+    });
+
+    expect(shouldFallbackRead(error)).toEqual({ fallback: false });
+    expect(shouldFallbackWrite(error, 1024)).toBe(false);
+  });
+
+  it("keeps the broad read fallback for an untrusted or bare RESOURCE_EXHAUSTED", () => {
+    const untrusted = new CWSandboxResourceExhaustedError("Read file failed: overloaded", {
+      domain: "example.com",
+      operation: "Read file",
+      reason: CWSANDBOX_RUNNER_OVERLOADED,
+    });
+    const bare = new CWSandboxResourceExhaustedError("Read file failed: exhausted", {
+      operation: "Read file",
+    });
+
+    expect(shouldFallbackRead(untrusted)).toEqual({ fallback: true });
+    expect(shouldFallbackRead(bare)).toEqual({ fallback: true });
   });
 
   it("falls back writes on grpc decompress / frame-size RESOURCE_EXHAUSTED", () => {

@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SandboxClient } from "../../client.js";
 import { CWSandboxNotFoundError, CWSandboxTransportError } from "../../errors.js";
 import {
+  CWSANDBOX_RUNNER_OVERLOADED,
   CWSANDBOX_RUNNER_SHARD_RETIRING,
   CWSANDBOX_SANDBOX_NOT_FOUND,
 } from "../../internal/error-info.js";
@@ -16,7 +17,11 @@ import { createGrpcFileAdapter } from "./file-adapter.js";
 import type { SandboxServiceClient } from "./generated/coreweave/sandbox/v1/sandbox.client.js";
 import { State } from "./generated/coreweave/sandbox/v1/sandbox.js";
 import { GrpcSandboxTransport } from "./grpc-transport.js";
-import { type HintedRetryOptions, retryHintedUnavailable } from "./retry-hinted-unavailable.js";
+import {
+  type HintedRetryOptions,
+  isRunnerOverloaded,
+  retryHintedUnavailable,
+} from "./retry-hinted-unavailable.js";
 import { statusDetailsMeta } from "./test/status-details.js";
 
 const RUNNER_UNAVAILABLE = "CWSANDBOX_RUNNER_UNAVAILABLE";
@@ -31,6 +36,29 @@ function hinted(
     options.code ?? "UNAVAILABLE",
     statusDetailsMeta({
       errorInfos: [{ reason: options.reason ?? RUNNER_UNAVAILABLE }],
+      retryInfos: [
+        { retrySeconds: Math.trunc(delayMs / 1_000), retryNanos: (delayMs % 1_000) * 1_000_000 },
+      ],
+    }),
+  );
+}
+
+/** RESOURCE_EXHAUSTED + ErrorInfo + RetryInfo, the direct data plane's overload rejection. */
+function overloaded(
+  delayMs = 1_000,
+  options: { readonly domain?: string; readonly reason?: string } = {},
+): RpcError {
+  return new RpcError(
+    "Runner direct data-plane request limit reached",
+    "RESOURCE_EXHAUSTED",
+    statusDetailsMeta({
+      errorInfos: [
+        {
+          reason: options.reason ?? CWSANDBOX_RUNNER_OVERLOADED,
+          metadata: { scope: "sandbox" },
+          ...(options.domain === undefined ? {} : { domain: options.domain }),
+        },
+      ],
       retryInfos: [
         { retrySeconds: Math.trunc(delayMs / 1_000), retryNanos: (delayMs % 1_000) * 1_000_000 },
       ],
@@ -260,11 +288,34 @@ describe("retryHintedUnavailable policy", () => {
     expect(timeouts).toHaveLength(1);
   });
 
+  it("retries a hinted overloaded rejection only when the predicate accepts it", async () => {
+    const log = vi.fn<(message: string) => void>();
+    const first = scripted(overloaded(1), "ok");
+    await expect(run(first.attempt, { log, retryable: isRunnerOverloaded })).resolves.toBe("ok");
+    expect(first.timeouts).toHaveLength(2);
+    expect(log.mock.calls[0]?.[0]).toContain(
+      `after RESOURCE_EXHAUSTED: reason=${CWSANDBOX_RUNNER_OVERLOADED}`,
+    );
+
+    const error = overloaded(1);
+    const second = scripted(error, "ok");
+    await expect(run(second.attempt)).rejects.toBe(error);
+    expect(second.timeouts).toHaveLength(1);
+  });
+
+  it("does not treat a bare, untrusted, or other-reason RESOURCE_EXHAUSTED as overloaded", () => {
+    expect(isRunnerOverloaded(overloaded())).toBe(true);
+    expect(isRunnerOverloaded(new RpcError("exhausted", "RESOURCE_EXHAUSTED"))).toBe(false);
+    expect(isRunnerOverloaded(overloaded(1_000, { domain: "example.com" }))).toBe(false);
+    expect(isRunnerOverloaded(overloaded(1_000, { reason: "OTHER" }))).toBe(false);
+    expect(isRunnerOverloaded(hinted(1, { reason: CWSANDBOX_RUNNER_OVERLOADED }))).toBe(false);
+  });
+
   it("logs one line per retry", async () => {
     const log = vi.fn<(message: string) => void>();
     await run(scripted(hinted(), hinted(), "ok").attempt, { log });
     expect(log).toHaveBeenCalledTimes(2);
-    expect(log.mock.calls[0]?.[0]).toContain(RUNNER_UNAVAILABLE);
+    expect(log.mock.calls[0]?.[0]).toContain(`after UNAVAILABLE: reason=${RUNNER_UNAVAILABLE}`);
     expect(log.mock.calls[0]?.[0]).toContain("attempt=2/3");
   });
 });
@@ -568,6 +619,203 @@ describe("file adapter hinted retry", () => {
     );
     await adapter.read({ path: "/f", sandboxId: "sbx", timeoutMs: 30_000 });
     expect(read.timeouts).toEqual([30_000]);
+  });
+});
+
+describe("file adapter overloaded direct retry", () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ now: 1_000 });
+    vi.spyOn(Math, "random").mockReturnValue(0);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Direct lease whose unary calls replay `read` / `write` outcomes. */
+  function lease(options: { readonly read?: unknown[]; readonly write?: unknown[] }) {
+    const read = unary(...(options.read ?? []));
+    const write = unary(...(options.write ?? []));
+    return {
+      read,
+      write,
+      lease: {
+        client: { readFile: read.fn, writeFile: write.fn },
+        discard: vi.fn<() => Promise<void>>(async () => undefined),
+        release: vi.fn<(options?: { readonly discard?: boolean }) => Promise<void>>(
+          async () => undefined,
+        ),
+      },
+    };
+  }
+
+  function adapterWith(
+    direct: ReturnType<typeof lease>,
+    gateway: { readonly readFile?: Unary; readonly writeFile?: Unary } = {},
+  ) {
+    const acquire = vi.fn<(options: unknown) => Promise<unknown>>().mockResolvedValue(direct.lease);
+    const adapter = createGrpcFileAdapter({ client: gateway as unknown as SandboxServiceClient }, {
+      acquire,
+    } as unknown as DirectDataPlane);
+    return { acquire, adapter };
+  }
+
+  const ops = {
+    read: {
+      call: (adapter: ReturnType<typeof createGrpcFileAdapter>, extra: object = {}) =>
+        adapter.read({ path: "/f", sandboxId: "sbx", ...extra }),
+      ok: { content: new Uint8Array([7]) },
+      direct: (outcomes: unknown[]) => lease({ read: outcomes }),
+      gateway: (fn: Unary) => ({ readFile: fn }),
+      calls: (direct: ReturnType<typeof lease>) => direct.read,
+    },
+    write: {
+      call: (adapter: ReturnType<typeof createGrpcFileAdapter>, extra: object = {}) =>
+        adapter.write({ content: new Uint8Array([1]), path: "/f", sandboxId: "sbx", ...extra }),
+      ok: {},
+      direct: (outcomes: unknown[]) => lease({ write: outcomes }),
+      gateway: (fn: Unary) => ({ writeFile: fn }),
+      calls: (direct: ReturnType<typeof lease>) => direct.write,
+    },
+  } as const;
+
+  describe.each(["read", "write"] as const)("%s", (name) => {
+    const op = ops[name];
+
+    it("waits the RetryInfo delay before retrying on the direct path", async () => {
+      const direct = op.direct([overloaded(1_000), op.ok]);
+      const gateway = unary();
+      const { adapter } = adapterWith(direct, op.gateway(gateway.fn));
+
+      const pending = op.call(adapter);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(op.calls(direct).fn).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(pending).resolves.toEqual(name === "read" ? op.ok : undefined);
+      expect(op.calls(direct).fn).toHaveBeenCalledTimes(2);
+      expect(gateway.fn).not.toHaveBeenCalled();
+    });
+
+    it("stops after 3 direct calls and falls back to the Gateway", async () => {
+      const direct = op.direct([overloaded(), overloaded(), overloaded()]);
+      const gateway = unary(op.ok);
+      const { acquire, adapter } = adapterWith(direct, op.gateway(gateway.fn));
+
+      const pending = op.call(adapter);
+      await vi.advanceTimersByTimeAsync(2_000);
+      await expect(pending).resolves.toEqual(name === "read" ? op.ok : undefined);
+      expect(op.calls(direct).fn).toHaveBeenCalledTimes(3);
+      expect(gateway.fn).toHaveBeenCalledTimes(1);
+      expect(acquire).toHaveBeenCalledTimes(1);
+      expect(direct.lease.discard).not.toHaveBeenCalled();
+      expect(direct.lease.release).toHaveBeenCalledWith({ discard: false });
+    });
+
+    it("keeps retries and the Gateway call within the caller's timeout", async () => {
+      const direct = op.direct([overloaded(), overloaded()]);
+      const gateway = unary(op.ok);
+      const { adapter } = adapterWith(direct, op.gateway(gateway.fn));
+
+      // A second 1 s backoff at t=1 s would leave under 5 s of the 6.5 s budget.
+      const pending = op.call(adapter, { timeoutMs: 6_500 });
+      await vi.advanceTimersByTimeAsync(1_000);
+      await pending;
+      expect(op.calls(direct).timeouts).toEqual([6_500, 5_500]);
+      expect(gateway.timeouts).toEqual([5_500]);
+    });
+
+    it("throws the overload when the direct call used the whole timeout", async () => {
+      const direct = op.direct([]);
+      op.calls(direct).fn.mockImplementation(() => {
+        vi.setSystemTime(Date.now() + 6_000);
+        return { response: Promise.reject(overloaded()) };
+      });
+      const gateway = unary();
+      const { adapter } = adapterWith(direct, op.gateway(gateway.fn));
+
+      await expect(op.call(adapter, { timeoutMs: 5_000 })).rejects.toMatchObject({
+        name: "CWSandboxResourceExhaustedError",
+        reason: CWSANDBOX_RUNNER_OVERLOADED,
+        retryDelayMs: 1_000,
+      });
+      expect(op.calls(direct).fn).toHaveBeenCalledTimes(1);
+      expect(gateway.fn).not.toHaveBeenCalled();
+    });
+
+    function directTakes(elapsedMs: number) {
+      const direct = op.direct([]);
+      op.calls(direct).fn.mockImplementation(() => {
+        vi.setSystemTime(Date.now() + elapsedMs);
+        return { response: Promise.reject(overloaded()) };
+      });
+      return direct;
+    }
+
+    it("throws the overload when under 1 s is left for the Gateway", async () => {
+      const direct = directTakes(9_001);
+      const gateway = unary(op.ok);
+      const { adapter } = adapterWith(direct, op.gateway(gateway.fn));
+
+      await expect(op.call(adapter, { timeoutMs: 10_000 })).rejects.toMatchObject({
+        name: "CWSandboxResourceExhaustedError",
+        reason: CWSANDBOX_RUNNER_OVERLOADED,
+        retryDelayMs: 1_000,
+      });
+      expect(op.calls(direct).fn).toHaveBeenCalledTimes(1);
+      expect(gateway.fn).not.toHaveBeenCalled();
+    });
+
+    it("gives the Gateway exactly 1 s when that is what is left", async () => {
+      const direct = directTakes(9_000);
+      const gateway = unary(op.ok);
+      const { adapter } = adapterWith(direct, op.gateway(gateway.fn));
+
+      await op.call(adapter, { timeoutMs: 10_000 });
+      expect(op.calls(direct).fn).toHaveBeenCalledTimes(1);
+      expect(gateway.timeouts).toEqual([1_000]);
+    });
+
+    it("never uses the Gateway in direct mode", async () => {
+      const direct = op.direct([overloaded(), overloaded(), overloaded()]);
+      const gateway = unary();
+      const { adapter } = adapterWith(direct, op.gateway(gateway.fn));
+
+      const pending = op.call(adapter, { dataPlaneMode: "direct" });
+      const assertion = expect(pending).rejects.toMatchObject({
+        name: "CWSandboxResourceExhaustedError",
+        reason: CWSANDBOX_RUNNER_OVERLOADED,
+      });
+      await vi.advanceTimersByTimeAsync(2_000);
+      await assertion;
+      expect(op.calls(direct).fn).toHaveBeenCalledTimes(3);
+      expect(gateway.fn).not.toHaveBeenCalled();
+    });
+
+    it("goes to the Gateway at once when the hint is above 10 s", async () => {
+      const direct = op.direct([overloaded(11_000)]);
+      const gateway = unary(op.ok);
+      const { adapter } = adapterWith(direct, op.gateway(gateway.fn));
+
+      await op.call(adapter);
+      expect(op.calls(direct).fn).toHaveBeenCalledTimes(1);
+      expect(gateway.fn).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ["bare", new RpcError("exhausted", "RESOURCE_EXHAUSTED")],
+      ["untrusted domain", overloaded(1_000, { domain: "example.com" })],
+      ["missing reason", overloaded(1_000, { reason: "" })],
+    ])("keeps the old behavior for a %s RESOURCE_EXHAUSTED", async (_label, error) => {
+      const direct = op.direct([error]);
+      const gateway = unary();
+      const { adapter } = adapterWith(direct, op.gateway(gateway.fn));
+
+      await expect(op.call(adapter)).rejects.toMatchObject({
+        name: "CWSandboxResourceExhaustedError",
+      });
+      expect(op.calls(direct).fn).toHaveBeenCalledTimes(1);
+      expect(gateway.fn).not.toHaveBeenCalled();
+    });
   });
 });
 

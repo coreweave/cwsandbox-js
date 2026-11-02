@@ -15,6 +15,7 @@ import {
   CWSANDBOX_FILE_IS_DIRECTORY,
   CWSANDBOX_FILE_NOT_FOUND,
   CWSANDBOX_FILE_TRUNCATED,
+  isRunnerOverloadedError,
 } from "../../internal/error-info.js";
 import {
   STAT_INTEGRITY_TIMEOUT_MS,
@@ -42,8 +43,20 @@ import {
   SandboxDataPermission,
   WriteFileRequest as ProtoWriteFileRequest,
 } from "./generated/coreweave/sandbox/v1/sandbox.js";
-import { HINTED_RETRY_MAX_ATTEMPTS, retryHintedUnavailable } from "./retry-hinted-unavailable.js";
+import {
+  HINTED_RETRY_MAX_ATTEMPTS,
+  type HintedRetryOptions,
+  isRunnerOverloaded,
+  retryHintedUnavailable,
+} from "./retry-hinted-unavailable.js";
 import { toRpcOptions, withGrpcErrorMapping } from "./rpc.js";
+
+/**
+ * Least time left for the Gateway fallback after overload retries run out.
+ * Below it, throw the overload so a starved call does not turn it into a
+ * timeout. Matches the 1s auto-mode budget for setting up the direct path.
+ */
+const OVERLOAD_GATEWAY_MIN_MS = 1_000;
 
 /**
  * Explicit `files.writeStream` script: direct `cat >` (no temp-and-rename).
@@ -112,6 +125,7 @@ const READ_STREAM_SCRIPT = [
 const STAT_SCRIPT = 'stat -c %s -- "$1" 2>/dev/null';
 
 type UnaryFileClient = Pick<SandboxServiceClient, "readFile" | "writeFile">;
+type UnaryFileRetry = Pick<HintedRetryOptions, "maxAttempts" | "retryable">;
 type StreamExecClient = Pick<SandboxServiceClient, "streamExec">;
 
 export function createGrpcFileAdapter(
@@ -136,7 +150,7 @@ async function selectedWriteFile(
     directDataPlane,
     request,
     SandboxDataPermission.WRITE_FILE,
-    (client) => grpcWriteFile(client, request),
+    (client, attemptRequest, retry) => grpcWriteFile(client, attemptRequest, retry),
   );
 }
 
@@ -150,7 +164,7 @@ async function selectedReadFile(
     directDataPlane,
     request,
     SandboxDataPermission.READ_FILE,
-    (client, gatewayAttempts) => grpcReadFile(client, request, gatewayAttempts),
+    (client, attemptRequest, retry) => grpcReadFile(client, attemptRequest, retry),
   );
 }
 
@@ -217,23 +231,30 @@ async function selectedWriteStream(
   }
 }
 
-async function withRetiringFileRetry<TResult>(
+async function withRetiringFileRetry<TRequest extends ReadFileRequest | WriteFileRequest, TResult>(
   gatewayClient: SandboxServiceClient,
   directDataPlane: DirectDataPlane | undefined,
-  request: ReadFileRequest | WriteFileRequest,
+  request: TRequest,
   permission: SandboxDataPermission,
-  run: (client: UnaryFileClient, gatewayAttempts: number | undefined) => Promise<TResult>,
+  run: (
+    client: UnaryFileClient,
+    request: TRequest,
+    retry: UnaryFileRetry | undefined,
+  ) => Promise<TResult>,
 ): Promise<TResult> {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  const deadline = request.timeoutMs === undefined ? undefined : Date.now() + request.timeoutMs;
+  let overloaded: unknown;
+  for (let attempt = 0; attempt < 2 && overloaded === undefined; attempt += 1) {
     const lease = await acquireFileLease(directDataPlane, request, permission);
     let discard = false;
     try {
+      if (lease !== undefined) {
+        // Honor RetryInfo when the runner rejects a direct call as overloaded. The
+        // runner refuses before running the call, so replaying a write is safe.
+        return await run(lease.client, request, { retryable: isRunnerOverloaded });
+      }
       // Count a retired direct call against the same limit as Gateway retries.
-      const gatewayAttempts =
-        lease === undefined && permission === SandboxDataPermission.READ_FILE
-          ? HINTED_RETRY_MAX_ATTEMPTS - attempt
-          : undefined;
-      return await run(lease?.client ?? gatewayClient, gatewayAttempts);
+      return await run(gatewayClient, request, gatewayRetry(permission, attempt));
     } catch (error) {
       if (lease !== undefined && isGrpcUnavailable(error)) {
         discard = true;
@@ -242,12 +263,42 @@ async function withRetiringFileRetry<TResult>(
       if (lease !== undefined && attempt === 0 && isRunnerShardRetiringError(error)) {
         continue;
       }
+      if (
+        lease !== undefined &&
+        (request.dataPlaneMode ?? "auto") === "auto" &&
+        isRunnerOverloadedError(error)
+      ) {
+        overloaded = error;
+        continue;
+      }
       throw error;
     } finally {
       await lease?.release({ discard });
     }
   }
-  throw new Error("unreachable");
+  if (overloaded === undefined) {
+    throw new Error("unreachable");
+  }
+
+  // Overload retries ran out: send the call through the Gateway in the time left.
+  const remaining = deadline === undefined ? undefined : deadline - Date.now();
+  if (remaining !== undefined && remaining < OVERLOAD_GATEWAY_MIN_MS) {
+    throw overloaded;
+  }
+  return run(
+    gatewayClient,
+    remaining === undefined ? request : { ...request, timeoutMs: remaining },
+    gatewayRetry(permission, 0),
+  );
+}
+
+function gatewayRetry(
+  permission: SandboxDataPermission,
+  attempt: number,
+): UnaryFileRetry | undefined {
+  return permission === SandboxDataPermission.READ_FILE
+    ? { maxAttempts: HINTED_RETRY_MAX_ATTEMPTS - attempt }
+    : undefined;
 }
 
 function acquireFileLease(
@@ -267,26 +318,37 @@ function acquireFileLease(
   });
 }
 
-async function grpcWriteFile(client: UnaryFileClient, request: WriteFileRequest): Promise<void> {
+async function grpcWriteFile(
+  client: UnaryFileClient,
+  request: WriteFileRequest,
+  retry: UnaryFileRetry | undefined,
+): Promise<void> {
+  const call = async (timeoutMs: number | undefined) =>
+    client.writeFile(
+      ProtoWriteFileRequest.create({
+        content: request.content,
+        path: request.path,
+        sandboxId: request.sandboxId,
+      }),
+      toRpcOptions({
+        ...(request.signal === undefined ? {} : { signal: request.signal }),
+        ...(timeoutMs === undefined ? {} : { timeoutMs }),
+      }),
+    ).response;
   await withGrpcErrorMapping(
     "Write file",
-    () =>
-      client.writeFile(
-        ProtoWriteFileRequest.create({
-          content: request.content,
-          path: request.path,
-          sandboxId: request.sandboxId,
-        }),
-        toRpcOptions(request),
-      ).response,
-    { filepath: request.path, sandboxId: request.sandboxId },
+    () => callWithRetry("Write file", call, request, retry),
+    {
+      filepath: request.path,
+      sandboxId: request.sandboxId,
+    },
   );
 }
 
 async function grpcReadFile(
   client: UnaryFileClient,
   request: ReadFileRequest,
-  gatewayAttempts?: number,
+  retry: UnaryFileRetry | undefined,
 ): Promise<ReadFileResult> {
   const call = async (timeoutMs: number | undefined) =>
     client.readFile(
@@ -301,19 +363,28 @@ async function grpcReadFile(
     ).response;
   const response = await withGrpcErrorMapping(
     "Read file",
-    () =>
-      gatewayAttempts === undefined
-        ? call(request.timeoutMs)
-        : retryHintedUnavailable(call, {
-            operation: "Read file",
-            maxAttempts: gatewayAttempts,
-            ...(request.signal === undefined ? {} : { signal: request.signal }),
-            ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
-          }),
+    () => callWithRetry("Read file", call, request, retry),
     { filepath: request.path, sandboxId: request.sandboxId },
   );
 
   return { content: response.content };
+}
+
+function callWithRetry<T>(
+  operation: string,
+  call: (timeoutMs: number | undefined) => Promise<T>,
+  request: ReadFileRequest | WriteFileRequest,
+  retry: UnaryFileRetry | undefined,
+): Promise<T> {
+  if (retry === undefined) {
+    return call(request.timeoutMs);
+  }
+  return retryHintedUnavailable(call, {
+    ...retry,
+    operation,
+    ...(request.signal === undefined ? {} : { signal: request.signal }),
+    ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+  });
 }
 
 function grpcReadStream(
