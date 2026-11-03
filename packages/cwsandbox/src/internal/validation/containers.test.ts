@@ -23,6 +23,12 @@ describe("validateContainersOption", () => {
     expect(() => validate([{ image: "python:3.11", name: "" }])).not.toThrow();
   });
 
+  it("accepts GPU on the primary or a single container", () => {
+    const gpu = { cpu: "1", gpu: { count: 1 } };
+    expect(() => validate([{ ...main, resources: gpu }, cache])).not.toThrow();
+    expect(() => validate([{ image: "python:3.11", resources: gpu }])).not.toThrow();
+  });
+
   it("accepts a primary and a sidecar", () => {
     expect(() =>
       validate([
@@ -109,6 +115,11 @@ describe("validateContainersOption", () => {
       "missing resources",
       [main, { image: "redis:7", name: "cache" }],
       /container 'cache' requires resources/,
+    ],
+    [
+      "GPU on a sidecar",
+      [main, { ...cache, resources: { cpu: "1", gpu: { count: 1 } } }],
+      /GPU is only allowed on the primary container/,
     ],
   ])("rejects %s", (_name, containers, message) => {
     expect(() => validate(containers)).toThrow(CWSandboxValidationError);
