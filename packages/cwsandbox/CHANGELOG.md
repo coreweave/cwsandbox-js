@@ -30,9 +30,9 @@ SPDX-PackageName: cwsandbox
 - Add multi-container sandboxes. `create({ containers })` takes a primary plus
   named sidecars (image, command, args, env, resources, mounted files, secrets,
   volume mounts per container). `containers` cannot be combined with the
-  single-container options or a `run()` command. Exec, `commands.start`,
-  `shell`, `logs.*`, and `files.*` accept a `container` option; omit it to
-  target the primary. `sandbox.containers` reads the spec back with `primary`
+  single-container options or a `run()` command. Only the primary may request
+  GPU. Exec, `commands.start`, `shell`, `logs.*`, and `files.*` accept a
+  `container` option; omit it to target the primary. `sandbox.containers` reads the spec back with `primary`
   set so it can be passed to create again, except on engine sandboxes, which
   echo an image-less `cws-engine` row. Fields the SDK does not model are not
   read back.

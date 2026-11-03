@@ -83,6 +83,9 @@ export function validateContainersOption(options: SandboxRunOptions, hasCommand:
           `container '${container.name ?? ""}' requires resources when more than one container is specified`,
         );
       }
+      if (container.resources.gpu !== undefined && container.primary !== true) {
+        throw new CWSandboxValidationError("GPU is only allowed on the primary container");
+      }
     }
   }
 
