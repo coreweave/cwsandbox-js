@@ -24,7 +24,11 @@ import type { DataPlaneMode } from "./public/data-plane.js";
 import type { SandboxFiles } from "./public/files.js";
 import type { SandboxLogs } from "./public/logs.js";
 import type {
+  CidrBlock,
+  EffectiveEgressRule,
+  EffectiveIngressRule,
   HttpsEndpointStatus,
+  PortRange,
   ServiceUrl,
   TlsPassthroughEndpointStatus,
 } from "./public/network.js";
@@ -33,7 +37,9 @@ import type {
   FileSystemSnapshotResult,
   GetSandboxResult,
   Sandbox as PublicSandbox,
+  SandboxContainerStatus,
   SandboxControl,
+  SandboxExecStats,
   SandboxId,
   SandboxMetadata,
   SandboxResourceSpec,
@@ -45,7 +51,7 @@ import type {
   WaitOptions,
 } from "./public/sandbox.js";
 import { createSandboxCommands, execCommand } from "./runtime/commands.js";
-import type { SandboxRuntime } from "./runtime/context.js";
+import type { ExecStatsCounter, SandboxRuntime } from "./runtime/context.js";
 import { FileTransfer } from "./runtime/file-transfer.js";
 import { createSandboxFiles } from "./runtime/files.js";
 import { createSandboxLogs } from "./runtime/logs.js";
@@ -80,8 +86,15 @@ export class Sandbox implements PublicSandbox {
   public readonly sandboxId: SandboxId;
 
   private metadata: SandboxMetadata;
+  private readonly execCounters: ExecStatsCounter = {
+    execCount: 0,
+    execCompletedOk: 0,
+    execCompletedNonzero: 0,
+    execFailures: 0,
+  };
   private readonly retainedEndpointShareToken: string | undefined;
   private readonly runtime: SandboxRuntime;
+  private statusUpdatedAtMs: number | undefined;
   private stopPromise: Promise<void> | undefined;
 
   public constructor(options: SandboxOptions) {
@@ -93,10 +106,12 @@ export class Sandbox implements PublicSandbox {
       sandboxId: this.sandboxId,
       ...cloneServiceDerivedFields(options.metadata),
     };
+    this.statusUpdatedAtMs = options.metadata === undefined ? undefined : Date.now();
     const fileTransfer = new FileTransfer(this.sandboxId, options.fileAdapter, dataPlaneMode);
     this.runtime = {
       sandboxId: this.sandboxId,
       transport: options.transport,
+      execStats: this.execCounters,
       ...(dataPlaneMode === undefined ? {} : { dataPlaneMode }),
       ...(options.scratchVolumeNames === undefined
         ? {}
@@ -117,6 +132,32 @@ export class Sandbox implements PublicSandbox {
 
   public get control(): SandboxControl | undefined {
     return this.metadata.control;
+  }
+
+  public get attachedVolumeIds(): readonly string[] | undefined {
+    return this.metadata.attachedVolumeIds === undefined
+      ? undefined
+      : [...this.metadata.attachedVolumeIds];
+  }
+
+  public get containerStatuses(): readonly SandboxContainerStatus[] | undefined {
+    return this.metadata.containerStatuses?.map((row) => ({ ...row }));
+  }
+
+  public get effectiveEgress(): readonly EffectiveEgressRule[] | undefined {
+    return cloneEgressRules(this.metadata.effectiveEgress);
+  }
+
+  public get effectiveIngress(): readonly EffectiveIngressRule[] | undefined {
+    return cloneIngressRules(this.metadata.effectiveIngress);
+  }
+
+  public get effectiveRuntimeClass(): string | undefined {
+    return this.metadata.effectiveRuntimeClass;
+  }
+
+  public get execStats(): SandboxExecStats {
+    return { ...this.execCounters };
   }
 
   public get exitCode(): number | undefined {
@@ -175,6 +216,10 @@ export class Sandbox implements PublicSandbox {
 
   public get statusReason(): string | undefined {
     return this.metadata.statusReason;
+  }
+
+  public get statusUpdatedAt(): Date | undefined {
+    return this.statusUpdatedAtMs === undefined ? undefined : new Date(this.statusUpdatedAtMs);
   }
 
   public async exec(command: CommandInput, options: ExecOptions = {}): Promise<ProcessResult> {
@@ -313,10 +358,21 @@ export class Sandbox implements PublicSandbox {
     const { serviceAddresses: _ignored, ...metadataWithoutAddresses } = metadata;
     const previousClone = cloneMetadata(this.metadata);
     const incomingClone = cloneMetadata(metadata);
-    const { dnsEgressNames: _previousDns, ...previousWithoutDns } = previousClone;
+    // Status read-back fields describe the latest response only: an omitted
+    // field clears the handle value instead of keeping a stale one (Python
+    // replaces them on every response too).
+    const {
+      attachedVolumeIds: _previousVolumes,
+      containerStatuses: _previousContainers,
+      dnsEgressNames: _previousDns,
+      effectiveEgress: _previousEgress,
+      effectiveIngress: _previousIngress,
+      effectiveRuntimeClass: _previousRuntimeClass,
+      ...previousWithoutReadBack
+    } = previousClone;
     const { dnsEgressNames: incomingDns, ...incomingWithoutDns } = incomingClone;
     this.metadata = {
-      ...previousWithoutDns,
+      ...previousWithoutReadBack,
       ...incomingWithoutDns,
       tags: [...(metadata.tags ?? [])],
       sandboxId: this.sandboxId,
@@ -327,6 +383,7 @@ export class Sandbox implements PublicSandbox {
         ? { dnsEgressNames: [...incomingDns] }
         : {}),
     };
+    this.statusUpdatedAtMs = Date.now();
   }
 }
 
@@ -520,16 +577,72 @@ function createTimeEndpointShareToken(
   return token === undefined || token === "" ? undefined : token;
 }
 
+function cloneCidrBlock(block: CidrBlock): CidrBlock {
+  return {
+    cidr: block.cidr,
+    ...(block.exceptCidrs === undefined ? {} : { exceptCidrs: [...block.exceptCidrs] }),
+  };
+}
+
+function clonePorts(ports: readonly PortRange[] | undefined): {
+  readonly ports?: readonly PortRange[];
+} {
+  return ports === undefined ? {} : { ports: ports.map((port) => ({ ...port })) };
+}
+
+function cloneEgressRules(
+  rules: readonly EffectiveEgressRule[] | undefined,
+): readonly EffectiveEgressRule[] | undefined {
+  return rules?.map((rule) => ({
+    ...rule,
+    ...(rule.cidr === undefined ? {} : { cidr: cloneCidrBlock(rule.cidr) }),
+    ...(rule.selector === undefined
+      ? {}
+      : {
+          selector: {
+            podLabels: { ...rule.selector.podLabels },
+            ...(rule.selector.namespaceLabels === undefined
+              ? {}
+              : { namespaceLabels: { ...rule.selector.namespaceLabels } }),
+          },
+        }),
+    ...clonePorts(rule.ports),
+  }));
+}
+
+function cloneIngressRules(
+  rules: readonly EffectiveIngressRule[] | undefined,
+): readonly EffectiveIngressRule[] | undefined {
+  return rules?.map((rule) => ({
+    ...rule,
+    ...(rule.cidr === undefined ? {} : { cidr: cloneCidrBlock(rule.cidr) }),
+    ...clonePorts(rule.ports),
+  }));
+}
+
 function cloneMetadata(metadata: SandboxMetadata | undefined): Partial<SandboxMetadata> {
   if (metadata === undefined) {
     return {};
   }
+  const effectiveEgress = cloneEgressRules(metadata.effectiveEgress);
+  const effectiveIngress = cloneIngressRules(metadata.effectiveIngress);
 
   return {
     ...(metadata.control === undefined ? {} : { control: metadata.control }),
+    ...(metadata.attachedVolumeIds === undefined
+      ? {}
+      : { attachedVolumeIds: [...metadata.attachedVolumeIds] }),
+    ...(metadata.containerStatuses === undefined
+      ? {}
+      : { containerStatuses: metadata.containerStatuses.map((row) => ({ ...row })) }),
     ...(metadata.dnsEgressNames === undefined
       ? {}
       : { dnsEgressNames: [...metadata.dnsEgressNames] }),
+    ...(effectiveEgress === undefined ? {} : { effectiveEgress }),
+    ...(effectiveIngress === undefined ? {} : { effectiveIngress }),
+    ...(metadata.effectiveRuntimeClass === undefined
+      ? {}
+      : { effectiveRuntimeClass: metadata.effectiveRuntimeClass }),
     ...(metadata.tags === undefined ? {} : { tags: [...metadata.tags] }),
     ...(metadata.createdAt === undefined ? {} : { createdAt: new Date(metadata.createdAt) }),
     ...(metadata.exitCode === undefined ? {} : { exitCode: metadata.exitCode }),

@@ -888,6 +888,17 @@ console.log(sandbox.dnsEgressNames);
 console.log((await sandbox.inspect()).dnsEgressNames);
 ```
 
+`effectiveEgress` and `effectiveIngress` echo the full rule sets in effect: the
+declared rules, or the policy default when none were declared. Each rule sets
+exactly one destination (`dnsName`, `cidr`, `tenant`, `any`, or `selector`; an
+ingress rule uses `cidr`, `tenant`, or `any`) plus optional `ports`:
+
+```ts
+for (const rule of sandbox.effectiveEgress ?? []) {
+  console.log(rule.dnsName ?? rule.cidr?.cidr ?? rule.tenant ?? rule.selector ?? "any");
+}
+```
+
 Declare listen-only services, or request a public HTTPS assignment with
 `endpoint: { kind: "https", auth: "open" | "share_token" }` and
 `visibility: "public"`.
@@ -1005,9 +1016,23 @@ const sandboxTrace = {
   serviceAddresses: info.serviceAddresses,
   runnerId: info.runnerId,
   statusReason: info.statusReason,
+  effectiveRuntimeClass: info.effectiveRuntimeClass,
+  attachedVolumeIds: info.attachedVolumeIds,
+  containerStatuses: info.containerStatuses, // per container; `status` stays primary-owned
 };
 
 console.log(sandboxTrace);
+```
+
+Handles also keep client-side state that list and Get results do not carry.
+`statusUpdatedAt` is the client time the handle last applied a backend
+response. `execStats` counts `exec()` / `commands.run()` calls on that handle;
+a `check: true` non-zero exit counts as a failure. `commands.start()` and
+`shell()` are not counted:
+
+```ts
+console.log(sandbox.statusUpdatedAt?.toISOString());
+console.log(sandbox.execStats); // { execCount, execCompletedOk, execCompletedNonzero, execFailures }
 ```
 
 ### Placement Selectors
@@ -1079,6 +1104,15 @@ mounted files, and container overlays stay on `create` / `run`.
 Wait for `running` as usual. If creation is accepted but the readiness wait
 rejects, the SDK best-effort stops the sandbox. `waitUntilRunning: false`
 returns immediately after accept with no automatic cleanup.
+
+Pass `requestId` to make an ambiguous create error (for example a timeout or
+dropped connection) safe to retry: repeating the same request with the same key
+returns the original sandbox instead of creating another. Because bytes are not
+normalized, the same key with different `contents` (even whitespace) fails with
+`CWSANDBOX_REQUEST_ID_CONFLICT`. Without it, each call gets a fresh key. The
+key does not help after a readiness failure: the SDK may already have stopped
+the sandbox, so a retry with the same key gets that stopped sandbox back. Use a
+new key, or pass `waitUntilRunning: false` and call `wait()` yourself.
 
 Prefer `withSandboxFromFile` for short-lived work:
 

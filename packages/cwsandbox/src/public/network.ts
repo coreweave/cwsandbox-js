@@ -49,6 +49,56 @@ export interface EgressRule {
   readonly dnsName: string;
 }
 
+/** Relational peer scope for tenant network rules. */
+export type TenantScope = "unspecified" | "same_user" | "same_org" | "sandbox_network";
+
+/** An IP range with optional carved-out sub-ranges. */
+export interface CidrBlock {
+  readonly cidr: string;
+  readonly exceptCidrs?: readonly string[];
+}
+
+/** A single port, or an inclusive range when `endPort` is set. */
+export interface PortRange {
+  readonly port: number;
+  readonly endPort?: number;
+  /** `"TCP"`, `"UDP"`, or `"SCTP"`. Omitted means TCP. */
+  readonly protocol?: string;
+}
+
+/** Cluster workloads selected by pod and namespace labels. */
+export interface SelectorBlock {
+  readonly podLabels: Readonly<Record<string, string>>;
+  /** Omitted means the sandbox's own namespace only. */
+  readonly namespaceLabels?: Readonly<Record<string, string>>;
+}
+
+/**
+ * One egress rule in effect, echoed from status: the declared rules, or the
+ * policy default when none were declared. Exactly one of `dnsName`, `cidr`,
+ * `tenant`, `any`, or `selector` is set. Omitted `ports` means all ports, or
+ * HTTPS (TCP 443) for a `dnsName` rule.
+ */
+export interface EffectiveEgressRule {
+  readonly dnsName?: string;
+  readonly cidr?: CidrBlock;
+  readonly tenant?: TenantScope;
+  readonly any?: true;
+  readonly selector?: SelectorBlock;
+  readonly ports?: readonly PortRange[];
+}
+
+/**
+ * One ingress rule in effect, echoed from status. Exactly one of `cidr`,
+ * `tenant`, or `any` is set. Omitted `ports` means all CUSTOM-visibility ports.
+ */
+export interface EffectiveIngressRule {
+  readonly cidr?: CidrBlock;
+  readonly tenant?: TenantScope;
+  readonly any?: true;
+  readonly ports?: readonly PortRange[];
+}
+
 export interface NetworkOptions {
   /**
    * When true, deny outbound traffic. When omitted, the fleet policy default

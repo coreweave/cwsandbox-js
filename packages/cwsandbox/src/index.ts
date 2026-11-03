@@ -109,6 +109,9 @@ export type {
   SandboxLogs,
 } from "./public/logs.js";
 export type {
+  CidrBlock,
+  EffectiveEgressRule,
+  EffectiveIngressRule,
   EgressRule,
   Endpoint,
   EndpointAuth,
@@ -116,10 +119,13 @@ export type {
   HttpsEndpoint,
   HttpsEndpointStatus,
   NetworkOptions,
+  PortRange,
+  SelectorBlock,
   Service,
   ServiceProtocol,
   ServiceUrl,
   ServiceVisibility,
+  TenantScope,
   TlsPassthroughEndpoint,
   TlsPassthroughEndpointStatus,
 } from "./public/network.js";
@@ -149,7 +155,9 @@ export type {
   ObjectStoragePermission,
   Sandbox,
   SandboxAnnotations,
+  SandboxContainerStatus,
   SandboxControl,
+  SandboxExecStats,
   SandboxExposedPort,
   SandboxId,
   SandboxInfo,
