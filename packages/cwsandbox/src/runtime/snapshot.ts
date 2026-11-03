@@ -52,6 +52,8 @@ export interface CaptureFileSystemSnapshotOptions extends SnapshotOptions {
    * Test-only sleep. Defaults to abort-aware `setTimeout` sleep.
    */
   readonly sleep?: (timeoutMs: number, signal: AbortSignal | undefined) => Promise<void>;
+  /** Forwarded to the readiness wait; see `WaitForSandboxOptions`. */
+  readonly startupPollStartedAt?: number;
 }
 
 interface GetFileSystemSnapshotRecordOptions {
@@ -116,6 +118,9 @@ export async function captureFileSystemSnapshot(
       ...(options.random === undefined ? {} : { random: options.random }),
       ...(options.signal === undefined ? {} : { signal: options.signal }),
       ...(options.sleep === undefined ? {} : { sleep: options.sleep }),
+      ...(options.startupPollStartedAt === undefined
+        ? {}
+        : { startupPollStartedAt: options.startupPollStartedAt }),
     },
     onStatus,
   );

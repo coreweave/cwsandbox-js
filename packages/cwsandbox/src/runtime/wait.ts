@@ -33,6 +33,13 @@ const EXIT_CODE_GRACE_POLLS = 2;
 const EXIT_CODE_GRACE_POLL_INTERVAL_MS = 2_000;
 const EXIT_CODE_GRACE_RPC_TIMEOUT_MS = 2_000;
 
+// Python parity: newly created sandboxes often become ready within a few
+// seconds, so cap startup poll sleeps for the first 15s after the create
+// request. The normal backoff keeps advancing underneath the cap.
+const STARTUP_POLL_WINDOW_MS = 15_000;
+const STARTUP_POLL_MAX_INTERVAL_MS = 500;
+export const STARTING_STATUSES = new Set<SandboxStatus>(["pending", "creating"]);
+
 export interface WaitForSandboxOptions extends WaitOptions {
   /**
    * Initial happy-path poll interval in ms. Defaults to Python-parity 200ms and
@@ -48,6 +55,12 @@ export interface WaitForSandboxOptions extends WaitOptions {
    * `CWSandboxTerminalStateUnavailableError`. Used by stop-owned waits only.
    */
   readonly retryNotFoundAfterStop?: boolean;
+  /**
+   * Time (on the `now` clock) this client sent the create request. While the
+   * sandbox is still pending/creating within the startup window, poll sleeps
+   * are capped. Omitted for adopted sandboxes and once startup was observed.
+   */
+  readonly startupPollStartedAt?: number;
   /**
    * Test-only RNG in `[0, 1)` for retry jitter. Defaults to `Math.random`.
    */
@@ -194,14 +207,34 @@ export async function waitForSandbox(
         );
       }
 
-      await sleepFn(Math.min(intervalMs, remainingMs), options.signal);
+      await sleepFn(
+        Math.min(startupPollSleepMs(intervalMs, status, options, now), remainingMs),
+        options.signal,
+      );
       intervalMs = nextPollIntervalMs(intervalMs);
       continue;
     }
 
-    await sleepFn(intervalMs, options.signal);
+    await sleepFn(startupPollSleepMs(intervalMs, status, options, now), options.signal);
     intervalMs = nextPollIntervalMs(intervalMs);
   }
+}
+
+function startupPollSleepMs(
+  intervalMs: number,
+  status: SandboxStatus | undefined,
+  options: WaitForSandboxOptions,
+  now: () => number,
+): number {
+  if (
+    options.startupPollStartedAt !== undefined &&
+    status !== undefined &&
+    STARTING_STATUSES.has(status) &&
+    now() - options.startupPollStartedAt < STARTUP_POLL_WINDOW_MS
+  ) {
+    return Math.min(intervalMs, STARTUP_POLL_MAX_INTERVAL_MS);
+  }
+  return intervalMs;
 }
 
 function nextPollIntervalMs(intervalMs: number): number {

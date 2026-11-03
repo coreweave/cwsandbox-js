@@ -22,6 +22,11 @@ SPDX-PackageName: cwsandbox
   a retry lease wait that runs out of time also throws `CWSandboxTimeoutError`
   rather than `CWSandboxUnavailableError`. Calls without `timeoutMs` are
   unchanged.
+- Detect startup readiness sooner. For sandboxes this client created, status
+  polls during `pending` / `creating` are at most 500ms apart for the first 15s
+  after the create request, instead of backing off toward 2s. Slower starts
+  return to the normal backoff, and adopted sandboxes (`fromId`, `list`) keep
+  it throughout. Matches the Python SDK.
 - Decode `google.rpc.BadRequest` from gRPC status details. Transport errors
   expose `fieldViolations` (`{ field, description }[]`, empty when absent),
   matching the Python SDK's `field_violations`.
