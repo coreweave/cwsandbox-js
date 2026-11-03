@@ -11,6 +11,7 @@ import { normalizeFileContent, normalizeMountedFiles } from "../../internal/moun
 import { normalizeDnsName } from "../../internal/network.js";
 import { isAdvancedResources } from "../../internal/resources.js";
 import { groupSecretsByStore, normalizeSecrets } from "../../internal/secrets.js";
+import { isRegisteredVolume } from "../../internal/validation/file-system-snapshot.js";
 import type { Command, ProcessResult } from "../../public/commands.js";
 import type {
   CidrBlock as SdkCidrBlock,
@@ -19,6 +20,7 @@ import type {
   Endpoint,
   EndpointAuth as SdkEndpointAuth,
   HttpsEndpointStatus,
+  IngressRule,
   NetworkOptions,
   PortRange as SdkPortRange,
   Service,
@@ -44,6 +46,7 @@ import type {
   SandboxObjectStorageAccess,
   SandboxStatus,
   ScratchVolumeOptions,
+  SecurityContext as SdkSecurityContext,
   StartSandboxResult,
 } from "../../public/sandbox.js";
 import type {
@@ -64,12 +67,14 @@ import {
   EndpointKind,
   ExecRequest as ProtoExecRequest,
   ImagePullCredentials as ProtoImagePullCredentials,
+  IngressRule as ProtoIngressRule,
   ListSandboxesRequest,
   NetworkOptions as ProtoNetworkOptions,
   ObjectStorageAccess,
   ObjectStoragePermission,
   PartialContainer,
   PartialSandboxSpec,
+  PortRange as ProtoPortRange,
   ResourceRequirements,
   Resources,
   Sandbox as ProtoSandbox,
@@ -78,6 +83,7 @@ import {
   SandboxSpec,
   SandboxVolume,
   ScratchVolume,
+  SecurityContext as ProtoSecurityContext,
   Service as ProtoService,
   ServiceProtocol,
   SnapshotState,
@@ -90,8 +96,6 @@ import {
   type CidrBlock as ProtoCidrBlock,
   type ContainerStatus as ProtoContainerStatus,
   type ExecResponse as ProtoExecResponse,
-  type IngressRule as ProtoIngressRule,
-  type PortRange as ProtoPortRange,
   type FileSystemSnapshot as ProtoFileSystemSnapshot,
   type Gpu,
   type Sandbox as ProtoSandboxMessage,
@@ -133,6 +137,7 @@ export function toProtoCreateRequest(request: StartSandboxRequest): CreateSandbo
         ...(network === undefined ? {} : { network }),
         ...(objectStorageAccess === undefined ? {} : { objectStorageAccess }),
         ...(runnerIds.length === 0 ? {} : { mode: SandboxMode.CKS, runnerIds }),
+        ...(request.runtimeClass ? { runtimeClass: request.runtimeClass } : {}),
         services: toProtoServices(request.services),
         tags: [...(request.tags ?? [])],
         ...(volumes === undefined ? {} : { volumes }),
@@ -314,6 +319,9 @@ function toProtoContainer(request: StartSandboxRequest): ReturnType<typeof Conta
       path: file.path,
     })),
     image: request.containerImage ?? DEFAULT_CONTAINER_IMAGE,
+    ...(request.imagePullCredentials === undefined
+      ? {}
+      : { imagePullCredentials: toProtoImagePullCredentials(request.imagePullCredentials) }),
     name: PRIMARY_CONTAINER,
     primary: true,
     ...(resourceRequirements === undefined ? {} : { resourceRequirements }),
@@ -325,7 +333,30 @@ function toProtoContainer(request: StartSandboxRequest): ReturnType<typeof Conta
       })),
       storeName: group.store,
     })),
+    ...(request.securityContext === undefined
+      ? {}
+      : { securityContext: toProtoSecurityContext(request.securityContext) }),
     ...(volumeMounts === undefined ? {} : { volumeMounts }),
+    ...(request.workingDir ? { workingDir: request.workingDir } : {}),
+  });
+}
+
+function toProtoSecurityContext(
+  context: SdkSecurityContext,
+): ReturnType<typeof ProtoSecurityContext.create> {
+  return ProtoSecurityContext.create({
+    ...(context.runAsUser === undefined ? {} : { runAsUser: context.runAsUser }),
+    ...(context.runAsGroup === undefined ? {} : { runAsGroup: context.runAsGroup }),
+    ...(context.privileged === undefined ? {} : { privileged: context.privileged }),
+    ...(context.allowPrivilegeEscalation === undefined
+      ? {}
+      : { allowPrivilegeEscalation: context.allowPrivilegeEscalation }),
+    ...(context.readOnlyRootFilesystem === undefined
+      ? {}
+      : { readOnlyRootFilesystem: context.readOnlyRootFilesystem }),
+    capabilitiesAdd: [...(context.capabilitiesAdd ?? [])],
+    capabilitiesDrop: [...(context.capabilitiesDrop ?? [])],
+    seccompProfile: context.seccompProfile ?? "",
   });
 }
 
@@ -334,9 +365,7 @@ type VolumeCreateFields = {
   readonly volumes?: StartSandboxRequest["volumes"];
 };
 
-function scratchVolumesFromRequest(
-  request: VolumeCreateFields,
-): readonly ScratchVolumeOptions[] | undefined {
+function volumesFromRequest(request: VolumeCreateFields): StartSandboxRequest["volumes"] {
   if (request.volumes !== undefined) {
     return request.volumes;
   }
@@ -374,7 +403,7 @@ function toProtoScratchSource(
 function toProtoVolumes(
   request: VolumeCreateFields,
 ): ReturnType<typeof SandboxVolume.create>[] | undefined {
-  const volumes = scratchVolumesFromRequest(request);
+  const volumes = volumesFromRequest(request);
   if (volumes === undefined) {
     return undefined;
   }
@@ -382,10 +411,9 @@ function toProtoVolumes(
   return volumes.map((volume) =>
     SandboxVolume.create({
       name: volume.name,
-      source: {
-        oneofKind: "scratch",
-        scratch: toProtoScratchSource(volume),
-      },
+      source: isRegisteredVolume(volume)
+        ? { oneofKind: "volumeId", volumeId: volume.volumeId }
+        : { oneofKind: "scratch", scratch: toProtoScratchSource(volume) },
     }),
   );
 }
@@ -393,7 +421,7 @@ function toProtoVolumes(
 function toProtoVolumeMounts(
   request: VolumeCreateFields,
 ): ReturnType<typeof VolumeMount.create>[] | undefined {
-  const volumes = scratchVolumesFromRequest(request);
+  const volumes = volumesFromRequest(request);
   if (volumes === undefined) {
     return undefined;
   }
@@ -402,6 +430,9 @@ function toProtoVolumeMounts(
     VolumeMount.create({
       mountPath: volume.mountPath,
       volume: volume.name,
+      ...(isRegisteredVolume(volume)
+        ? { readOnly: volume.readOnly === true, subPath: volume.subPath ?? "" }
+        : {}),
     }),
   );
 }
@@ -435,10 +466,12 @@ function toProtoNetwork(
   }
 
   const egress = toProtoEgress(network.egress);
+  const ingress = toProtoIngress(network.ingress);
   if (
     network.denyEgress === undefined &&
     network.denyIngress === undefined &&
-    egress === undefined
+    egress === undefined &&
+    ingress === undefined
   ) {
     return undefined;
   }
@@ -447,7 +480,53 @@ function toProtoNetwork(
     ...(network.denyEgress !== undefined ? { denyEgress: network.denyEgress } : {}),
     ...(network.denyIngress !== undefined ? { denyIngress: network.denyIngress } : {}),
     ...(egress === undefined ? {} : { egress }),
+    ...(ingress === undefined ? {} : { ingress }),
   });
+}
+
+function toProtoIngress(
+  ingress: NetworkOptions["ingress"],
+): ReturnType<typeof ProtoIngressRule.create>[] | undefined {
+  if (ingress === undefined || ingress.length === 0) {
+    return undefined;
+  }
+
+  return ingress.map((rule) =>
+    ProtoIngressRule.create({
+      source: toProtoIngressSource(rule),
+      ports: (rule.ports ?? []).map((port) =>
+        ProtoPortRange.create({
+          port: port.port,
+          ...(port.endPort === undefined ? {} : { endPort: port.endPort }),
+          ...(port.protocol === undefined ? {} : { protocol: port.protocol }),
+        }),
+      ),
+    }),
+  );
+}
+
+function toProtoIngressSource(rule: IngressRule): ProtoIngressRule["source"] {
+  if (rule.cidr !== undefined) {
+    return {
+      oneofKind: "cidr",
+      cidr: { cidr: rule.cidr.cidr, except: [...(rule.cidr.exceptCidrs ?? [])] },
+    };
+  }
+  if (rule.tenant !== undefined) {
+    return { oneofKind: "tenant", tenant: toProtoTenantScope(rule.tenant) };
+  }
+  return { oneofKind: "any", any: true };
+}
+
+function toProtoTenantScope(tenant: NonNullable<IngressRule["tenant"]>): TenantScope {
+  switch (tenant) {
+    case "same_user":
+      return TenantScope.SAME_USER;
+    case "same_org":
+      return TenantScope.SAME_ORG;
+    case "sandbox_network":
+      return TenantScope.SANDBOX_NETWORK;
+  }
 }
 
 function toProtoEgress(
@@ -592,6 +671,7 @@ export function toProtoListSandboxesRequest(
     showTerminated: request.showTerminated ?? false,
     state: toProtoState(request.status),
     tags: [...(request.tags ?? [])],
+    volumeIds: [...(request.volumeIds ?? [])],
   });
 }
 

@@ -935,6 +935,17 @@ describe("SandboxClient", () => {
       await expect(client.listAll({ pageSize: -1 })).rejects.toThrow(CWSandboxValidationError);
     });
 
+    it("rejects invalid volumeIds list filters before the transport", async () => {
+      const client = createClient();
+
+      await expect(client.list({ volumeIds: ["vol-1", "vol-1"] })).rejects.toThrow(
+        "volumeIds contains duplicate value: vol-1",
+      );
+      await expect(client.list({ volumeIds: [""] })).rejects.toThrow(
+        "volumeIds must not contain empty values",
+      );
+    });
+
     it("rejects removed v1beta2 list keys before the transport", async () => {
       let listCalls = 0;
       const transport: SandboxTransport = {
@@ -1433,6 +1444,124 @@ describe("SandboxClient", () => {
       ).rejects.toThrow(CWSandboxValidationError);
     });
 
+    it("accepts empty runtimeClass and workingDir and a custom seccompProfile", async () => {
+      let startRequest: Parameters<SandboxTransport["start"]>[0] | undefined;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async start(request) {
+          startRequest = request;
+          return { sandboxId: "sandbox-empty-fields", status: "running" };
+        },
+      };
+
+      await createClient(transport).create({
+        runtimeClass: "",
+        securityContext: { seccompProfile: "localhost/profiles/audit.json" },
+        waitUntilRunning: false,
+        workingDir: "",
+      });
+
+      expect(startRequest).toMatchObject({
+        runtimeClass: "",
+        securityContext: { seccompProfile: "localhost/profiles/audit.json" },
+        workingDir: "",
+      });
+    });
+
+    it("rejects invalid runtimeClass, workingDir, and securityContext before the transport", async () => {
+      let startCalls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async start() {
+          startCalls += 1;
+          throw new Error("transport should not be called");
+        },
+      };
+      const client = createClient(transport);
+
+      await expect(client.create({ runtimeClass: " " })).rejects.toThrow(
+        "runtimeClass must not be blank.",
+      );
+      await expect(client.create({ runtimeClass: 1 as never })).rejects.toThrow(
+        "runtimeClass must be a string.",
+      );
+      await expect(client.create({ workingDir: " " })).rejects.toThrow(
+        "workingDir must not be blank.",
+      );
+      await expect(client.create({ workingDir: false as never })).rejects.toThrow(
+        "workingDir must be a string.",
+      );
+      await expect(client.create({ securityContext: { runAsUser: -1 } })).rejects.toThrow(
+        "securityContext.runAsUser must be an unsigned 32-bit integer.",
+      );
+      await expect(client.create({ securityContext: { runAsGroup: 2 ** 32 } })).rejects.toThrow(
+        "securityContext.runAsGroup must be an unsigned 32-bit integer.",
+      );
+      await expect(
+        client.create({ securityContext: { privileged: "yes" } as never }),
+      ).rejects.toThrow("securityContext.privileged must be a boolean.");
+      await expect(client.create({ securityContext: { capabilitiesAdd: [""] } })).rejects.toThrow(
+        "securityContext.capabilitiesAdd must not contain empty values",
+      );
+      await expect(
+        client.create({ securityContext: { seccompProfile: 1 } as never }),
+      ).rejects.toThrow("securityContext.seccompProfile must be a string.");
+      await expect(client.create({ securityContext: null as never })).rejects.toThrow(
+        "securityContext must be an object.",
+      );
+      expect(startCalls).toBe(0);
+    });
+
+    it("rejects malformed create imagePullCredentials before the transport", async () => {
+      let startCalls = 0;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async start() {
+          startCalls += 1;
+          throw new Error("transport should not be called");
+        },
+      };
+      const client = createClient(transport);
+
+      await expect(
+        client.create({
+          imagePullCredentials: [{ name: "n", registry: "r", store: "s" }] as never,
+        }),
+      ).rejects.toThrow("imagePullCredentials must be an object");
+      await expect(
+        client.create({ imagePullCredentials: { name: "n", registry: " ", store: "s" } }),
+      ).rejects.toThrow("imagePullCredentials.registry must be a non-empty string");
+      await expect(
+        client.create({
+          imagePullCredentials: { field: 1, name: "n", registry: "r", store: "s" } as never,
+        }),
+      ).rejects.toThrow("imagePullCredentials.field must be a string");
+      expect(startCalls).toBe(0);
+    });
+
+    it("passes runtimeClass, workingDir, and securityContext to the transport", async () => {
+      let startRequest: Parameters<SandboxTransport["start"]>[0] | undefined;
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async start(request) {
+          startRequest = request;
+          return createFakeTransport().start(request);
+        },
+      };
+
+      await createClient(transport).create({
+        runtimeClass: "gvisor",
+        securityContext: { runAsUser: 1000 },
+        workingDir: "/tmp",
+      });
+
+      expect(startRequest).toMatchObject({
+        runtimeClass: "gvisor",
+        securityContext: { runAsUser: 1000 },
+        workingDir: "/tmp",
+      });
+    });
+
     it("accepts boolean waitUntilRunning values and rejects non-booleans", async () => {
       const client = createClient();
       const invalidWaitUntilRunning = {
@@ -1579,6 +1708,18 @@ describe("SandboxClient", () => {
       await expect(
         client.runFromTemplate(templateId, { imagePullCredentials: {} } as never),
       ).rejects.toThrow("imagePullCredentials is not supported with template sandboxes.");
+    });
+
+    it("rejects create-only container settings on template options", async () => {
+      const client = createClient();
+
+      for (const key of ["runtimeClass", "securityContext", "workingDir"]) {
+        await expect(
+          client.runFromTemplate(templateId, {
+            [key]: key === "securityContext" ? {} : "x",
+          } as never),
+        ).rejects.toThrow(`${key} is not supported with template sandboxes.`);
+      }
     });
 
     it("rejects objectStorageAccess on template options", async () => {

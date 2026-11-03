@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { CWSandboxValidationError } from "../../errors.js";
 import {
+  scratchVolumeNamesFromRunOptions,
   validateFileSystemSnapshotOptions,
   validateMountPath,
   validateSandboxVolumeCreateOptions,
@@ -98,6 +99,69 @@ describe("validateScratchVolumeOptions", () => {
     expect(() =>
       validateScratchVolumeOptions([{ mountPath: "/etc/passwd", name: "data" }], undefined),
     ).toThrow(/volumes\[0]\.mountPath must not be equal to or under \/etc/);
+  });
+});
+
+describe("registered volumes", () => {
+  const registered = { mountPath: "/data", name: "data", volumeId: "vol-123" };
+
+  it("accepts a registered volume next to a scratch volume", () => {
+    expect(() =>
+      validateScratchVolumeOptions(
+        [
+          { mountPath: "/workspace", name: "workspace" },
+          { ...registered, readOnly: true, subPath: "team/a" },
+        ],
+        undefined,
+      ),
+    ).not.toThrow();
+  });
+
+  it.each([
+    [{ ...registered, volumeId: " " }, /volumes\[0]\.volumeId is required/],
+    [{ ...registered, mountPath: "/" }, /volumes\[0]\.mountPath must not be '\/'/],
+    [{ ...registered, mountPath: "data" }, /volumes\[0]\.mountPath must be an absolute path/],
+    [{ ...registered, subPath: "/abs" }, /volumes\[0]\.subPath must be a relative canonical/],
+    [{ ...registered, subPath: "a/../b" }, /volumes\[0]\.subPath must be a relative canonical/],
+    [{ ...registered, subPath: 1 }, /volumes\[0]\.subPath must be a relative canonical/],
+    [{ ...registered, readOnly: "yes" }, /volumes\[0]\.readOnly must be a boolean/],
+  ])("rejects invalid registered volume %j", (volume, message) => {
+    expect(() => validateScratchVolumeOptions([volume as never], undefined)).toThrow(message);
+  });
+
+  it.each([
+    [{ ...registered, size: "10Gi" }, /volumes\[0]\.size is not supported on a registered volume/],
+    [
+      { ...registered, restoreFromSnapshotId: "snap-1" },
+      /volumes\[0]\.restoreFromSnapshotId is not supported on a registered volume/,
+    ],
+    [
+      { mountPath: "/workspace", name: "workspace", readOnly: true },
+      /volumes\[0]\.readOnly is not supported on a scratch volume/,
+    ],
+    [
+      { mountPath: "/workspace", name: "workspace", subPath: "a" },
+      /volumes\[0]\.subPath is not supported on a scratch volume/,
+    ],
+  ])("rejects a field from the other volume kind %j", (volume, message) => {
+    expect(() => validateScratchVolumeOptions([volume as never], undefined)).toThrow(message);
+  });
+
+  it("rejects names shared with a scratch volume", () => {
+    expect(() =>
+      validateScratchVolumeOptions(
+        [{ mountPath: "/workspace", name: "data" }, registered],
+        undefined,
+      ),
+    ).toThrow(/volumes\[1]\.name duplicates 'data'/);
+  });
+
+  it("tracks only scratch volume names for snapshots", () => {
+    expect(
+      scratchVolumeNamesFromRunOptions({
+        volumes: [{ mountPath: "/workspace", name: "workspace" }, registered],
+      }),
+    ).toEqual(["workspace"]);
   });
 });
 

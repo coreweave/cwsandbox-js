@@ -719,6 +719,28 @@ await client.create({
 `stop({ snapshotOnStop })` is not supported. Capture with `sandbox.snapshot()`
 before stop or delete.
 
+### Registered volumes
+
+Mount an existing registered Volume by adding an entry with `volumeId` to
+`volumes`. Names and mount paths must be unique across scratch and registered
+entries. `subPath` mounts a relative path inside the Volume, and `readOnly`
+mounts it read-only. Registered volumes are not scratches, so `snapshot()`
+ignores them. Scratch-only fields (`size`, `restoreFromSnapshotId`) on a
+registered entry, and `subPath` or `readOnly` on a scratch entry, are rejected.
+`runFromTemplate` accepts registered entries in `volumes` too (with
+`containerImage`). This SDK does not create or manage Volumes.
+
+```ts
+await client.create({
+  volumes: [
+    { name: "workspace", mountPath: "/workspace" },
+    { name: "datasets", volumeId: "vol-123", mountPath: "/data", readOnly: true },
+  ],
+});
+
+const attached = await client.listAll({ volumeIds: ["vol-123"] });
+```
+
 ### Object storage access
 
 Mint temporary object-storage credentials for the sandbox at create time
@@ -788,6 +810,31 @@ await client.run(["python"], {
 The SDK validates the shape. GPU capacity, quota, and type availability are
 checked by the server. `runFromFile` `defaultResources` does not accept GPU.
 
+### Runtime class, working directory, and security context
+
+`runtimeClass` pins the sandbox runtime class. The runner policy must allow the
+value; a disallowed pin is rejected, never rewritten. Omit it to use the policy
+default. `workingDir` sets the primary container's working directory. For both,
+`""` means unset, as in the Python SDK. `securityContext` sets in-guest
+privilege for the primary container, inside the sandbox isolation boundary; the
+runner policy clamps which values are allowed. `seccompProfile` takes any
+non-empty string; the backend documents `"RuntimeDefault"` and `"Unconfined"`.
+
+```ts
+await client.run(["python", "main.py"], {
+  runtimeClass: "gvisor",
+  workingDir: "/workspace",
+  securityContext: {
+    runAsUser: 1000,
+    runAsGroup: 1000,
+    capabilitiesDrop: ["NET_RAW"],
+    seccompProfile: "RuntimeDefault",
+  },
+});
+```
+
+These options are not supported by `runFromFile` or `runFromTemplate`.
+
 ### Tags
 
 Tags are useful for discovery and cleanup:
@@ -854,6 +901,27 @@ secret store on Gateway is a one-time admin step.
 
 Do not put secret values in `environmentVariables`, annotations, or tags.
 
+### Private images
+
+Pass `imagePullCredentials` to pull a private `containerImage`. The gateway
+resolves the credential from a secret store at create time. `field` optionally
+selects a field within the secret, which must resolve to an object with
+non-empty `username` and `password`.
+
+```ts
+await client.create({
+  containerImage: "ghcr.io/example/private-image:latest",
+  imagePullCredentials: {
+    registry: "ghcr.io",
+    store: "wandb-team-secrets",
+    name: "ghcr-pull",
+  },
+});
+```
+
+`create` takes one entry for the primary image. `runFromFile` takes a list, one
+per registry. `runFromTemplate` does not accept credentials.
+
 ### Network And Services
 
 Internet egress follows the fleet policy default. Deny outbound or inbound
@@ -900,6 +968,24 @@ ingress rule uses `cidr`, `tenant`, or `any`) plus optional `ports`:
 for (const rule of sandbox.effectiveEgress ?? []) {
   console.log(rule.dnsName ?? rule.cidr?.cidr ?? rule.tenant ?? rule.selector ?? "any");
 }
+```
+
+Allow inbound traffic to CUSTOM-visibility services with `ingress` rules. Each
+rule sets exactly one source (`cidr`, `tenant`, or `any: true`) and optional
+`ports`; omitted ports mean every CUSTOM port. Rules are allow-only over a
+default deny, and a rule outside the runner policy's allowed ingress is
+rejected at create. `denyIngress: true` ignores the rules:
+
+```ts
+await client.run(["python", "-m", "http.server", "8000"], {
+  services: [{ port: 8000, visibility: "custom" }],
+  network: {
+    ingress: [
+      { cidr: { cidr: "203.0.113.0/24" }, ports: [{ port: 8000 }] },
+      { tenant: "same_org" },
+    ],
+  },
+});
 ```
 
 Declare listen-only services, or request a public HTTPS assignment with
@@ -1357,6 +1443,8 @@ Copy `.env.example` for local experiments:
 CWSANDBOX_API_KEY=
 CWSANDBOX_BASE_URL=https://api.cwsandbox.com
 # CWSANDBOX_TEMPLATE_ID=   # optional reduced runFromTemplate smoke
+# CWSANDBOX_SMOKE_RUNTIME_CLASS=   # optional runtimeClass smoke
+# CWSANDBOX_SMOKE_VOLUME_ID=       # optional registered-volume smoke (mounted read-only)
 WANDB_API_KEY=
 WANDB_ENTITY=
 WANDB_PROJECT=

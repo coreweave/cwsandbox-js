@@ -23,7 +23,10 @@ import {
   type FileWrites,
   type FileSystemSnapshotOptions,
   type FileSystemSnapshotResult,
+  type RegisteredVolumeOptions,
   type ScratchVolumeOptions,
+  type SeccompProfile,
+  type SecurityContext,
   type GetSandboxResult,
   type LogEntry,
   type LogEntryStream,
@@ -49,6 +52,7 @@ import {
   type EffectiveEgressRule,
   type EffectiveIngressRule,
   type EgressRule,
+  type IngressRule,
   type ObjectStoragePermission,
   type ProcessResult,
   type ResourceRequestsAndLimits,
@@ -148,6 +152,12 @@ test("public API types", async () => {
       containerImage: "python:3.11",
     }),
   ).toEqualTypeOf<ReturnType<SandboxClient["runFromTemplate"]>>();
+  expectTypeOf(
+    client.runFromTemplate("template-id", {
+      containerImage: "python:3.11",
+      volumes: [{ mountPath: "/data", name: "data", readOnly: true, volumeId: "vol-123" }],
+    }),
+  ).toEqualTypeOf<ReturnType<SandboxClient["runFromTemplate"]>>();
   void client.runFromTemplate("template-id", {
     // @ts-expect-error objectStorageAccess is not part of runFromTemplate
     objectStorageAccess: {
@@ -225,6 +235,11 @@ test("public API types", async () => {
       imagePullCredentials: [imagePullCredentials],
     }),
   ).toEqualTypeOf<ReturnType<SandboxClient["runFromFile"]>>();
+  expectTypeOf(client.create({ imagePullCredentials })).toEqualTypeOf<
+    ReturnType<SandboxClient["create"]>
+  >();
+  // @ts-expect-error create takes one imagePullCredentials entry for the primary image
+  void client.create({ imagePullCredentials: [imagePullCredentials] });
   // @ts-expect-error control is a closed set of values
   void client.runFromFile(composeBytes, { control: "docker" });
   void client.runFromFile(composeBytes, {
@@ -432,6 +447,33 @@ test("public API types", async () => {
       volumes: namedVolumes,
     }),
   ).toEqualTypeOf<ReturnType<SandboxClient["create"]>>();
+  const securityContext: SecurityContext = { runAsUser: 1000, seccompProfile: "RuntimeDefault" };
+  expectTypeOf(
+    client.create({ runtimeClass: "gvisor", securityContext, workingDir: "/workspace" }),
+  ).toEqualTypeOf<ReturnType<SandboxClient["create"]>>();
+  void client.create({ securityContext: { seccompProfile: "localhost/profiles/audit.json" } });
+  expectTypeOf<"RuntimeDefault">().toExtend<SeccompProfile>();
+  expectTypeOf<string>().toExtend<SeccompProfile>();
+  const registeredVolume: RegisteredVolumeOptions = {
+    mountPath: "/data",
+    name: "data",
+    readOnly: true,
+    volumeId: "vol-123",
+  };
+  // @ts-expect-error readOnly is a registered Volume field, not a scratch field
+  void client.create({ volumes: [{ mountPath: "/ws", name: "ws", readOnly: true }] });
+  void client.create({
+    // @ts-expect-error restoreFromSnapshotId is a scratch field, not a registered Volume field
+    volumes: [{ mountPath: "/d", name: "d", restoreFromSnapshotId: "snap", volumeId: "v" }],
+  });
+  expectTypeOf(client.create({ volumes: [...namedVolumes, registeredVolume] })).toEqualTypeOf<
+    ReturnType<SandboxClient["create"]>
+  >();
+  // @ts-expect-error "unspecified" is not a usable ingress tenant
+  void client.create({ network: { ingress: [{ tenant: "unspecified" }] } });
+  expectTypeOf(client.list({ volumeIds: ["vol-123"] })).toEqualTypeOf<
+    ReturnType<SandboxClient["list"]>
+  >();
   expectTypeOf<ObjectStoragePermission>().toEqualTypeOf<"read" | "read-write">();
 
   const command: string[] = ["echo"];
@@ -543,6 +585,15 @@ test("public API types", async () => {
   const egressNetwork: NetworkOptions = {
     egress: [egressRule],
   };
+  const ingressRule: IngressRule = {
+    cidr: { cidr: "203.0.113.0/24" },
+    ports: [{ endPort: 9010, port: 9000 }],
+  };
+  const ingressNetwork: NetworkOptions = { ingress: [ingressRule, { tenant: "same_org" }] };
+  expectTypeOf(ingressNetwork).toExtend<NetworkOptions>();
+  // @ts-expect-error tenant is a closed set of values
+  const badTenant: IngressRule = { tenant: "everyone" };
+  void badTenant;
   expectTypeOf(endpoint).toExtend<Endpoint>();
   expectTypeOf(service).toExtend<Service>();
   expectTypeOf(serviceUrl).toExtend<ServiceUrl>();

@@ -71,6 +71,33 @@ export interface ImagePullCredentials {
   readonly store: string;
 }
 
+/**
+ * Seccomp profile name. The backend documents `"RuntimeDefault"` and
+ * `"Unconfined"`; other strings are passed through for the server to judge.
+ * Empty means unset.
+ */
+export type SeccompProfile = "RuntimeDefault" | "Unconfined" | (string & {});
+
+/**
+ * In-guest privilege for the primary container. These settings stay inside
+ * the sandbox isolation boundary, and the runner policy clamps which values
+ * are permitted. Omitted fields keep the image and platform defaults.
+ */
+export interface SecurityContext {
+  /** UID for the entrypoint. Omit to use the image user. */
+  readonly runAsUser?: number;
+  /** GID for the entrypoint. Omit to use the image group. */
+  readonly runAsGroup?: number;
+  /** Run privileged inside the isolation boundary. Policy-gated. */
+  readonly privileged?: boolean;
+  readonly allowPrivilegeEscalation?: boolean;
+  readonly readOnlyRootFilesystem?: boolean;
+  /** Linux capabilities to add, for example `"SYS_PTRACE"`. */
+  readonly capabilitiesAdd?: readonly string[];
+  readonly capabilitiesDrop?: readonly string[];
+  readonly seccompProfile?: SeccompProfile;
+}
+
 export type WaitTargetStatus = "completed" | "paused" | "running" | "terminal";
 
 export interface WaitOptions extends RequestOptions {
@@ -112,6 +139,32 @@ export interface ScratchVolumeOptions {
   readonly size?: string;
   /** Restore this snapshot at start. Omit or empty for an empty volume. */
   readonly restoreFromSnapshotId?: string;
+  /** Registered Volume field. Not valid on a scratch volume. */
+  readonly volumeId?: never;
+  /** Registered Volume field. Not valid on a scratch volume. */
+  readonly subPath?: never;
+  /** Registered Volume field. Not valid on a scratch volume. */
+  readonly readOnly?: never;
+}
+
+/**
+ * Mount an existing registered Volume on the primary container. The Volume
+ * must already exist in the organization.
+ */
+export interface RegisteredVolumeOptions {
+  /** Unique name within the sandbox (shared with scratch volume names). */
+  readonly name: string;
+  /** Registered Volume ID. */
+  readonly volumeId: string;
+  /** Absolute directory to mount (not `/`). Same rules as scratch mounts. */
+  readonly mountPath: string;
+  /** Relative path inside the Volume to mount instead of its root. */
+  readonly subPath?: string;
+  readonly readOnly?: boolean;
+  /** Scratch volume field. Not valid on a registered Volume. */
+  readonly size?: never;
+  /** Scratch volume field. Not valid on a registered Volume. */
+  readonly restoreFromSnapshotId?: never;
 }
 
 /**
@@ -186,18 +239,29 @@ export interface SandboxRunOptions extends RequestOptions, DataPlaneOptions, Cre
   readonly containerImage?: string;
   readonly environmentVariables?: EnvironmentVariables;
   readonly fileSystemSnapshot?: FileSystemSnapshotOptions;
+  /** Registry credentials for pulling the primary container image. */
+  readonly imagePullCredentials?: ImagePullCredentials;
   /**
-   * Named scratch volumes. Mutually exclusive with `fileSystemSnapshot`.
-   * Must be non-empty. `snapshot()` fails client-side when this process
-   * created more than one scratch.
+   * Named scratch volumes and registered Volume mounts (entries with
+   * `volumeId`). Mutually exclusive with `fileSystemSnapshot`. Must be
+   * non-empty. `snapshot()` fails client-side when this process created more
+   * than one scratch.
    */
-  readonly volumes?: readonly ScratchVolumeOptions[];
+  readonly volumes?: readonly (ScratchVolumeOptions | RegisteredVolumeOptions)[];
   readonly maxLifetimeSeconds?: Seconds;
   readonly mountedFiles?: MountedFiles;
   readonly network?: NetworkOptions;
   readonly objectStorageAccess?: SandboxObjectStorageAccess;
   readonly resources?: ResourceOptions;
   readonly runnerIds?: readonly string[];
+  /**
+   * Runtime-class pin (for example `"gvisor"`). The runner policy must allow
+   * the value; a disallowed pin is rejected, never rewritten. Omit or `""` to
+   * use the policy default.
+   */
+  readonly runtimeClass?: string;
+  /** In-guest privilege for the primary container, clamped by runner policy. */
+  readonly securityContext?: SecurityContext;
   readonly services?: readonly Service[];
   /**
    * Secret-store references to resolve server-side and inject as environment variables.
@@ -213,6 +277,8 @@ export interface SandboxRunOptions extends RequestOptions, DataPlaneOptions, Cre
    * the backend accepts the start request.
    */
   readonly waitUntilRunning?: boolean;
+  /** Working directory for the primary container command. Omit or `""` for the image default. */
+  readonly workingDir?: string;
 }
 
 /**
@@ -263,8 +329,9 @@ export interface SandboxRunFromTemplateOptions
    * keeps template volumes and drops mounts on the new container. Inherited
    * registered volumes that lose their mounts are rejected by Gateway;
    * inherited scratch volumes can remain unmounted. `volumes: []` is rejected.
+   * Accepts scratch volumes and registered Volume mounts (entries with `volumeId`).
    */
-  readonly volumes?: readonly ScratchVolumeOptions[];
+  readonly volumes?: readonly (ScratchVolumeOptions | RegisteredVolumeOptions)[];
   /**
    * Non-zero replaces the template scalar. `0` means inherit, not clear.
    */
@@ -416,6 +483,8 @@ export interface ListSandboxesOptions extends RequestOptions {
   readonly showTerminated?: boolean;
   readonly status?: SandboxStatus;
   readonly tags?: readonly SandboxTag[];
+  /** Only sandboxes attached to any of these registered Volume IDs. */
+  readonly volumeIds?: readonly string[];
 }
 
 /**

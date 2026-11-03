@@ -557,6 +557,49 @@ describe("node transport mappers", () => {
       ]);
     });
 
+    it("maps ingress rules with each source and port ranges", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        network: {
+          ingress: [
+            {
+              cidr: { cidr: "203.0.113.0/24", exceptCidrs: ["203.0.113.7/32"] },
+              ports: [{ port: 8080 }, { endPort: 9010, port: 9000, protocol: "UDP" }],
+            },
+            { tenant: "same_org" },
+            { tenant: "same_user" },
+            { any: true },
+          ],
+        },
+      });
+
+      expect(request.sandbox?.spec?.network?.denyIngress).toBeUndefined();
+      expect(request.sandbox?.spec?.network?.ingress).toEqual([
+        {
+          ports: [
+            { endPort: 0, port: 8080, protocol: "" },
+            { endPort: 9010, port: 9000, protocol: "UDP" },
+          ],
+          source: {
+            cidr: { cidr: "203.0.113.0/24", except: ["203.0.113.7/32"] },
+            oneofKind: "cidr",
+          },
+        },
+        { ports: [], source: { oneofKind: "tenant", tenant: TenantScope.SAME_ORG } },
+        { ports: [], source: { oneofKind: "tenant", tenant: TenantScope.SAME_USER } },
+        { ports: [], source: { any: true, oneofKind: "any" } },
+      ]);
+    });
+
+    it("omits network when ingress is empty and deny flags are unset", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        network: { ingress: [] },
+      });
+
+      expect(request.sandbox?.spec?.network).toBeUndefined();
+    });
+
     it("maps deny flags onto proto network options", () => {
       const request = toProtoCreateRequest({
         command: ["python"],
@@ -784,6 +827,40 @@ describe("node transport mappers", () => {
       ]);
     });
 
+    it("maps registered volumes onto volumeId sources and primary mounts", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        volumes: [
+          { mountPath: "/workspace", name: "workspace" },
+          {
+            mountPath: "/data",
+            name: "data",
+            readOnly: true,
+            subPath: "team/a",
+            volumeId: "vol-1",
+          },
+          { mountPath: "/models", name: "models", volumeId: "vol-2" },
+        ],
+      });
+
+      expect(request.sandbox?.spec?.volumes).toEqual([
+        {
+          name: "workspace",
+          source: {
+            oneofKind: "scratch",
+            scratch: { medium: 0, restoreFromSnapshotId: "", size: "" },
+          },
+        },
+        { name: "data", source: { oneofKind: "volumeId", volumeId: "vol-1" } },
+        { name: "models", source: { oneofKind: "volumeId", volumeId: "vol-2" } },
+      ]);
+      expect(primaryContainer(request)?.volumeMounts).toEqual([
+        { mountPath: "/workspace", readOnly: false, subPath: "", volume: "workspace" },
+        { mountPath: "/data", readOnly: true, subPath: "team/a", volume: "data" },
+        { mountPath: "/models", readOnly: false, subPath: "", volume: "models" },
+      ]);
+    });
+
     it("maps objectStorageAccess onto spec", () => {
       const request = toProtoCreateRequest({
         command: ["python"],
@@ -827,6 +904,105 @@ describe("node transport mappers", () => {
       expect(primaryContainer(request)?.volumeMounts).toEqual([]);
       expect(request.sandbox?.spec?.objectStorageAccess).toBeUndefined();
     });
+
+    it("maps runtimeClass, workingDir, and securityContext", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        runtimeClass: "gvisor",
+        securityContext: {
+          allowPrivilegeEscalation: false,
+          capabilitiesAdd: ["SYS_PTRACE"],
+          capabilitiesDrop: ["NET_RAW"],
+          privileged: false,
+          readOnlyRootFilesystem: true,
+          runAsGroup: 0,
+          runAsUser: 1000,
+          seccompProfile: "RuntimeDefault",
+        },
+        workingDir: "/workspace",
+      });
+
+      expect(request.sandbox?.spec?.runtimeClass).toBe("gvisor");
+      expect(primaryContainer(request)?.workingDir).toBe("/workspace");
+      expect(primaryContainer(request)?.securityContext).toEqual({
+        allowPrivilegeEscalation: false,
+        capabilitiesAdd: ["SYS_PTRACE"],
+        capabilitiesDrop: ["NET_RAW"],
+        privileged: false,
+        readOnlyRootFilesystem: true,
+        runAsGroup: 0,
+        runAsUser: 1000,
+        seccompProfile: "RuntimeDefault",
+      });
+    });
+
+    it("treats empty runtimeClass and workingDir as unset", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        runtimeClass: "",
+        workingDir: "",
+      });
+      const unset = toProtoCreateRequest({ command: ["python"] });
+
+      expect(request.sandbox?.spec?.runtimeClass).toBe(unset.sandbox?.spec?.runtimeClass);
+      expect(primaryContainer(request)?.workingDir).toBe(primaryContainer(unset)?.workingDir);
+    });
+
+    it("passes a custom seccompProfile through", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        securityContext: { seccompProfile: "localhost/profiles/audit.json" },
+      });
+
+      expect(primaryContainer(request)?.securityContext?.seccompProfile).toBe(
+        "localhost/profiles/audit.json",
+      );
+    });
+
+    it("leaves unset securityContext fields unset", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        securityContext: { runAsUser: 1000 },
+      });
+
+      expect(primaryContainer(request)?.securityContext).toEqual({
+        capabilitiesAdd: [],
+        capabilitiesDrop: [],
+        runAsUser: 1000,
+        seccompProfile: "",
+      });
+    });
+
+    it("maps imagePullCredentials onto the primary container", () => {
+      const request = toProtoCreateRequest({
+        command: ["python"],
+        imagePullCredentials: {
+          field: "token",
+          name: "ghcr-creds",
+          registry: "ghcr.io",
+          store: "wandb",
+        },
+      });
+
+      expect(primaryContainer(request)?.imagePullCredentials).toEqual({
+        credentials: { field: "token", path: "ghcr-creds", storeName: "wandb" },
+        registry: "ghcr.io",
+      });
+    });
+
+    it("omits imagePullCredentials when unset", () => {
+      const request = toProtoCreateRequest({ command: ["python"] });
+
+      expect(primaryContainer(request)?.imagePullCredentials).toBeUndefined();
+    });
+
+    it("omits runtimeClass, workingDir, and securityContext when unset", () => {
+      const request = toProtoCreateRequest({ command: ["python"] });
+
+      expect(request.sandbox?.spec?.runtimeClass).toBe("");
+      expect(primaryContainer(request)?.workingDir).toBe("");
+      expect(primaryContainer(request)?.securityContext).toBeUndefined();
+    });
   });
 
   describe("create from template requests", () => {
@@ -853,6 +1029,21 @@ describe("node transport mappers", () => {
 
       expect(container?.command).toBe("/bin/sh");
       expect(container?.args).toEqual(["-c", "echo ready"]);
+    });
+
+    it("maps registered volumes onto template volume and mount overrides", () => {
+      const request = toProtoCreateFromTemplateRequest({
+        templateId,
+        containerImage: "python:3.11",
+        volumes: [{ mountPath: "/data", name: "data", readOnly: true, volumeId: "vol-1" }],
+      });
+
+      expect(request.overrides?.volumes).toEqual([
+        { name: "data", source: { oneofKind: "volumeId", volumeId: "vol-1" } },
+      ]);
+      expect(request.overrides?.containers[0]?.volumeMounts).toEqual([
+        { mountPath: "/data", readOnly: true, subPath: "", volume: "data" },
+      ]);
     });
 
     it("maps HTTPS public services onto template overrides", () => {
@@ -2038,6 +2229,7 @@ describe("node transport mappers", () => {
         status: "running",
         tags: ["tag-a"],
         timeoutMs: 1500,
+        volumeIds: ["vol-1", "vol-2"],
       });
 
       expect(request).toMatchObject({
@@ -2047,6 +2239,7 @@ describe("node transport mappers", () => {
         showTerminated: true,
         state: State.RUNNING,
         tags: ["tag-a"],
+        volumeIds: ["vol-1", "vol-2"],
       });
     });
 

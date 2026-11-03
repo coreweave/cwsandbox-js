@@ -27,7 +27,6 @@ import type {
   SandboxObjectStorageAccess,
   SandboxRunOptions,
   SandboxTag,
-  ScratchVolumeOptions,
   StopOptions,
 } from "../public/sandbox.js";
 import type { Secrets } from "../public/secrets.js";
@@ -77,7 +76,7 @@ export interface StartSandboxFromTemplateRequest extends RequestOptions, CreateR
   readonly services?: readonly Service[];
   readonly secrets?: Secrets;
   readonly tags?: readonly SandboxTag[];
-  readonly volumes?: readonly ScratchVolumeOptions[];
+  readonly volumes?: SandboxRunOptions["volumes"];
 }
 
 export interface GetSandboxRequest extends RequestOptions {

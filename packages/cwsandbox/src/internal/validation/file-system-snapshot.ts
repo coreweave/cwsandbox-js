@@ -9,6 +9,7 @@ import { CWSandboxValidationError } from "../../errors.js";
 import type { MountedFiles } from "../../public/files.js";
 import type {
   FileSystemSnapshotOptions,
+  RegisteredVolumeOptions,
   SandboxRunOptions,
   ScratchVolumeOptions,
 } from "../../public/sandbox.js";
@@ -101,8 +102,48 @@ export function validateFileSystemSnapshotOptions(
   rejectMountedFileConflicts(options.mountPath, mountedFiles, "fileSystemSnapshot.mountPath");
 }
 
+export function isRegisteredVolume(
+  volume: ScratchVolumeOptions | RegisteredVolumeOptions,
+): volume is RegisteredVolumeOptions {
+  return "volumeId" in volume;
+}
+
+function validateRegisteredVolume(volume: RegisteredVolumeOptions, field: string): void {
+  if (typeof volume.volumeId !== "string" || volume.volumeId.trim() === "") {
+    throw new CWSandboxValidationError(`${field}.volumeId is required.`);
+  }
+  if (volume.subPath !== undefined && volume.subPath !== "") {
+    if (
+      typeof volume.subPath !== "string" ||
+      volume.subPath.split("/").some((part) => part === "" || part === "." || part === "..")
+    ) {
+      throw new CWSandboxValidationError(
+        `${field}.subPath must be a relative canonical path without '.' or '..'.`,
+      );
+    }
+  }
+  if (volume.readOnly !== undefined && typeof volume.readOnly !== "boolean") {
+    throw new CWSandboxValidationError(`${field}.readOnly must be a boolean.`);
+  }
+}
+
+function rejectCrossedVolumeFields(
+  volume: object,
+  keys: readonly string[],
+  index: number,
+  kind: "registered" | "scratch",
+): void {
+  for (const key of keys) {
+    if ((volume as Record<string, unknown>)[key] !== undefined) {
+      throw new CWSandboxValidationError(
+        `volumes[${index}].${key} is not supported on a ${kind} volume.`,
+      );
+    }
+  }
+}
+
 export function validateScratchVolumeOptions(
-  volumes: readonly ScratchVolumeOptions[] | undefined,
+  volumes: SandboxRunOptions["volumes"],
   mountedFiles: MountedFiles | undefined,
 ): void {
   if (volumes === undefined) {
@@ -135,8 +176,17 @@ export function validateScratchVolumeOptions(
     }
     mountPaths.add(volume.mountPath);
 
-    validateOptionalString(volume.size, `volumes[${index}].size`);
-    validateOptionalString(volume.restoreFromSnapshotId, `volumes[${index}].restoreFromSnapshotId`);
+    if (isRegisteredVolume(volume)) {
+      validateRegisteredVolume(volume, `volumes[${index}]`);
+      rejectCrossedVolumeFields(volume, ["size", "restoreFromSnapshotId"], index, "registered");
+    } else {
+      rejectCrossedVolumeFields(volume, ["subPath", "readOnly"], index, "scratch");
+      validateOptionalString(volume.size, `volumes[${index}].size`);
+      validateOptionalString(
+        volume.restoreFromSnapshotId,
+        `volumes[${index}].restoreFromSnapshotId`,
+      );
+    }
     rejectMountedFileConflicts(volume.mountPath, mountedFiles, mountField);
   }
 }
@@ -154,7 +204,9 @@ export function scratchVolumeNamesFromRunOptions(
   options: SandboxRunOptions,
 ): readonly string[] | undefined {
   if (options.volumes !== undefined) {
-    return options.volumes.map((volume) => volume.name);
+    return options.volumes
+      .filter((volume) => !isRegisteredVolume(volume))
+      .map((volume) => volume.name);
   }
   if (options.fileSystemSnapshot !== undefined) {
     return [DEFAULT_SCRATCH_VOLUME_NAME];
