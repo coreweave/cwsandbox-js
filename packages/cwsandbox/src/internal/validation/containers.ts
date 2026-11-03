@@ -29,6 +29,9 @@ const SINGLE_CONTAINER_OPTIONS = [
   "mountedFiles",
   "resources",
   "secrets",
+  "imagePullCredentials",
+  "securityContext",
+  "workingDir",
 ] as const;
 
 /**

@@ -142,6 +142,12 @@ describe("validateContainersOption", () => {
     [{ mountedFiles: [] }, "mountedFiles"],
     [{ resources: cpu }, "resources"],
     [{ secrets: [] }, "secrets"],
+    [
+      { imagePullCredentials: { name: "pull", registry: "ghcr.io", store: "s" } },
+      "imagePullCredentials",
+    ],
+    [{ securityContext: { runAsUser: 1000 } }, "securityContext"],
+    [{ workingDir: "/workspace" }, "workingDir"],
   ])("rejects containers with %j", (options, key) => {
     expect(() => validate([{ image: "python:3.11" }], options)).toThrow(
       `containers is mutually exclusive with single-container options (${key})`,

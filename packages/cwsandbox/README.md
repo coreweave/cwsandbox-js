@@ -841,7 +841,8 @@ These options are not supported by `runFromFile` or `runFromTemplate`.
 
 `containers` runs several containers in one sandbox, in place of
 `containerImage`, `environmentVariables`, `mountedFiles`, `resources`,
-`secrets`, and the `run()` command. With more than one container, every
+`secrets`, `imagePullCredentials`, `securityContext`, `workingDir`, and the
+`run()` command. With more than one container, every
 container needs a `name` and `resources`, and exactly one sets `primary: true`.
 The primary owns the sandbox lifecycle. A container without `command` runs its
 image entrypoint; `create()` adds no keep-alive command.
