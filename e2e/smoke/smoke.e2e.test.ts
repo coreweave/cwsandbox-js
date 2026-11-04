@@ -482,8 +482,9 @@ describeWithCredentials("live CWSandbox smoke", { sequential: true }, () => {
         const primary = await captureOp(async () => {
           const output = collectStream(terminal.output);
           await terminal.stdin.writeln("echo tty-smoke");
+          // Let `exit 0` end the shell. Closing stdin on a TTY session currently
+          // truncates the session output instead of sending EOF to the process.
           await terminal.stdin.writeln("exit 0");
-          await terminal.stdin.close();
           const result = await terminal.wait();
           const text = new TextDecoder().decode(concatBytes(await output));
           expect(result.exitCode).toBe(0);
