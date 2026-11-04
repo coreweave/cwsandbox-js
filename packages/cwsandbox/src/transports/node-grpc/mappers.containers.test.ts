@@ -155,6 +155,19 @@ describe("container spec read-back", () => {
     expect(() => validateContainersOption({ containers: containers ?? [] }, false)).not.toThrow();
   });
 
+  it("round-trips GPU with differing requests and limits at the top level", () => {
+    const resources = {
+      gpu: { count: 1, type: "H100" },
+      limits: { cpu: "4", memory: "16Gi" },
+      requests: { cpu: "2", memory: "8Gi" },
+    };
+    const sent = spec(toProtoCreateRequest({ containers: [{ image: "python:3.11", resources }] }));
+    const containers = readBack({ spec: { containers: sent.containers } });
+
+    expect(containers?.[0]?.resources).toEqual(resources);
+    expect(() => validateContainersOption({ containers: containers ?? [] }, false)).not.toThrow();
+  });
+
   it("keeps an explicit primary on a later row", () => {
     const containers = readBack({
       spec: {

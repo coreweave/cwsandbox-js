@@ -1033,7 +1033,15 @@ function toSdkContainerResources(container: ProtoContainer): ResourceOptions | u
   if (requests.cpu === limits.cpu && requests.memory === limits.memory) {
     return requests;
   }
-  return { limits, requests };
+  // GPU is sent on both sides but set once, next to requests and limits, on create.
+  const { gpu, ...requestSpec } = requests;
+  const { gpu: limitGpu, ...limitSpec } = limits;
+  const containerGpu = gpu ?? limitGpu;
+  return {
+    limits: limitSpec,
+    requests: requestSpec,
+    ...(containerGpu === undefined ? {} : { gpu: containerGpu }),
+  };
 }
 
 function toSdkSandboxControl(control: Control): SandboxControl {
