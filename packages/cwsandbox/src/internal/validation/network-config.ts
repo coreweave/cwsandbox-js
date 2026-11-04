@@ -19,6 +19,7 @@ const UPDATE_FIELDS: ReadonlySet<string> = new Set<NetworkConfigUpdateField>([
   "denyIngress",
   "dnsEgress",
   "egress",
+  "ingress",
 ]);
 
 export function validateCreateNetworkConfigOptions(options: CreateNetworkConfigOptions): void {

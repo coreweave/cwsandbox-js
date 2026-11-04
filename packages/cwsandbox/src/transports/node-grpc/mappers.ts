@@ -8,7 +8,7 @@ import { DEFAULT_SCRATCH_VOLUME_NAME } from "../../defaults.js";
 import { CWSandboxValidationError } from "../../errors.js";
 import { commandForWorkingDirectory } from "../../internal/commands.js";
 import { normalizeFileContent, normalizeMountedFiles } from "../../internal/mounted-files.js";
-import { normalizeDnsName } from "../../internal/network.js";
+import { isHttpsOnlyPorts, normalizeDnsName } from "../../internal/network.js";
 import { isAdvancedResources } from "../../internal/resources.js";
 import { groupSecretsByStore, normalizeSecrets } from "../../internal/secrets.js";
 import { isRegisteredVolume } from "../../internal/validation/file-system-snapshot.js";
@@ -23,6 +23,7 @@ import type {
   DnsEgressMode,
   EffectiveEgressRule,
   EffectiveIngressRule,
+  EgressRule,
   Endpoint,
   EndpointAuth as SdkEndpointAuth,
   HttpsEndpointStatus,
@@ -520,23 +521,30 @@ function toProtoIngress(
   return ingress.map((rule) =>
     ProtoIngressRule.create({
       source: toProtoIngressSource(rule),
-      ports: (rule.ports ?? []).map((port) =>
-        ProtoPortRange.create({
-          port: port.port,
-          ...(port.endPort === undefined ? {} : { endPort: port.endPort }),
-          ...(port.protocol === undefined ? {} : { protocol: port.protocol }),
-        }),
-      ),
+      ports: toProtoPortRanges(rule.ports),
     }),
   );
 }
 
+function toProtoPortRanges(
+  ports: readonly SdkPortRange[] | undefined,
+): ReturnType<typeof ProtoPortRange.create>[] {
+  return (ports ?? []).map((port) =>
+    ProtoPortRange.create({
+      port: port.port,
+      ...(port.endPort === undefined ? {} : { endPort: port.endPort }),
+      ...(port.protocol === undefined ? {} : { protocol: port.protocol }),
+    }),
+  );
+}
+
+function toProtoCidrBlock(block: SdkCidrBlock): ProtoCidrBlock {
+  return { cidr: block.cidr, except: [...(block.exceptCidrs ?? [])] };
+}
+
 function toProtoIngressSource(rule: IngressRule): ProtoIngressRule["source"] {
   if (rule.cidr !== undefined) {
-    return {
-      oneofKind: "cidr",
-      cidr: { cidr: rule.cidr.cidr, except: [...(rule.cidr.exceptCidrs ?? [])] },
-    };
+    return { oneofKind: "cidr", cidr: toProtoCidrBlock(rule.cidr) };
   }
   if (rule.tenant !== undefined) {
     return { oneofKind: "tenant", tenant: toProtoTenantScope(rule.tenant) };
@@ -544,7 +552,7 @@ function toProtoIngressSource(rule: IngressRule): ProtoIngressRule["source"] {
   return { oneofKind: "any", any: true };
 }
 
-function toProtoTenantScope(tenant: NonNullable<IngressRule["tenant"]>): TenantScope {
+function toProtoTenantScope(tenant: Exclude<SdkTenantScope, "unspecified">): TenantScope {
   switch (tenant) {
     case "same_user":
       return TenantScope.SAME_USER;
@@ -579,12 +587,32 @@ function toProtoEgress(
 
   return egress.map((rule) =>
     ProtoEgressRule.create({
-      destination: {
-        oneofKind: "httpsHostname",
-        httpsHostname: normalizeDnsName(rule.dnsName),
-      },
+      destination: toProtoEgressDestination(rule),
+      ports: toProtoPortRanges(rule.ports),
     }),
   );
+}
+
+function toProtoEgressDestination(rule: EgressRule): ProtoEgressRule["destination"] {
+  if (rule.dnsName !== undefined) {
+    return { oneofKind: "httpsHostname", httpsHostname: normalizeDnsName(rule.dnsName) };
+  }
+  if (rule.cidr !== undefined) {
+    return { oneofKind: "cidr", cidr: toProtoCidrBlock(rule.cidr) };
+  }
+  if (rule.tenant !== undefined) {
+    return { oneofKind: "tenant", tenant: toProtoTenantScope(rule.tenant) };
+  }
+  if (rule.selector !== undefined) {
+    return {
+      oneofKind: "selector",
+      selector: {
+        podLabels: { ...rule.selector.podLabels },
+        namespaceLabels: { ...rule.selector.namespaceLabels },
+      },
+    };
+  }
+  return { oneofKind: "any", any: true };
 }
 
 function toProtoServices(
@@ -1209,6 +1237,7 @@ const NETWORK_CONFIG_MASK_PATHS: Readonly<Record<NetworkConfigUpdateField, strin
   denyIngress: "spec.deny_ingress",
   dnsEgress: "spec.dns_egress",
   egress: "spec.egress",
+  ingress: "spec.ingress",
 };
 
 export function toProtoCreateNetworkConfigRequest(
@@ -1243,21 +1272,14 @@ export function toSdkNetworkConfig(config: ProtoNetworkConfig): NetworkConfigRes
   const spec = config.spec ?? ProtoNetworkOptions.create();
   const status = config.status;
   const unsupportedFields: NetworkConfigUnsupportedField[] = [];
-  const dnsNames: { readonly dnsName: string }[] = [];
-
-  for (const rule of spec.egress) {
-    const name = modeledDnsName(rule);
-    if (name === undefined) {
-      unsupportedFields.push("egress");
-      break;
-    }
-    dnsNames.push({ dnsName: name });
+  const egress = toSdkConfigRules(spec.egress, toSdkConfigEgressRule);
+  const ingress = toSdkConfigRules(spec.ingress, toSdkConfigIngressRule);
+  if (egress === undefined) {
+    unsupportedFields.push("egress");
   }
-  if (spec.ingress.length > 0) {
+  if (ingress === undefined) {
     unsupportedFields.push("ingress");
   }
-
-  const egressModeled = !unsupportedFields.includes("egress") && dnsNames.length > 0;
   const dnsEgress = toSdkDnsEgressMode(spec.dnsEgress);
   const createdAt = toDate(status?.createTime);
   const updatedAt = toDate(status?.updateTime);
@@ -1268,7 +1290,8 @@ export function toSdkNetworkConfig(config: ProtoNetworkConfig): NetworkConfigRes
       ...(spec.denyEgress === undefined ? {} : { denyEgress: spec.denyEgress }),
       ...(spec.denyIngress === undefined ? {} : { denyIngress: spec.denyIngress }),
       ...(dnsEgress === undefined ? {} : { dnsEgress }),
-      ...(egressModeled ? { egress: dnsNames } : {}),
+      ...(egress === undefined || egress.length === 0 ? {} : { egress }),
+      ...(ingress === undefined || ingress.length === 0 ? {} : { ingress }),
     },
     ...(config.etag === undefined || config.etag === "" ? {} : { etag: config.etag }),
     ...(status?.sandboxId === undefined || status.sandboxId === ""
@@ -1281,32 +1304,84 @@ export function toSdkNetworkConfig(config: ProtoNetworkConfig): NetworkConfigRes
   };
 }
 
-/**
- * The hostname of a rule `NetworkOptions.egress` can express: an HTTPS name
- * on the default 443 path with no excepts. Anything else is undefined.
- */
-function modeledDnsName(rule: ProtoEgressRule): string | undefined {
-  if (rule.destination.oneofKind !== "httpsHostname" || rule.httpsHostnameExcept.length > 0) {
-    return undefined;
+/** Every stored rule mapped, or undefined when any one cannot be shown. */
+function toSdkConfigRules<P, R>(
+  rules: readonly P[],
+  toSdk: (rule: P) => R | undefined,
+): R[] | undefined {
+  const mapped: R[] = [];
+  for (const rule of rules) {
+    const sdkRule = toSdk(rule);
+    if (sdkRule === undefined) {
+      return undefined;
+    }
+    mapped.push(sdkRule);
   }
-  const name = rule.destination.httpsHostname;
-  if (name === "" || !rule.ports.every(isTcp443)) {
-    return undefined;
-  }
-  return name;
+  return mapped;
 }
 
-function isTcp443(range: {
-  readonly protocol: string;
-  readonly port: number;
-  readonly endPort: number;
-}): boolean {
-  const protocol = range.protocol.trim().toUpperCase();
-  return (
-    (protocol === "" || protocol === "TCP") &&
-    range.port === 443 &&
-    (range.endPort === 0 || range.endPort === 443)
-  );
+/**
+ * A stored egress rule as `EgressRule`, or undefined when it cannot be shown:
+ * an unknown destination or tenant, a hostname except, or a hostname rule on
+ * ports other than TCP 443. A hostname rule reads back without its ports.
+ */
+function toSdkConfigEgressRule(rule: ProtoEgressRule): EgressRule | undefined {
+  const ports = withPorts(toSdkPortRanges(rule.ports));
+  const destination = rule.destination;
+  switch (destination.oneofKind) {
+    case "httpsHostname":
+      if (
+        destination.httpsHostname === "" ||
+        rule.httpsHostnameExcept.length > 0 ||
+        !isHttpsOnlyPorts(ports.ports)
+      ) {
+        return undefined;
+      }
+      return { dnsName: destination.httpsHostname };
+    case "cidr":
+      return { cidr: toSdkCidrBlock(destination.cidr), ...ports };
+    case "tenant": {
+      const tenant = toSdkTenantScope(destination.tenant);
+      return tenant === "unspecified" ? undefined : { tenant, ...ports };
+    }
+    case "any":
+      return destination.any ? { any: true, ...ports } : undefined;
+    case "selector": {
+      const { namespaceLabels, podLabels } = destination.selector;
+      if (Object.keys(podLabels).length === 0) {
+        return undefined;
+      }
+      return {
+        selector: {
+          podLabels: { ...podLabels },
+          ...(Object.keys(namespaceLabels).length === 0
+            ? {}
+            : { namespaceLabels: { ...namespaceLabels } }),
+        },
+        ...ports,
+      };
+    }
+    default:
+      return undefined;
+  }
+}
+
+/** A stored ingress rule as `IngressRule`, or undefined for an unknown source or tenant. */
+function toSdkConfigIngressRule(rule: ProtoIngressRule): IngressRule | undefined {
+  const ports = withPorts(toSdkPortRanges(rule.ports));
+  const source = rule.source;
+  switch (source.oneofKind) {
+    case "cidr":
+      return { cidr: toSdkCidrBlock(source.cidr), ...ports };
+    case "tenant": {
+      const tenant = toSdkTenantScope(source.tenant);
+      return tenant === "unspecified" ? undefined : { tenant, ...ports };
+    }
+    case "any":
+      return source.any ? { any: true, ...ports } : undefined;
+    default:
+      return undefined;
+  }
 }
 
 export function toSdkFileSystemSnapshot(

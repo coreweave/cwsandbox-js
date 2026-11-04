@@ -108,7 +108,48 @@ describe("validateNetworkOptions egress", () => {
       validateNetworkOptions(undefined, {
         egress: "pypi.org",
       } as unknown as NetworkOptions),
-    ).toThrow(/sequence of \{ dnsName: string \}/);
+    ).toThrow(/must be an array of egress rules/);
+  });
+
+  it("accepts every destination kind", () => {
+    expect(() =>
+      validateNetworkOptions(undefined, {
+        egress: [
+          { dnsName: "pypi.org", ports: [{ port: 443, protocol: "TCP" }] },
+          { dnsName: "files.pythonhosted.org", ports: [{ port: 443 }, { port: 443 }] },
+          { cidr: { cidr: "10.0.0.0/8", exceptCidrs: ["10.1.0.0/16"] }, ports: [{ port: 5432 }] },
+          { tenant: "same_org", ports: [{ endPort: 9000, port: 8000 }] },
+          { any: true, ports: [{ port: 53, protocol: "UDP" }] },
+          { selector: { namespaceLabels: { team: "a" }, podLabels: { app: "db" } } },
+        ],
+      }),
+    ).not.toThrow();
+  });
+
+  it.each<[string, unknown, RegExp]>([
+    ["no destination", {}, /exactly one destination/],
+    ["two destinations", { any: true, dnsName: "pypi.org" }, /exactly one destination/],
+    ["any: false alone", { any: false }, /exactly one destination/],
+    ["non-boolean any", { any: "yes" }, /any must be a boolean/],
+    ["non-string dnsName", { dnsName: 7 }, /dnsName must be a string/],
+    ["hostname on 8443", { dnsName: "pypi.org", ports: [{ port: 8443 }] }, /only TCP 443/],
+    [
+      "hostname on UDP",
+      { dnsName: "pypi.org", ports: [{ port: 443, protocol: "UDP" }] },
+      /TCP 443/,
+    ],
+    ["empty CIDR", { cidr: { cidr: " " } }, /cidr\.cidr must be a non-empty string/],
+    ["bare CIDR string", { cidr: "10.0.0.0/8" }, /cidr must be an object/],
+    ["unknown tenant", { tenant: "everyone" }, /tenant must be/],
+    ["unspecified tenant", { tenant: "unspecified" }, /tenant must be/],
+    ["selector without pod labels", { selector: { podLabels: {} } }, /podLabels/],
+    ["non-string label", { selector: { podLabels: { app: 1 } } }, /podLabels/],
+    ["bad port", { any: true, ports: [{ port: 70000 }] }, /port/],
+    ["reversed range", { any: true, ports: [{ endPort: 10, port: 20 }] }, /endPort/],
+  ])("rejects an egress rule with %s", (_label, rule, message) => {
+    expect(() =>
+      validateNetworkOptions(undefined, { egress: [rule] } as unknown as NetworkOptions),
+    ).toThrow(message);
   });
 });
 

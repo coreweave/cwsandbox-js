@@ -40,13 +40,27 @@ export interface Service {
 }
 
 /**
- * One create-time HTTPS (TCP 443) hostname grant.
- *
- * Exact names (`pypi.org`) or a single leftmost wildcard (`*.pypi.org`).
- * `"*"` is a policy ceiling, not a sandbox grant.
+ * One outbound destination. Set exactly one of `dnsName`, `cidr`, `tenant`,
+ * `any: true`, or `selector`. A rule outside the runner policy's allowed
+ * egress is rejected, never narrowed.
  */
 export interface EgressRule {
-  readonly dnsName: string;
+  /**
+   * HTTPS (TCP 443) hostname: an exact name (`pypi.org`) or a single leftmost
+   * wildcard (`*.pypi.org`). `"*"` is a policy ceiling, not a sandbox grant.
+   */
+  readonly dnsName?: string;
+  readonly cidr?: CidrBlock;
+  /** `"same_user"` or `"same_org"`. `"sandbox_network"` is not accepted by the backend yet. */
+  readonly tenant?: Exclude<TenantScope, "unspecified">;
+  /** Any destination, including the public internet. */
+  readonly any?: boolean;
+  readonly selector?: SelectorBlock;
+  /**
+   * Ports this rule applies to. Omitted means all ports. On a `dnsName` rule,
+   * omit it or list only TCP 443.
+   */
+  readonly ports?: readonly PortRange[];
 }
 
 /** Relational peer scope for tenant network rules. */
@@ -100,9 +114,9 @@ export interface EffectiveIngressRule {
 }
 
 /**
- * One create-time inbound source for CUSTOM-visibility ports. Set exactly one
- * of `cidr`, `tenant`, or `any: true`. A rule outside the runner policy's
- * allowed ingress is rejected at create, never narrowed.
+ * One inbound source for CUSTOM-visibility ports. Set exactly one of `cidr`,
+ * `tenant`, or `any: true`. A rule outside the runner policy's allowed ingress
+ * is rejected, never narrowed.
  */
 export interface IngressRule {
   readonly cidr?: CidrBlock;
@@ -133,8 +147,8 @@ export interface NetworkOptions {
    */
   readonly denyIngress?: boolean;
   /**
-   * Hostnames the sandbox may reach over HTTPS (TCP 443). Frozen at create.
-   * Empty or omitted leaves the fleet policy default. A wildcard is one
+   * Outbound destinations, allow-only over the policy default. Empty or
+   * omitted leaves the fleet policy default. A hostname wildcard is one
    * leftmost label only (`*.pypi.org` does not include apex `pypi.org`).
    */
   readonly egress?: readonly EgressRule[];
