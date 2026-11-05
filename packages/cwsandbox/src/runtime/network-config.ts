@@ -177,7 +177,9 @@ export async function updateNetworkConfigRecord(
   }
 
   return transport.updateNetworkConfig({
-    network,
+    // An empty mask writes nothing, so send no fields: a server that read the
+    // mask as omitted would then have nothing to infer a write from.
+    network: updateMask.length === 0 ? {} : network,
     networkConfigId,
     updateMask,
     ...(etag === undefined ? {} : { etag }),

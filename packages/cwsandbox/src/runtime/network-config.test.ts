@@ -114,6 +114,38 @@ describe("updateNetworkConfigRecord", () => {
     expect(updates.map((request) => request.updateMask)).toEqual([["egress"], []]);
   });
 
+  it("sends no fields with an empty mask and skips the egress read", async () => {
+    const { gets, transport, updates } = recordingTransport(
+      createFakeNetworkConfig("agent-net", { unsupportedFields: ["egress"] }),
+    );
+
+    await updateNetworkConfigRecord(
+      transport,
+      "agent-net",
+      { denyIngress: true, egress: [{ dnsName: "pypi.org" }] },
+      { etag: "etag-1", updateMask: [] },
+    );
+
+    expect(gets).toHaveLength(0);
+    expect(updates).toHaveLength(1);
+    expect(updates[0]?.network).toEqual({});
+    expect(updates[0]).toMatchObject({ etag: "etag-1", updateMask: [] });
+  });
+
+  it("still validates the network given with an empty mask", async () => {
+    const { transport, updates } = recordingTransport();
+
+    await expect(
+      updateNetworkConfigRecord(
+        transport,
+        "agent-net",
+        { egress: [{ dnsName: "*" }] },
+        { updateMask: [] },
+      ),
+    ).rejects.toBeInstanceOf(CWSandboxValidationError);
+    expect(updates).toEqual([]);
+  });
+
   it("rejects an update that names no fields", async () => {
     const { transport } = recordingTransport();
 
