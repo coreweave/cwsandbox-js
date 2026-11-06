@@ -8,7 +8,7 @@ import { DEFAULT_SCRATCH_VOLUME_NAME } from "../../defaults.js";
 import { CWSandboxValidationError } from "../../errors.js";
 import { commandForWorkingDirectory } from "../../internal/commands.js";
 import { normalizeFileContent, normalizeMountedFiles } from "../../internal/mounted-files.js";
-import { isHttpsOnlyPorts, normalizeDnsName } from "../../internal/network.js";
+import { isHttps443, isHttpsOnlyPorts, normalizeDnsName } from "../../internal/network.js";
 import { isAdvancedResources } from "../../internal/resources.js";
 import { groupSecretsByStore, normalizeSecrets } from "../../internal/secrets.js";
 import { isRegisteredVolume } from "../../internal/validation/file-system-snapshot.js";
@@ -1016,14 +1016,6 @@ function toSdkPortRanges(ports: readonly ProtoPortRange[]): readonly SdkPortRang
     ...(port.endPort === 0 ? {} : { endPort: port.endPort }),
     ...(port.protocol === "" ? {} : { protocol: port.protocol }),
   }));
-}
-
-function isHttps443(port: SdkPortRange): boolean {
-  return (
-    port.port === 443 &&
-    (port.endPort === undefined || port.endPort === 443) &&
-    (port.protocol === undefined || port.protocol.toUpperCase() === "TCP")
-  );
 }
 
 function toSdkCidrBlock(block: ProtoCidrBlock): SdkCidrBlock {

@@ -188,6 +188,21 @@ describe("updateNetworkConfigRecord", () => {
     ).rejects.toBeInstanceOf(CWSandboxValidationError);
   });
 
+  it("lists every accepted field when a mask entry is rejected", async () => {
+    const { transport } = recordingTransport();
+
+    await expect(
+      updateNetworkConfigRecord(
+        transport,
+        "agent-net",
+        {},
+        { updateMask: ["services"] as unknown as readonly ["egress"] },
+      ),
+    ).rejects.toThrow(
+      'updateMask entries must be one of "denyEgress", "denyIngress", "dnsEgress", "egress", "ingress"; got "services".',
+    );
+  });
+
   it("validates rules and the id before any RPC", async () => {
     const { gets, transport, updates } = recordingTransport();
 

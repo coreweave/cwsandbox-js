@@ -154,14 +154,15 @@ function validateEgressRule(value: unknown, field: string): void {
 
 /** True when `ports` is omitted or lists only TCP 443 (repeats allowed). */
 export function isHttpsOnlyPorts(ports: readonly PortRange[] | undefined): boolean {
+  return ports === undefined || ports.every(isHttps443);
+}
+
+/** True when `range` is exactly TCP 443. */
+export function isHttps443(range: PortRange): boolean {
   return (
-    ports === undefined ||
-    ports.every(
-      (range) =>
-        range.port === 443 &&
-        (range.endPort === undefined || range.endPort === 443) &&
-        (range.protocol === undefined || range.protocol.toUpperCase() === "TCP"),
-    )
+    range.port === 443 &&
+    (range.endPort === undefined || range.endPort === 443) &&
+    (range.protocol === undefined || range.protocol.toUpperCase() === "TCP")
   );
 }
 
