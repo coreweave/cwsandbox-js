@@ -29,6 +29,7 @@
     "https-endpoint": "tsx https-endpoint.ts",
     "https-share-token": "tsx https-share-token.ts",
     "tls-passthrough": "tsx tls-passthrough.ts",
+    "network-config": "tsx network-config.ts",
     "typecheck": "tsc --noEmit --project tsconfig.json"
   },
   "dependencies": {

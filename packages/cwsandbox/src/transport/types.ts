@@ -12,6 +12,7 @@ import type { RequestOptions, Seconds } from "../public/common.js";
 import type { DataPlaneMode } from "../public/data-plane.js";
 import type { MountedFiles } from "../public/files.js";
 import type { LogStreamMode, LogStreamOptions } from "../public/logs.js";
+import type { NetworkConfigResult, NetworkConfigUpdateField } from "../public/network-config.js";
 import type { NetworkOptions, Service } from "../public/network.js";
 import type { ResourceOptions } from "../public/resources.js";
 import type {
@@ -71,6 +72,7 @@ export interface StartSandboxFromTemplateRequest extends RequestOptions, CreateR
   readonly mountedFiles?: MountedFiles;
   readonly maxLifetimeSeconds?: Seconds;
   readonly network?: NetworkOptions;
+  readonly networkConfigId?: string;
   readonly resources?: ResourceOptions;
   readonly runnerIds?: readonly string[];
   readonly services?: readonly Service[];
@@ -141,4 +143,37 @@ export interface GetFileSystemSnapshotRequest extends RequestOptions {
 export interface DeleteFileSystemSnapshotRequest extends RequestOptions {
   readonly allowMissing?: boolean;
   readonly snapshotId: string;
+}
+
+export interface CreateNetworkConfigRequest extends RequestOptions {
+  readonly network?: NetworkOptions;
+  readonly networkConfigId: string;
+  readonly requestId?: string;
+}
+
+export interface GetNetworkConfigRequest extends RequestOptions {
+  readonly networkConfigId: string;
+}
+
+export interface ListNetworkConfigsRequest extends RequestOptions {
+  readonly pageToken?: string;
+  readonly platformManaged?: boolean;
+}
+
+export interface ListNetworkConfigsResult {
+  readonly networkConfigs: readonly NetworkConfigResult[];
+  readonly nextPageToken?: string;
+}
+
+export interface UpdateNetworkConfigRequest extends RequestOptions {
+  readonly etag?: string;
+  readonly network: NetworkOptions;
+  readonly networkConfigId: string;
+  /** Always explicit: the backend reads an omitted mask differently. */
+  readonly updateMask: readonly NetworkConfigUpdateField[];
+}
+
+export interface DeleteNetworkConfigRequest extends RequestOptions {
+  readonly allowMissing?: boolean;
+  readonly networkConfigId: string;
 }

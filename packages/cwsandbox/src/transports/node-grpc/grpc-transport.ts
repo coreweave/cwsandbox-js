@@ -10,6 +10,7 @@ import type {
   TerminalSession,
 } from "../../public/commands.js";
 import type { LogEntryStream, LogRawStream, LogStream } from "../../public/logs.js";
+import type { NetworkConfigResult } from "../../public/network-config.js";
 import type {
   FileSystemSnapshotResult,
   GetSandboxResult,
@@ -20,13 +21,18 @@ import type {
 import type { SandboxTransport } from "../../transport.js";
 import type {
   CreateFileSystemSnapshotRequest,
+  CreateNetworkConfigRequest,
   DeleteFileSystemSnapshotRequest,
+  DeleteNetworkConfigRequest,
   DeleteSandboxRequest,
   ExecRequest,
   GetFileSystemSnapshotRequest,
+  GetNetworkConfigRequest,
   GetSandboxRequest,
   ListFileSystemSnapshotsRequest,
   ListFileSystemSnapshotsResult,
+  ListNetworkConfigsRequest,
+  ListNetworkConfigsResult,
   StartSandboxFromFileRequest,
   StartSandboxFromTemplateRequest,
   StartCommandRequest,
@@ -35,11 +41,17 @@ import type {
   StopSandboxAlreadyGone,
   StopSandboxRequest,
   StreamLogsRequest,
+  UpdateNetworkConfigRequest,
 } from "../../transport/types.js";
 import { createGrpcClients, type GrpcClients, type GrpcMetadata } from "./channel.js";
 import { startGrpcCommand } from "./command-stream.js";
 import { DirectDataPlane, type DirectDataPlaneLease } from "./direct-data-plane.js";
 import { isGrpcUnavailable, isRunnerShardRetiringError } from "./errors.js";
+import {
+  DeleteNetworkConfigRequest as ProtoDeleteNetworkConfigRequest,
+  GetNetworkConfigRequest as ProtoGetNetworkConfigRequest,
+  ListNetworkConfigsRequest as ProtoListNetworkConfigsRequest,
+} from "./generated/coreweave/sandbox/v1/network_config.js";
 import {
   CreateFileSystemSnapshotRequest as ProtoCreateFileSystemSnapshotRequest,
   DeleteFileSystemSnapshotRequest as ProtoDeleteFileSystemSnapshotRequest,
@@ -51,13 +63,16 @@ import { startGrpcLogStream } from "./log-stream.js";
 import {
   toProtoCreateFromFileRequest,
   toProtoCreateFromTemplateRequest,
+  toProtoCreateNetworkConfigRequest,
   toProtoCreateRequest,
   toProtoDeleteRequest,
   toProtoExecRequest,
   toProtoListSandboxesRequest,
+  toProtoUpdateNetworkConfigRequest,
   toSdkFileSystemSnapshot,
   toSdkGetSandboxResult,
   toSdkListSandboxesResult,
+  toSdkNetworkConfig,
   toSdkProcessResult,
   toSdkStartSandboxResult,
 } from "./mappers.js";
@@ -77,10 +92,12 @@ export class GrpcSandboxTransport implements SandboxTransport {
   public readonly clients: GrpcClients;
   public readonly directDataPlane: DirectDataPlane;
   private readonly client: GrpcClients["client"];
+  private readonly networkConfigClient: GrpcClients["networkConfigClient"];
 
   public constructor(options: GrpcSandboxTransportOptions) {
     this.clients = createGrpcClients(options);
     this.client = this.clients.client;
+    this.networkConfigClient = this.clients.networkConfigClient;
     this.directDataPlane = new DirectDataPlane(this.client);
   }
 
@@ -260,6 +277,88 @@ export class GrpcSandboxTransport implements SandboxTransport {
           ProtoDeleteFileSystemSnapshotRequest.create({
             allowMissing: request.allowMissing === true,
             fileSystemSnapshotId: request.snapshotId,
+          }),
+          toRpcOptions(request),
+        ).response,
+    );
+  }
+
+  public async createNetworkConfig(
+    request: CreateNetworkConfigRequest,
+  ): Promise<NetworkConfigResult> {
+    const response = await withGrpcErrorMapping(
+      "Create network config",
+      () =>
+        this.networkConfigClient.createNetworkConfig(
+          toProtoCreateNetworkConfigRequest(request),
+          toRpcOptions(request),
+        ).response,
+    );
+
+    return toSdkNetworkConfig(response);
+  }
+
+  public async getNetworkConfig(request: GetNetworkConfigRequest): Promise<NetworkConfigResult> {
+    const response = await withGrpcErrorMapping(
+      "Get network config",
+      () =>
+        this.networkConfigClient.getNetworkConfig(
+          ProtoGetNetworkConfigRequest.create({ networkConfigId: request.networkConfigId }),
+          toRpcOptions(request),
+        ).response,
+    );
+
+    return toSdkNetworkConfig(response);
+  }
+
+  public async listNetworkConfigs(
+    request: ListNetworkConfigsRequest,
+  ): Promise<ListNetworkConfigsResult> {
+    const response = await withGrpcErrorMapping(
+      "List network configs",
+      () =>
+        this.networkConfigClient.listNetworkConfigs(
+          ProtoListNetworkConfigsRequest.create({
+            ...(request.pageToken === undefined ? {} : { pageToken: request.pageToken }),
+            ...(request.platformManaged === undefined
+              ? {}
+              : { platformManaged: request.platformManaged }),
+          }),
+          toRpcOptions(request),
+        ).response,
+    );
+
+    return {
+      networkConfigs: response.networkConfigs.map(toSdkNetworkConfig),
+      ...(response.nextPageToken === undefined || response.nextPageToken === ""
+        ? {}
+        : { nextPageToken: response.nextPageToken }),
+    };
+  }
+
+  public async updateNetworkConfig(
+    request: UpdateNetworkConfigRequest,
+  ): Promise<NetworkConfigResult> {
+    const response = await withGrpcErrorMapping(
+      "Update network config",
+      () =>
+        this.networkConfigClient.updateNetworkConfig(
+          toProtoUpdateNetworkConfigRequest(request),
+          toRpcOptions(request),
+        ).response,
+    );
+
+    return toSdkNetworkConfig(response);
+  }
+
+  public async deleteNetworkConfig(request: DeleteNetworkConfigRequest): Promise<void> {
+    await withGrpcErrorMapping(
+      "Delete network config",
+      () =>
+        this.networkConfigClient.deleteNetworkConfig(
+          ProtoDeleteNetworkConfigRequest.create({
+            allowMissing: request.allowMissing === true,
+            networkConfigId: request.networkConfigId,
           }),
           toRpcOptions(request),
         ).response,

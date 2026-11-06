@@ -86,6 +86,30 @@ SPDX-PackageName: cwsandbox
   options is unaffected, and reading `size` or `restoreFromSnapshotId` from an
   entry still compiles. Code that passes an entry where a `ScratchVolumeOptions`
   is expected must narrow first, for example with `volume.volumeId === undefined`.
+- Add NetworkConfig support. `sandbox.updateNetwork(network, options)` changes
+  a running sandbox's `denyEgress`, `denyIngress`, `dnsEgress`, and HTTPS
+  hostname egress without recreating it, then refreshes `dnsEgressNames` and
+  `effectiveDnsEgress`. `sandbox.networkConfigId`
+  names the bound config. `client.createNetworkConfig` / `getNetworkConfig` /
+  `listNetworkConfigs` / `updateNetworkConfig` / `deleteNetworkConfig` manage
+  configs directly; pass `networkConfigId` to `create` / `run` /
+  `runFromTemplate` to bind a caller-created config (mutually exclusive with
+  `network`). Updates take an optional `updateMask` (defaults to the fields set
+  on `network`) and `etag`. An update that writes `egress` reads the config
+  first and refuses with `CWSandboxValidationError` when it holds rules this
+  SDK cannot represent (address, tenant, selector, non-443), so they are never
+  silently removed. New errors: `CWSandboxNetworkConfigInUseError`,
+  `CWSandboxEtagMismatchError`; `CWSANDBOX_NETWORK_CONFIG_NOT_FOUND` maps to
+  not-found and `CWSANDBOX_DNS_EGRESS_UNAVAILABLE` is retryable. Requires a
+  backend with live network updates; older backends return no
+  `networkConfigId`. Address, tenant, and selector egress rules are not
+  modeled yet, and `network.ingress` can be set on create but not updated;
+  `unsupportedFields` reports stored rules the SDK cannot show.
+- Add `network.dnsEgress` (`"allow"` / `"deny"`) for port-53 DNS to the
+  platform resolver, on create and on network updates, and
+  `sandbox.effectiveDnsEgress` for the mode in effect. On update, leave
+  `dnsEgress` unset to keep the current mode, or name it in `updateMask`
+  without a value to reset it to the policy default.
 
 ## 1.0.0
 

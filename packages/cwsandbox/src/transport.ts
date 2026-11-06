@@ -9,6 +9,7 @@ import type {
   TerminalSession,
 } from "./public/commands.js";
 import type { LogEntryStream, LogRawStream, LogStream } from "./public/logs.js";
+import type { NetworkConfigResult } from "./public/network-config.js";
 import type {
   FileSystemSnapshotResult,
   GetSandboxResult,
@@ -18,13 +19,18 @@ import type {
 } from "./public/sandbox.js";
 import type {
   CreateFileSystemSnapshotRequest,
+  CreateNetworkConfigRequest,
   DeleteFileSystemSnapshotRequest,
+  DeleteNetworkConfigRequest,
   DeleteSandboxRequest,
   ExecRequest,
   GetFileSystemSnapshotRequest,
+  GetNetworkConfigRequest,
   GetSandboxRequest,
   ListFileSystemSnapshotsRequest,
   ListFileSystemSnapshotsResult,
+  ListNetworkConfigsRequest,
+  ListNetworkConfigsResult,
   StartSandboxFromFileRequest,
   StartSandboxFromTemplateRequest,
   StartSandboxRequest,
@@ -33,6 +39,7 @@ import type {
   StreamLogsRequest,
   StopSandboxAlreadyGone,
   StopSandboxRequest,
+  UpdateNetworkConfigRequest,
 } from "./transport/types.js";
 
 export interface SandboxTransport {
@@ -50,6 +57,11 @@ export interface SandboxTransport {
     request: ListFileSystemSnapshotsRequest,
   ): Promise<ListFileSystemSnapshotsResult>;
   deleteFileSystemSnapshot(request: DeleteFileSystemSnapshotRequest): Promise<void>;
+  createNetworkConfig(request: CreateNetworkConfigRequest): Promise<NetworkConfigResult>;
+  getNetworkConfig(request: GetNetworkConfigRequest): Promise<NetworkConfigResult>;
+  listNetworkConfigs(request: ListNetworkConfigsRequest): Promise<ListNetworkConfigsResult>;
+  updateNetworkConfig(request: UpdateNetworkConfigRequest): Promise<NetworkConfigResult>;
+  deleteNetworkConfig(request: DeleteNetworkConfigRequest): Promise<void>;
   exec(request: ExecRequest): Promise<ProcessResult>;
   startCommand(request: StartCommandRequest & { readonly stdin?: false }): Promise<CommandProcess>;
   startCommand(

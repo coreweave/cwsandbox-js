@@ -32,6 +32,29 @@ export function validateNetworkOptions(
   validateDenyFlags(network);
   validateEgress(network);
   validateIngress(network);
+  validateDnsEgress(network);
+}
+
+export function validateNetworkConfigId(networkConfigId: string): void {
+  if (typeof networkConfigId !== "string" || networkConfigId.trim() === "") {
+    throw new CWSandboxValidationError("networkConfigId must not be empty.");
+  }
+}
+
+/** `networkConfigId` on create/template options: non-empty and not with `network`. */
+export function validateNetworkConfigIdOption(options: {
+  readonly network?: NetworkOptions;
+  readonly networkConfigId?: string;
+}): void {
+  if (options.networkConfigId === undefined) {
+    return;
+  }
+  validateNetworkConfigId(options.networkConfigId);
+  if (options.network !== undefined) {
+    throw new CWSandboxValidationError(
+      "network and networkConfigId are mutually exclusive; update the NetworkConfig instead.",
+    );
+  }
 }
 
 export function normalizeDnsName(dnsName: string): string {
@@ -174,6 +197,13 @@ function validatePortRange(value: unknown, field: string): void {
 
 function isObject(value: unknown): value is object {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function validateDnsEgress(network: NetworkOptions | undefined): void {
+  const mode = network?.dnsEgress as unknown;
+  if (mode !== undefined && mode !== "allow" && mode !== "deny") {
+    throw new CWSandboxValidationError('network.dnsEgress must be "allow" or "deny"');
+  }
 }
 
 function isEgressRule(value: unknown): value is EgressRule {

@@ -14,10 +14,12 @@ export {
   type CWSandboxErrorCode,
   CWSandboxConfigurationError,
   CWSandboxError,
+  CWSandboxEtagMismatchError,
   CWSandboxExecutionError,
   CWSandboxFailedError,
   CWSandboxFileError,
   isCWSandboxError,
+  CWSandboxNetworkConfigInUseError,
   CWSandboxNotFoundError,
   CWSandboxNotImplementedError,
   CWSandboxResourceExhaustedError,
@@ -42,7 +44,9 @@ export {
 export {
   CWSANDBOX_BACKEND_UNAVAILABLE,
   CWSANDBOX_COMMAND_TIMEOUT,
+  CWSANDBOX_DNS_EGRESS_UNAVAILABLE,
   CWSANDBOX_ERROR_DOMAIN,
+  CWSANDBOX_ETAG_MISMATCH,
   CWSANDBOX_FILE_IO_FAILED,
   CWSANDBOX_FILE_IS_DIRECTORY,
   CWSANDBOX_FILE_NOT_FOUND,
@@ -58,6 +62,8 @@ export {
   CWSANDBOX_FSS_NOT_SUPPORTED,
   CWSANDBOX_FSS_QUOTA_EXCEEDED,
   CWSANDBOX_FSS_SIZE_EXCEEDED,
+  CWSANDBOX_NETWORK_CONFIG_IN_USE,
+  CWSANDBOX_NETWORK_CONFIG_NOT_FOUND,
   CWSANDBOX_RUNNER_UNAVAILABLE,
   CWSANDBOX_SANDBOX_NOT_FOUND,
   STREAM_BACKPRESSURE,
@@ -110,6 +116,7 @@ export type {
 } from "./public/logs.js";
 export type {
   CidrBlock,
+  DnsEgressMode,
   EffectiveEgressRule,
   EffectiveIngressRule,
   EgressRule,
@@ -130,6 +137,15 @@ export type {
   TlsPassthroughEndpoint,
   TlsPassthroughEndpointStatus,
 } from "./public/network.js";
+export type {
+  CreateNetworkConfigOptions,
+  DeleteNetworkConfigOptions,
+  ListNetworkConfigsOptions,
+  NetworkConfigResult,
+  NetworkConfigUnsupportedField,
+  NetworkConfigUpdateField,
+  UpdateNetworkConfigOptions,
+} from "./public/network-config.js";
 export type {
   GpuSpec,
   ResourceOptions,

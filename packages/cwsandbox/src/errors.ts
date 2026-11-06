@@ -326,6 +326,28 @@ export class CWSandboxSnapshotBucketMismatchError extends CWSandboxTransportErro
   }
 }
 
+/**
+ * The NetworkConfig is bound to another running sandbox (create, delete).
+ * Emitted for trusted `CWSANDBOX_NETWORK_CONFIG_IN_USE`.
+ */
+export class CWSandboxNetworkConfigInUseError extends CWSandboxTransportError {
+  public constructor(message: string, options: CWSandboxTransportErrorOptions = {}) {
+    super(message, options, "transport_error");
+    this.name = "CWSandboxNetworkConfigInUseError";
+  }
+}
+
+/**
+ * The resource changed since the supplied etag was read. Read it again and
+ * retry the update. Emitted for trusted `CWSANDBOX_ETAG_MISMATCH`.
+ */
+export class CWSandboxEtagMismatchError extends CWSandboxTransportError {
+  public constructor(message: string, options: CWSandboxTransportErrorOptions = {}) {
+    super(message, options, "transport_error");
+    this.name = "CWSandboxEtagMismatchError";
+  }
+}
+
 export class CWSandboxValidationError extends CWSandboxError {
   public constructor(message: string, options?: ErrorOptions) {
     super(message, "validation_error", options);

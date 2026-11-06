@@ -198,9 +198,11 @@ function createTrackingClient(): TrackingClient {
       },
       exitCode: undefined,
       dnsEgressNames: undefined,
+      effectiveDnsEgress: undefined,
       endpointShareToken: undefined,
       exposedPorts: undefined,
       files,
+      networkConfigId: undefined,
       getStatus: async () => status,
       inspect: async () => ({ sandboxId, status }),
       logs,
@@ -217,6 +219,9 @@ function createTrackingClient(): TrackingClient {
       },
       snapshot: async () => {
         throw new Error("Snapshot not used");
+      },
+      updateNetwork: async () => {
+        throw new Error("updateNetwork not used");
       },
       startedAt: undefined,
       status,
@@ -290,6 +295,21 @@ function createTrackingClient(): TrackingClient {
     },
     async withSandboxFromFile() {
       throw new Error("withSandboxFromFile not used in these tests.");
+    },
+    async createNetworkConfig() {
+      throw new Error("createNetworkConfig not used in these tests.");
+    },
+    async getNetworkConfig() {
+      throw new Error("getNetworkConfig not used in these tests.");
+    },
+    async listNetworkConfigs() {
+      throw new Error("listNetworkConfigs not used in these tests.");
+    },
+    async updateNetworkConfig() {
+      throw new Error("updateNetworkConfig not used in these tests.");
+    },
+    async deleteNetworkConfig() {
+      throw new Error("deleteNetworkConfig not used in these tests.");
     },
   };
 

@@ -3,7 +3,7 @@
 // SPDX-PackageName: cwsandbox
 
 import { DEFAULT_GRACEFUL_SHUTDOWN_SECONDS } from "./defaults.js";
-import { CWSandboxTimeoutError } from "./errors.js";
+import { CWSandboxTimeoutError, CWSandboxValidationError } from "./errors.js";
 import { ignoreMissingSandbox } from "./internal/delete.js";
 import { isSandboxNotFound } from "./internal/error-info.js";
 import {
@@ -23,11 +23,14 @@ import type { RequestOptions } from "./public/common.js";
 import type { DataPlaneMode } from "./public/data-plane.js";
 import type { SandboxFiles } from "./public/files.js";
 import type { SandboxLogs } from "./public/logs.js";
+import type { NetworkConfigResult, UpdateNetworkConfigOptions } from "./public/network-config.js";
 import type {
   CidrBlock,
+  DnsEgressMode,
   EffectiveEgressRule,
   EffectiveIngressRule,
   HttpsEndpointStatus,
+  NetworkOptions,
   PortRange,
   ServiceUrl,
   TlsPassthroughEndpointStatus,
@@ -55,6 +58,7 @@ import type { ExecStatsCounter, SandboxRuntime } from "./runtime/context.js";
 import { FileTransfer } from "./runtime/file-transfer.js";
 import { createSandboxFiles } from "./runtime/files.js";
 import { createSandboxLogs } from "./runtime/logs.js";
+import { updateNetworkConfigRecord } from "./runtime/network-config.js";
 import { startShell } from "./runtime/shell.js";
 import {
   captureFileSystemSnapshot,
@@ -179,12 +183,20 @@ export class Sandbox implements PublicSandbox {
       : [...this.metadata.dnsEgressNames];
   }
 
+  public get effectiveDnsEgress(): DnsEgressMode | undefined {
+    return this.metadata.effectiveDnsEgress;
+  }
+
   public get endpointShareToken(): string | undefined {
     return this.retainedEndpointShareToken;
   }
 
   public get exposedPorts(): readonly SandboxExposedPort[] | undefined {
     return this.metadata.exposedPorts?.map((port) => ({ ...port }));
+  }
+
+  public get networkConfigId(): string | undefined {
+    return this.metadata.networkConfigId;
   }
 
   public get resourceLimits(): SandboxResourceSpec | undefined {
@@ -346,6 +358,45 @@ export class Sandbox implements PublicSandbox {
         this.updateMetadata(metadata);
       },
     );
+  }
+
+  public async updateNetwork(
+    network: NetworkOptions,
+    options: UpdateNetworkConfigOptions = {},
+  ): Promise<NetworkConfigResult> {
+    validateRequestOptions(options);
+    const deadline = options.timeoutMs === undefined ? undefined : Date.now() + options.timeoutMs;
+    const remaining = (): RequestOptions => ({
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+      ...(deadline === undefined ? {} : { timeoutMs: Math.max(1, deadline - Date.now()) }),
+    });
+
+    let networkConfigId = this.metadata.networkConfigId;
+    if (networkConfigId === undefined) {
+      networkConfigId = (await this.inspect(remaining())).networkConfigId;
+    }
+    if (networkConfigId === undefined) {
+      throw new CWSandboxValidationError(
+        `Sandbox '${this.sandboxId}' has no NetworkConfig; the backend does not support network updates.`,
+      );
+    }
+
+    const result = await updateNetworkConfigRecord(
+      this.runtime.transport,
+      networkConfigId,
+      network,
+      {
+        ...options,
+        ...remaining(),
+      },
+    );
+    try {
+      await this.inspect(remaining());
+    } catch {
+      // The update was applied; a failed refresh leaves cached fields stale
+      // until the next inspect() rather than reporting the update as failed.
+    }
+    return result;
   }
 
   public async [Symbol.asyncDispose](): Promise<void> {
@@ -666,9 +717,15 @@ function cloneMetadata(metadata: SandboxMetadata | undefined): Partial<SandboxMe
     ...(metadata.effectiveRuntimeClass === undefined
       ? {}
       : { effectiveRuntimeClass: metadata.effectiveRuntimeClass }),
+    ...(metadata.effectiveDnsEgress === undefined
+      ? {}
+      : { effectiveDnsEgress: metadata.effectiveDnsEgress }),
     ...(metadata.tags === undefined ? {} : { tags: [...metadata.tags] }),
     ...(metadata.createdAt === undefined ? {} : { createdAt: new Date(metadata.createdAt) }),
     ...(metadata.exitCode === undefined ? {} : { exitCode: metadata.exitCode }),
+    ...(metadata.networkConfigId === undefined
+      ? {}
+      : { networkConfigId: metadata.networkConfigId }),
     ...(metadata.resourceLimits === undefined
       ? {}
       : { resourceLimits: { ...metadata.resourceLimits } }),

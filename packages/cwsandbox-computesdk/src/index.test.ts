@@ -465,10 +465,12 @@ function createTrackingClient(options: TrackingClientOptions = {}): TrackingClie
       },
       exec: async (command) => createProcessResult(normalizeCommand(command), { stdout: "ok" }),
       dnsEgressNames: undefined,
+      effectiveDnsEgress: undefined,
       endpointShareToken: undefined,
       exitCode: undefined,
       exposedPorts: undefined,
       files,
+      networkConfigId: undefined,
       getStatus: async () => status,
       inspect: async (requestOptions?: { timeoutMs?: number }) => {
         if (options.hungInspect === true) {
@@ -512,6 +514,9 @@ function createTrackingClient(options: TrackingClientOptions = {}): TrackingClie
       },
       snapshot: async () => {
         throw new Error("Snapshot not used");
+      },
+      updateNetwork: async () => {
+        throw new Error("updateNetwork not used");
       },
       startedAt: new Date("2026-01-01T00:00:00.000Z"),
       status,
@@ -584,6 +589,21 @@ function createTrackingClient(options: TrackingClientOptions = {}): TrackingClie
     },
     async withSandboxFromFile() {
       throw new Error("withSandboxFromFile not used in these tests.");
+    },
+    async createNetworkConfig() {
+      throw new Error("createNetworkConfig not used in these tests.");
+    },
+    async getNetworkConfig() {
+      throw new Error("getNetworkConfig not used in these tests.");
+    },
+    async listNetworkConfigs() {
+      throw new Error("listNetworkConfigs not used in these tests.");
+    },
+    async updateNetworkConfig() {
+      throw new Error("updateNetworkConfig not used in these tests.");
+    },
+    async deleteNetworkConfig() {
+      throw new Error("deleteNetworkConfig not used in these tests.");
     },
   };
 

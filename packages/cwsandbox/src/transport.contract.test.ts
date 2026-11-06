@@ -15,6 +15,7 @@ import type {
 import {
   createCommandProcess,
   createFakeFileAdapter,
+  createFakeNetworkConfig,
   createFakeSnapshot,
   createLogStream,
   createProcessResult,
@@ -27,9 +28,13 @@ import type {
   WriteFileRequest,
 } from "./transport/file-adapter.js";
 import type {
+  CreateNetworkConfigRequest,
+  DeleteNetworkConfigRequest,
   DeleteSandboxRequest,
   ExecRequest,
+  GetNetworkConfigRequest,
   GetSandboxRequest,
+  ListNetworkConfigsRequest,
   StartCommandRequest,
   StartShellRequest,
   StartSandboxFromFileRequest,
@@ -37,6 +42,7 @@ import type {
   StartSandboxRequest,
   StopSandboxRequest,
   StreamLogsRequest,
+  UpdateNetworkConfigRequest,
 } from "./transport/types.js";
 
 interface AdapterCalls {
@@ -45,7 +51,12 @@ interface AdapterCalls {
 }
 
 interface TransportCalls {
+  readonly createNetworkConfig: CreateNetworkConfigRequest[];
   readonly delete: DeleteSandboxRequest[];
+  readonly deleteNetworkConfig: DeleteNetworkConfigRequest[];
+  readonly getNetworkConfig: GetNetworkConfigRequest[];
+  readonly listNetworkConfigs: ListNetworkConfigsRequest[];
+  readonly updateNetworkConfig: UpdateNetworkConfigRequest[];
   readonly exec: ExecRequest[];
   readonly get: GetSandboxRequest[];
   readonly list: ListSandboxesOptions[];
@@ -112,6 +123,52 @@ describe("SandboxTransport contract", () => {
     });
     expect(expectSingle(calls.startFromTemplate)).not.toHaveProperty("waitUntilRunning");
     expect(sandbox.sandboxId).toBe(`sandbox-for-template-${templateId}`);
+  });
+
+  it("routes NetworkConfig operations and create-time binding", async () => {
+    const { calls, transport, fileAdapter } = createContractTransport();
+    const client = new SandboxClient({ fileAdapter, transport });
+    const templateId = "11111111-1111-1111-1111-111111111111";
+
+    await client.createNetworkConfig("agent-net", {
+      network: { egress: [{ dnsName: "pypi.org" }] },
+      requestId: "req-1",
+      timeoutMs: 11,
+    });
+    await client.getNetworkConfig("agent-net");
+    await client.listNetworkConfigs({ platformManaged: false });
+    await client.updateNetworkConfig("agent-net", { egress: [] });
+    await client.deleteNetworkConfig("agent-net", { missingOk: true });
+    await client.run(["echo"], { networkConfigId: "agent-net", waitUntilRunning: false });
+    await client.runFromTemplate(templateId, {
+      networkConfigId: "agent-net",
+      waitUntilRunning: false,
+    });
+
+    expect(expectSingle(calls.createNetworkConfig)).toEqual({
+      network: { egress: [{ dnsName: "pypi.org" }] },
+      networkConfigId: "agent-net",
+      requestId: "req-1",
+      timeoutMs: 11,
+    });
+    expect(expectSingle(calls.listNetworkConfigs)).toMatchObject({ platformManaged: false });
+    // The egress write reads first and pins the etag it saw.
+    expect(calls.getNetworkConfig.map((request) => request.networkConfigId)).toEqual([
+      "agent-net",
+      "agent-net",
+    ]);
+    expect(expectSingle(calls.updateNetworkConfig)).toEqual({
+      etag: "etag-read",
+      network: { egress: [] },
+      networkConfigId: "agent-net",
+      updateMask: ["egress"],
+    });
+    expect(expectSingle(calls.deleteNetworkConfig)).toEqual({
+      allowMissing: true,
+      networkConfigId: "agent-net",
+    });
+    expect(expectSingle(calls.start)).toMatchObject({ networkConfigId: "agent-net" });
+    expect(expectSingle(calls.startFromTemplate)).toMatchObject({ networkConfigId: "agent-net" });
   });
 
   it("routes runFromFile through startFromFile with raw file bytes", async () => {
@@ -206,7 +263,12 @@ function createContractTransport(): {
   readonly transport: SandboxTransport;
 } {
   const calls: TransportCalls = {
+    createNetworkConfig: [],
     delete: [],
+    deleteNetworkConfig: [],
+    getNetworkConfig: [],
+    listNetworkConfigs: [],
+    updateNetworkConfig: [],
     exec: [],
     get: [],
     list: [],
@@ -249,6 +311,25 @@ function createContractTransport(): {
       },
       async deleteFileSystemSnapshot() {
         return undefined;
+      },
+      async createNetworkConfig(request) {
+        calls.createNetworkConfig.push(request);
+        return createFakeNetworkConfig(request.networkConfigId);
+      },
+      async getNetworkConfig(request) {
+        calls.getNetworkConfig.push(request);
+        return createFakeNetworkConfig(request.networkConfigId, { etag: "etag-read" });
+      },
+      async listNetworkConfigs(request) {
+        calls.listNetworkConfigs.push(request);
+        return { networkConfigs: [createFakeNetworkConfig("nc-listed")] };
+      },
+      async updateNetworkConfig(request) {
+        calls.updateNetworkConfig.push(request);
+        return createFakeNetworkConfig(request.networkConfigId, { network: request.network });
+      },
+      async deleteNetworkConfig(request) {
+        calls.deleteNetworkConfig.push(request);
       },
       async exec(request): Promise<ProcessResult> {
         calls.exec.push(request);

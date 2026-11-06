@@ -23,7 +23,7 @@ import type {
 import { normalizeCommand } from "../commands.js";
 import { validateFromFileContentsInput } from "../from-file-contents.js";
 import { validateMountedFiles } from "../mounted-files.js";
-import { validateNetworkOptions } from "../network.js";
+import { validateNetworkConfigIdOption, validateNetworkOptions } from "../network.js";
 import { validateResources } from "../resources.js";
 import { validateSecrets } from "../secrets.js";
 import { validateAnnotations } from "./annotations.js";
@@ -92,6 +92,7 @@ export function validateSandboxRunOptions(options: SandboxRunOptions): void {
   }
   validateObjectStorageAccess(options.objectStorageAccess);
   validateNetworkOptions(options.services, options.network);
+  validateNetworkConfigIdOption(options);
   validateResources(options.resources);
   validateSecrets(options.secrets, options.environmentVariables);
   validateUniqueStringList(options.runnerIds, "runnerIds");
@@ -151,6 +152,7 @@ export function validateSandboxRunFromTemplateOptions(
   validateMountedFiles(options.mountedFiles);
   validateSandboxVolumeCreateOptions(options);
   validateNetworkOptions(options.services, options.network);
+  validateNetworkConfigIdOption(options);
   validateResources(options.resources);
   validateSecrets(options.secrets, options.environmentVariables);
   validateUniqueStringList(options.runnerIds, "runnerIds");
@@ -168,6 +170,7 @@ const FROM_FILE_UNSUPPORTED_KEYS = [
   "fileSystemSnapshot",
   "instanceType",
   "mountedFiles",
+  "networkConfigId",
   "networkIds",
   "resources",
   "runtimeClass",

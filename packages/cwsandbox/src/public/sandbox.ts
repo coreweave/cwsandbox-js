@@ -14,7 +14,9 @@ import type { Milliseconds, RequestOptions, Seconds } from "./common.js";
 import type { DataPlaneOptions } from "./data-plane.js";
 import type { MountedFiles, SandboxFiles } from "./files.js";
 import type { SandboxLogs } from "./logs.js";
+import type { NetworkConfigResult, UpdateNetworkConfigOptions } from "./network-config.js";
 import type {
+  DnsEgressMode,
   EffectiveEgressRule,
   EffectiveIngressRule,
   HttpsEndpointStatus,
@@ -250,7 +252,16 @@ export interface SandboxRunOptions extends RequestOptions, DataPlaneOptions, Cre
   readonly volumes?: readonly (ScratchVolumeOptions | RegisteredVolumeOptions)[];
   readonly maxLifetimeSeconds?: Seconds;
   readonly mountedFiles?: MountedFiles;
+  /**
+   * Rules for a new NetworkConfig the backend creates for this sandbox and
+   * deletes when it ends. Mutually exclusive with `networkConfigId`.
+   */
   readonly network?: NetworkOptions;
+  /**
+   * Existing, unbound NetworkConfig to bind to this sandbox. It stays after
+   * the sandbox ends and can be reused. Mutually exclusive with `network`.
+   */
+  readonly networkConfigId?: string;
   readonly objectStorageAccess?: SandboxObjectStorageAccess;
   readonly resources?: ResourceOptions;
   readonly runnerIds?: readonly string[];
@@ -343,9 +354,15 @@ export interface SandboxRunFromTemplateOptions
   readonly mountedFiles?: MountedFiles;
   /**
    * Any defined `network`, including `{}`, replaces the complete template
-   * network. Omitted members are not inherited.
+   * network. Omitted members are not inherited. Mutually exclusive with
+   * `networkConfigId`.
    */
   readonly network?: NetworkOptions;
+  /**
+   * Existing, unbound NetworkConfig to bind instead of creating one from the
+   * template network. Mutually exclusive with `network`.
+   */
+  readonly networkConfigId?: string;
   /**
    * Requires `containerImage`. When replacing the container, omitted values
    * are not inherited from the template.
@@ -541,8 +558,12 @@ export interface SandboxMetadata {
    * RuntimeClass (the node's default runtime).
    */
   readonly effectiveRuntimeClass?: string;
+  /** Port-53 DNS mode in effect. Omitted when the backend does not report it. */
+  readonly effectiveDnsEgress?: DnsEgressMode;
   readonly exitCode?: number;
   readonly exposedPorts?: readonly SandboxExposedPort[];
+  /** NetworkConfig bound to this sandbox. Absent on backends without NetworkConfig. */
+  readonly networkConfigId?: string;
   readonly resourceLimits?: SandboxResourceSpec;
   readonly resourceRequests?: SandboxResourceSpec;
   readonly runnerGroupId?: string;
@@ -598,6 +619,8 @@ export interface Sandbox {
   readonly effectiveEgress?: readonly EffectiveEgressRule[] | undefined;
   readonly effectiveIngress?: readonly EffectiveIngressRule[] | undefined;
   readonly effectiveRuntimeClass?: string | undefined;
+  /** Port-53 DNS mode from the latest backend response that reported it. */
+  readonly effectiveDnsEgress: DnsEgressMode | undefined;
   readonly endpointShareToken?: string | undefined;
   /**
    * Exec counters for this handle. Optional only so existing `Sandbox`
@@ -606,6 +629,7 @@ export interface Sandbox {
   readonly execStats?: SandboxExecStats;
   readonly exitCode: number | undefined;
   readonly exposedPorts: readonly SandboxExposedPort[] | undefined;
+  readonly networkConfigId: string | undefined;
   readonly resourceLimits: SandboxResourceSpec | undefined;
   readonly resourceRequests: SandboxResourceSpec | undefined;
   readonly runnerGroupId: string | undefined;
@@ -638,5 +662,20 @@ export interface Sandbox {
   snapshot(options?: SnapshotOptions): Promise<FileSystemSnapshotResult>;
   stop(options?: StopOptions): Promise<void>;
   delete(options?: DeleteOptions): Promise<void>;
+  /**
+   * Update this sandbox's NetworkConfig and apply it to the running sandbox.
+   * Fields not in the update mask keep their current value (see
+   * `UpdateNetworkConfigOptions.updateMask`). A sandbox still starting is
+   * waited on by the backend, bounded by `timeoutMs`.
+   *
+   * Refreshes cached fields such as `dnsEgressNames` and
+   * `effectiveDnsEgress` afterwards. Throws
+   * `CWSandboxValidationError` when the sandbox has no NetworkConfig, or when
+   * writing `egress` would drop rules this SDK cannot represent.
+   */
+  updateNetwork(
+    network: NetworkOptions,
+    options?: UpdateNetworkConfigOptions,
+  ): Promise<NetworkConfigResult>;
   [Symbol.asyncDispose](): Promise<void>;
 }

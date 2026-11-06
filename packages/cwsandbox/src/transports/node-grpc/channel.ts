@@ -7,6 +7,7 @@ import { GrpcTransport } from "@protobuf-ts/grpc-transport";
 
 import { CWSandboxConfigurationError } from "../../errors.js";
 import { DEFAULT_GRPC_MAX_MESSAGE_LENGTH_BYTES } from "../../internal/file-limits.js";
+import { NetworkConfigServiceClient } from "./generated/coreweave/sandbox/v1/network_config.client.js";
 import { SandboxServiceClient } from "./generated/coreweave/sandbox/v1/sandbox.client.js";
 
 /**
@@ -36,6 +37,7 @@ export interface GrpcClientOptions {
 
 export interface GrpcClients {
   readonly client: SandboxServiceClient;
+  readonly networkConfigClient: NetworkConfigServiceClient;
 }
 
 export function createGrpcClients(options: GrpcClientOptions): GrpcClients {
@@ -51,6 +53,7 @@ export function createGrpcClients(options: GrpcClientOptions): GrpcClients {
 
   return {
     client: new SandboxServiceClient(transport),
+    networkConfigClient: new NetworkConfigServiceClient(transport),
   };
 }
 

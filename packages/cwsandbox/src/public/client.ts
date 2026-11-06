@@ -7,6 +7,14 @@ import type { SandboxList } from "../runtime/sandbox-list.js";
 import type { CommandInput } from "./commands.js";
 import type { RequestOptions } from "./common.js";
 import type {
+  CreateNetworkConfigOptions,
+  DeleteNetworkConfigOptions,
+  ListNetworkConfigsOptions,
+  NetworkConfigResult,
+  UpdateNetworkConfigOptions,
+} from "./network-config.js";
+import type { NetworkOptions } from "./network.js";
+import type {
   DeleteOptions,
   DeleteSnapshotOptions,
   FileSystemSnapshotResult,
@@ -55,6 +63,33 @@ export interface SandboxClient {
   getSnapshot(snapshotId: string, options?: RequestOptions): Promise<FileSystemSnapshotResult>;
   listSnapshots(options?: ListSnapshotsOptions): Promise<readonly FileSystemSnapshotResult[]>;
   deleteSnapshot(snapshotId: string, options?: DeleteSnapshotOptions): Promise<void>;
+  /**
+   * Create a reusable NetworkConfig. Bind it with
+   * `create({ networkConfigId })`; one sandbox at a time.
+   *
+   * @param networkConfigId Caller-chosen, org-unique id
+   *   (`^[a-z][a-z0-9-]{2,62}$`, not starting with `nc-`). Format validation is
+   *   performed by the backend.
+   */
+  createNetworkConfig(
+    networkConfigId: string,
+    options?: CreateNetworkConfigOptions,
+  ): Promise<NetworkConfigResult>;
+  getNetworkConfig(networkConfigId: string, options?: RequestOptions): Promise<NetworkConfigResult>;
+  /** Lists every page. */
+  listNetworkConfigs(options?: ListNetworkConfigsOptions): Promise<readonly NetworkConfigResult[]>;
+  /**
+   * Update a NetworkConfig. An unbound config only stores the change. A bound
+   * config also applies it to its running sandbox before returning; see
+   * `Sandbox.updateNetwork`.
+   */
+  updateNetworkConfig(
+    networkConfigId: string,
+    network: NetworkOptions,
+    options?: UpdateNetworkConfigOptions,
+  ): Promise<NetworkConfigResult>;
+  /** Fails with `CWSandboxNetworkConfigInUseError` while a running sandbox uses it. */
+  deleteNetworkConfig(networkConfigId: string, options?: DeleteNetworkConfigOptions): Promise<void>;
   /**
    * Starts a sandbox like `create` / `run` and always stops it after the
    * callback returns or throws. A readiness failure (including abort or

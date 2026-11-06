@@ -7,7 +7,9 @@ import { RpcError } from "@protobuf-ts/runtime-rpc";
 import {
   CWSandboxAuthenticationError,
   type CWSandboxError,
+  CWSandboxEtagMismatchError,
   CWSandboxFileError,
+  CWSandboxNetworkConfigInUseError,
   CWSandboxNotFoundError,
   CWSandboxNotImplementedError,
   CWSandboxResourceExhaustedError,
@@ -23,12 +25,15 @@ import {
 import {
   CWSANDBOX_COMMAND_TIMEOUT,
   CWSANDBOX_ERROR_DOMAIN,
+  CWSANDBOX_ETAG_MISMATCH,
   CWSANDBOX_FSS_BUCKET_MISMATCH,
   CWSANDBOX_FSS_BUCKET_PROVISIONING,
   CWSANDBOX_FSS_NOT_FOUND,
   CWSANDBOX_FSS_NOT_SUPPORTED,
   CWSANDBOX_FSS_QUOTA_EXCEEDED,
   CWSANDBOX_FSS_SIZE_EXCEEDED,
+  CWSANDBOX_NETWORK_CONFIG_IN_USE,
+  CWSANDBOX_NETWORK_CONFIG_NOT_FOUND,
   CWSANDBOX_RUNNER_SHARD_RETIRING,
   CWSANDBOX_SANDBOX_NOT_FOUND,
   FILE_ERROR_REASONS,
@@ -60,7 +65,11 @@ export function mapGrpcError(error: unknown, context: GrpcErrorContext): CWSandb
           ...(typeof filepath === "string" ? { filepath } : {}),
         });
       }
-      if (reason === CWSANDBOX_SANDBOX_NOT_FOUND || reason === CWSANDBOX_FSS_NOT_FOUND) {
+      if (
+        reason === CWSANDBOX_SANDBOX_NOT_FOUND ||
+        reason === CWSANDBOX_FSS_NOT_FOUND ||
+        reason === CWSANDBOX_NETWORK_CONFIG_NOT_FOUND
+      ) {
         return new CWSandboxNotFoundError(message, details);
       }
       if (reason === CWSANDBOX_FSS_NOT_SUPPORTED) {
@@ -77,6 +86,12 @@ export function mapGrpcError(error: unknown, context: GrpcErrorContext): CWSandb
       }
       if (reason === CWSANDBOX_FSS_BUCKET_PROVISIONING) {
         return new CWSandboxSnapshotBucketProvisioningError(message, details);
+      }
+      if (reason === CWSANDBOX_NETWORK_CONFIG_IN_USE) {
+        return new CWSandboxNetworkConfigInUseError(message, details);
+      }
+      if (reason === CWSANDBOX_ETAG_MISMATCH) {
+        return new CWSandboxEtagMismatchError(message, details);
       }
       if (UNAVAILABLE_REASONS.has(reason)) {
         return new CWSandboxUnavailableError(message, details);

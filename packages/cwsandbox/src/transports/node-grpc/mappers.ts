@@ -14,7 +14,13 @@ import { groupSecretsByStore, normalizeSecrets } from "../../internal/secrets.js
 import { isRegisteredVolume } from "../../internal/validation/file-system-snapshot.js";
 import type { Command, ProcessResult } from "../../public/commands.js";
 import type {
+  NetworkConfigResult,
+  NetworkConfigUnsupportedField,
+  NetworkConfigUpdateField,
+} from "../../public/network-config.js";
+import type {
   CidrBlock as SdkCidrBlock,
+  DnsEgressMode,
   EffectiveEgressRule,
   EffectiveIngressRule,
   Endpoint,
@@ -50,15 +56,23 @@ import type {
   StartSandboxResult,
 } from "../../public/sandbox.js";
 import type {
+  CreateNetworkConfigRequest,
   ExecRequest,
+  UpdateNetworkConfigRequest,
   StartSandboxFromFileRequest,
   StartSandboxFromTemplateRequest,
   StartSandboxRequest,
 } from "../../transport/types.js";
 import {
+  CreateNetworkConfigRequest as ProtoCreateNetworkConfigRequest,
+  NetworkConfig as ProtoNetworkConfig,
+  UpdateNetworkConfigRequest as ProtoUpdateNetworkConfigRequest,
+} from "./generated/coreweave/sandbox/v1/network_config.js";
+import {
   Container,
   Control,
   CreateSandboxFromFileRequest,
+  DNSEgressMode,
   CreateSandboxFromTemplateRequest,
   CreateSandboxRequest,
   DeleteSandboxRequest,
@@ -135,6 +149,9 @@ export function toProtoCreateRequest(request: StartSandboxRequest): CreateSandbo
           ? {}
           : { maxLifetimeSeconds: request.maxLifetimeSeconds }),
         ...(network === undefined ? {} : { network }),
+        ...(request.networkConfigId === undefined
+          ? {}
+          : { networkConfigId: request.networkConfigId }),
         ...(objectStorageAccess === undefined ? {} : { objectStorageAccess }),
         ...(runnerIds.length === 0 ? {} : { mode: SandboxMode.CKS, runnerIds }),
         ...(request.runtimeClass ? { runtimeClass: request.runtimeClass } : {}),
@@ -234,6 +251,11 @@ export function toProtoCreateFromTemplateRequest(
 
   if (request.network !== undefined) {
     overrides.network = toProtoNetwork(request.network) ?? ProtoNetworkOptions.create();
+    hasOverride = true;
+  }
+
+  if (request.networkConfigId !== undefined) {
+    overrides.networkConfigId = request.networkConfigId;
     hasOverride = true;
   }
 
@@ -470,6 +492,7 @@ function toProtoNetwork(
   if (
     network.denyEgress === undefined &&
     network.denyIngress === undefined &&
+    network.dnsEgress === undefined &&
     egress === undefined &&
     ingress === undefined
   ) {
@@ -479,6 +502,9 @@ function toProtoNetwork(
   return ProtoNetworkOptions.create({
     ...(network.denyEgress !== undefined ? { denyEgress: network.denyEgress } : {}),
     ...(network.denyIngress !== undefined ? { denyIngress: network.denyIngress } : {}),
+    ...(network.dnsEgress !== undefined
+      ? { dnsEgress: toProtoDnsEgressMode(network.dnsEgress) }
+      : {}),
     ...(egress === undefined ? {} : { egress }),
     ...(ingress === undefined ? {} : { ingress }),
   });
@@ -526,6 +552,21 @@ function toProtoTenantScope(tenant: NonNullable<IngressRule["tenant"]>): TenantS
       return TenantScope.SAME_ORG;
     case "sandbox_network":
       return TenantScope.SANDBOX_NETWORK;
+  }
+}
+
+function toProtoDnsEgressMode(mode: DnsEgressMode): DNSEgressMode {
+  return mode === "deny" ? DNSEgressMode.DNS_EGRESS_MODE_DENY : DNSEgressMode.DNS_EGRESS_MODE_ALLOW;
+}
+
+function toSdkDnsEgressMode(mode: DNSEgressMode): DnsEgressMode | undefined {
+  switch (mode) {
+    case DNSEgressMode.DNS_EGRESS_MODE_ALLOW:
+      return "allow";
+    case DNSEgressMode.DNS_EGRESS_MODE_DENY:
+      return "deny";
+    default:
+      return undefined;
   }
 }
 
@@ -778,6 +819,9 @@ function toSdkSandboxMetadata(sandbox: ProtoSandboxMessage): SandboxMetadata {
   const containerStatuses = toSdkContainerStatuses(status?.containerStatuses);
   const effectiveEgress = toSdkEffectiveEgress(status?.effectiveEgress);
   const effectiveIngress = toSdkEffectiveIngress(status?.effectiveIngress);
+  const effectiveDnsEgress =
+    status === undefined ? undefined : toSdkDnsEgressMode(status.effectiveDnsEgress);
+  const networkConfigId = sandbox.spec?.networkConfigId;
 
   return {
     ...(sandbox.spec === undefined ? {} : { tags: [...sandbox.spec.tags] }),
@@ -796,7 +840,9 @@ function toSdkSandboxMetadata(sandbox: ProtoSandboxMessage): SandboxMetadata {
     ...(status?.effectiveRuntimeClass === undefined || status.effectiveRuntimeClass === ""
       ? {}
       : { effectiveRuntimeClass: status.effectiveRuntimeClass }),
+    ...(effectiveDnsEgress === undefined ? {} : { effectiveDnsEgress }),
     ...(exposedPorts === undefined ? {} : { exposedPorts }),
+    ...(networkConfigId === undefined || networkConfigId === "" ? {} : { networkConfigId }),
     ...(resourceLimits === undefined ? {} : { resourceLimits }),
     ...(resourceRequests === undefined ? {} : { resourceRequests }),
     ...(status?.runnerGroupId === undefined || status.runnerGroupId === ""
@@ -1156,6 +1202,111 @@ export function toSdkSandboxStatus(status: State): SandboxStatus {
       throw new Error(`Unhandled sandbox status: ${_exhaustiveCheck}`);
     }
   }
+}
+
+const NETWORK_CONFIG_MASK_PATHS: Readonly<Record<NetworkConfigUpdateField, string>> = {
+  denyEgress: "spec.deny_egress",
+  denyIngress: "spec.deny_ingress",
+  dnsEgress: "spec.dns_egress",
+  egress: "spec.egress",
+};
+
+export function toProtoCreateNetworkConfigRequest(
+  request: CreateNetworkConfigRequest,
+): ProtoCreateNetworkConfigRequest {
+  return ProtoCreateNetworkConfigRequest.create({
+    networkConfig: ProtoNetworkConfig.create({
+      networkConfigId: request.networkConfigId,
+      spec: toProtoNetwork(request.network) ?? ProtoNetworkOptions.create(),
+    }),
+    ...(request.requestId === undefined ? {} : { requestId: request.requestId }),
+  });
+}
+
+export function toProtoUpdateNetworkConfigRequest(
+  request: UpdateNetworkConfigRequest,
+): ProtoUpdateNetworkConfigRequest {
+  return ProtoUpdateNetworkConfigRequest.create({
+    networkConfigId: request.networkConfigId,
+    networkConfig: ProtoNetworkConfig.create({
+      networkConfigId: request.networkConfigId,
+      spec: toProtoNetwork(request.network) ?? ProtoNetworkOptions.create(),
+      ...(request.etag === undefined ? {} : { etag: request.etag }),
+    }),
+    updateMask: {
+      paths: [...new Set(request.updateMask)].map((field) => NETWORK_CONFIG_MASK_PATHS[field]),
+    },
+  });
+}
+
+export function toSdkNetworkConfig(config: ProtoNetworkConfig): NetworkConfigResult {
+  const spec = config.spec ?? ProtoNetworkOptions.create();
+  const status = config.status;
+  const unsupportedFields: NetworkConfigUnsupportedField[] = [];
+  const dnsNames: { readonly dnsName: string }[] = [];
+
+  for (const rule of spec.egress) {
+    const name = modeledDnsName(rule);
+    if (name === undefined) {
+      unsupportedFields.push("egress");
+      break;
+    }
+    dnsNames.push({ dnsName: name });
+  }
+  if (spec.ingress.length > 0) {
+    unsupportedFields.push("ingress");
+  }
+
+  const egressModeled = !unsupportedFields.includes("egress") && dnsNames.length > 0;
+  const dnsEgress = toSdkDnsEgressMode(spec.dnsEgress);
+  const createdAt = toDate(status?.createTime);
+  const updatedAt = toDate(status?.updateTime);
+
+  return {
+    networkConfigId: config.networkConfigId,
+    network: {
+      ...(spec.denyEgress === undefined ? {} : { denyEgress: spec.denyEgress }),
+      ...(spec.denyIngress === undefined ? {} : { denyIngress: spec.denyIngress }),
+      ...(dnsEgress === undefined ? {} : { dnsEgress }),
+      ...(egressModeled ? { egress: dnsNames } : {}),
+    },
+    ...(config.etag === undefined || config.etag === "" ? {} : { etag: config.etag }),
+    ...(status?.sandboxId === undefined || status.sandboxId === ""
+      ? {}
+      : { sandboxId: status.sandboxId }),
+    platformManaged: status?.platformManaged === true,
+    unsupportedFields: unsupportedFields.sort(),
+    ...(createdAt === undefined ? {} : { createdAt }),
+    ...(updatedAt === undefined ? {} : { updatedAt }),
+  };
+}
+
+/**
+ * The hostname of a rule `NetworkOptions.egress` can express: an HTTPS name
+ * on the default 443 path with no excepts. Anything else is undefined.
+ */
+function modeledDnsName(rule: ProtoEgressRule): string | undefined {
+  if (rule.destination.oneofKind !== "httpsHostname" || rule.httpsHostnameExcept.length > 0) {
+    return undefined;
+  }
+  const name = rule.destination.httpsHostname;
+  if (name === "" || !rule.ports.every(isTcp443)) {
+    return undefined;
+  }
+  return name;
+}
+
+function isTcp443(range: {
+  readonly protocol: string;
+  readonly port: number;
+  readonly endPort: number;
+}): boolean {
+  const protocol = range.protocol.trim().toUpperCase();
+  return (
+    (protocol === "" || protocol === "TCP") &&
+    range.port === 443 &&
+    (range.endPort === 0 || range.endPort === 443)
+  );
 }
 
 export function toSdkFileSystemSnapshot(
