@@ -135,11 +135,13 @@ export async function listNetworkConfigRecords(
   );
 }
 
+const RULE_LIST_FIELDS = ["egress", "ingress"] as const;
+
 /**
- * Writing `egress` replaces the whole stored list, including rules
- * `NetworkOptions` cannot show. Read first, refuse if the list has such
- * rules, and pin the write to the etag that was read so a concurrent
- * writer cannot slip them in between.
+ * Writing `egress` or `ingress` replaces the whole stored list, including
+ * rules `NetworkOptions` cannot show. Read first, refuse if a written list
+ * has such rules, and pin the write to the etag that was read so a
+ * concurrent writer cannot slip them in between.
  */
 export async function updateNetworkConfigRecord(
   transport: SandboxTransport,
@@ -153,24 +155,26 @@ export async function updateNetworkConfigRecord(
   const updateMask = options.updateMask ?? setFields(network);
   if (options.updateMask === undefined && updateMask.length === 0) {
     throw new CWSandboxValidationError(
-      "network must set denyEgress, denyIngress, dnsEgress, or egress (or pass updateMask).",
+      "network must set denyEgress, denyIngress, dnsEgress, egress, or ingress (or pass updateMask).",
     );
   }
 
   const deadline = options.timeoutMs === undefined ? undefined : Date.now() + options.timeoutMs;
   let etag = options.etag;
 
-  if (updateMask.includes("egress")) {
+  const ruleLists = RULE_LIST_FIELDS.filter((field) => updateMask.includes(field));
+  if (ruleLists.length > 0) {
     const current = await transport.getNetworkConfig({
       networkConfigId,
       ...(options.signal === undefined ? {} : { signal: options.signal }),
       ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
     });
-    if (current.unsupportedFields.includes("egress")) {
+    const blocked = ruleLists.find((field) => current.unsupportedFields.includes(field));
+    if (blocked !== undefined) {
       throw new CWSandboxValidationError(
-        `NetworkConfig '${networkConfigId}' has egress rules this SDK cannot represent ` +
-          "(address, tenant, selector, or non-443 rules). Writing egress would remove them; " +
-          "leave egress out of the update or change it with a client that supports those rules.",
+        `NetworkConfig '${networkConfigId}' has ${blocked} rules this SDK cannot represent. ` +
+          `Writing ${blocked} would remove them; leave ${blocked} out of the update or ` +
+          "change it with a client that supports those rules.",
       );
     }
     etag ??= current.etag;
@@ -219,6 +223,9 @@ function setFields(network: NetworkOptions): NetworkConfigUpdateField[] {
   }
   if (network.egress !== undefined) {
     fields.push("egress");
+  }
+  if (network.ingress !== undefined) {
+    fields.push("ingress");
   }
   return fields;
 }

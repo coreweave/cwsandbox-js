@@ -13,6 +13,7 @@ import {
   Sandbox as ProtoSandbox,
   SandboxSpec,
   State,
+  TenantScope,
 } from "./generated/coreweave/sandbox/v1/sandbox.js";
 import { Timestamp } from "./generated/google/protobuf/timestamp.js";
 import {
@@ -138,10 +139,11 @@ describe("NetworkConfig mappers", () => {
   });
 
   it.each([
+    ["rule with no destination", EgressRule.create()],
     [
-      "CIDR rule",
+      "tenant UNSPECIFIED",
       EgressRule.create({
-        destination: { oneofKind: "cidr", cidr: { cidr: "10.0.0.0/8", except: [] } },
+        destination: { oneofKind: "tenant", tenant: TenantScope.UNSPECIFIED },
       }),
     ],
     [
@@ -166,6 +168,87 @@ describe("NetworkConfig mappers", () => {
 
     expect(result.unsupportedFields).toEqual(["egress"]);
     expect(result.network).toEqual({});
+  });
+
+  it("writes every rule kind and reads it back", () => {
+    const network = {
+      egress: [
+        { dnsName: "PyPI.org" },
+        { cidr: { cidr: "10.0.0.0/8", exceptCidrs: ["10.1.0.0/16"] }, ports: [{ port: 5432 }] },
+        { tenant: "same_org", ports: [{ endPort: 9000, port: 8000, protocol: "TCP" }] },
+        { any: true, ports: [{ port: 53, protocol: "UDP" }] },
+        { selector: { namespaceLabels: { team: "a" }, podLabels: { app: "db" } } },
+        { selector: { podLabels: { app: "cache" } } },
+      ],
+      ingress: [
+        { cidr: { cidr: "203.0.113.0/24" }, ports: [{ port: 8080 }] },
+        { tenant: "same_user" },
+        { any: true },
+      ],
+    } as const;
+
+    const request = toProtoCreateNetworkConfigRequest({ network, networkConfigId: "agent-net" });
+    const spec = request.networkConfig?.spec;
+    expect(spec?.egress.map((rule) => rule.destination.oneofKind)).toEqual([
+      "httpsHostname",
+      "cidr",
+      "tenant",
+      "any",
+      "selector",
+      "selector",
+    ]);
+    expect(spec?.egress[0]?.destination).toEqual({
+      httpsHostname: "pypi.org",
+      oneofKind: "httpsHostname",
+    });
+    expect(spec?.egress[1]).toMatchObject({
+      destination: { cidr: { cidr: "10.0.0.0/8", except: ["10.1.0.0/16"] } },
+      ports: [{ endPort: 0, port: 5432, protocol: "" }],
+    });
+    expect(spec?.egress[2]?.destination).toEqual({
+      oneofKind: "tenant",
+      tenant: TenantScope.SAME_ORG,
+    });
+
+    const result = toSdkNetworkConfig(
+      NetworkConfig.create({ networkConfigId: "agent-net", spec: spec ?? NetworkOptions.create() }),
+    );
+    expect(result.unsupportedFields).toEqual([]);
+    expect(result.network).toEqual({
+      ...network,
+      egress: [{ dnsName: "pypi.org" }, ...network.egress.slice(1)],
+    });
+  });
+
+  it("reads a hostname rule that lists TCP 443 more than once", () => {
+    const result = toSdkNetworkConfig(
+      NetworkConfig.create({
+        networkConfigId: "agent-net",
+        spec: NetworkOptions.create({
+          egress: [
+            hostnameRule("pypi.org", [
+              { endPort: 0, port: 443, protocol: "TCP" },
+              { endPort: 443, port: 443, protocol: "tcp" },
+            ]),
+          ],
+        }),
+      }),
+    );
+    expect(result.unsupportedFields).toEqual([]);
+    expect(result.network).toEqual({ egress: [{ dnsName: "pypi.org" }] });
+  });
+
+  it("writes ingress as spec.ingress on update", () => {
+    const request = toProtoUpdateNetworkConfigRequest({
+      network: { ingress: [{ tenant: "same_org" }] },
+      networkConfigId: "agent-net",
+      updateMask: ["ingress"],
+    });
+    expect(request.updateMask?.paths).toEqual(["spec.ingress"]);
+    expect(request.networkConfig?.spec?.ingress[0]?.source).toEqual({
+      oneofKind: "tenant",
+      tenant: TenantScope.SAME_ORG,
+    });
   });
 
   it("flags ingress rules and maps the DNS egress mode", () => {

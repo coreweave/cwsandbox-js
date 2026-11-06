@@ -95,21 +95,30 @@ SPDX-PackageName: cwsandbox
   configs directly; pass `networkConfigId` to `create` / `run` /
   `runFromTemplate` to bind a caller-created config (mutually exclusive with
   `network`). Updates take an optional `updateMask` (defaults to the fields set
-  on `network`) and `etag`. An update that writes `egress` reads the config
-  first and refuses with `CWSandboxValidationError` when it holds rules this
-  SDK cannot represent (address, tenant, selector, non-443), so they are never
-  silently removed. New errors: `CWSandboxNetworkConfigInUseError`,
+  on `network`) and `etag`. An update that writes `egress` or `ingress` reads
+  the config first and refuses with `CWSandboxValidationError` when that list
+  holds rules this SDK cannot represent, so they are never silently removed. New errors: `CWSandboxNetworkConfigInUseError`,
   `CWSandboxEtagMismatchError`; `CWSANDBOX_NETWORK_CONFIG_NOT_FOUND` maps to
   not-found and `CWSANDBOX_DNS_EGRESS_UNAVAILABLE` is retryable. Requires a
   backend with live network updates; older backends return no
-  `networkConfigId`. Address, tenant, and selector egress rules are not
-  modeled yet, and `network.ingress` can be set on create but not updated;
-  `unsupportedFields` reports stored rules the SDK cannot show.
+  `networkConfigId`. `unsupportedFields` reports stored rule lists the SDK
+  cannot show.
 - Add `network.dnsEgress` (`"allow"` / `"deny"`) for port-53 DNS to the
   platform resolver, on create and on network updates, and
   `sandbox.effectiveDnsEgress` for the mode in effect. On update, leave
   `dnsEgress` unset to keep the current mode, or name it in `updateMask`
   without a value to reset it to the policy default.
+- `network.egress` takes every egress rule type, in the same shape as
+  `IngressRule`: set exactly one of `dnsName`, `cidr` (`CidrBlock`), `tenant`,
+  `any: true`, or `selector` (`SelectorBlock`), plus optional `ports`. A
+  `dnsName` rule's `ports` must be omitted or list only TCP 443. Rules work on
+  create, template overrides, and network updates. Network updates can also
+  write `ingress` (`updateMask: ["ingress"]`). NetworkConfig results read
+  stored egress and ingress rules back in full. A hostname rule reads back
+  without its TCP 443 `ports`.
+- `EgressRule.dnsName` is now optional, so reading it from an `EgressRule`
+  gives `string | undefined`. Code that only builds hostname rules is
+  unaffected.
 
 ## 1.0.0
 

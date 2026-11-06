@@ -95,6 +95,27 @@ describe("updateNetworkConfigRecord", () => {
     expect(updates).toEqual([]);
   });
 
+  it("reads first and refuses to write ingress over rules it cannot represent", async () => {
+    const blocked = recordingTransport(
+      createFakeNetworkConfig("agent-net", { unsupportedFields: ["ingress"] }),
+    );
+    await expect(
+      updateNetworkConfigRecord(blocked.transport, "agent-net", {
+        ingress: [{ tenant: "same_org" }],
+      }),
+    ).rejects.toThrow(/ingress rules this SDK cannot represent/);
+    expect(blocked.updates).toEqual([]);
+
+    const allowed = recordingTransport(
+      createFakeNetworkConfig("agent-net", { etag: "etag-read", unsupportedFields: ["egress"] }),
+    );
+    await updateNetworkConfigRecord(allowed.transport, "agent-net", {
+      ingress: [{ tenant: "same_org" }],
+    });
+    expect(allowed.gets).toHaveLength(1);
+    expect(allowed.updates[0]).toMatchObject({ etag: "etag-read", updateMask: ["ingress"] });
+  });
+
   it("allows deny-flag writes over rules it cannot represent", async () => {
     const { transport, updates } = recordingTransport(
       createFakeNetworkConfig("agent-net", { unsupportedFields: ["egress", "ingress"] }),
@@ -154,7 +175,7 @@ describe("updateNetworkConfigRecord", () => {
     );
   });
 
-  it.each([["*"], ["ingress"], ["spec.egress"]])("rejects mask entry %s", async (field) => {
+  it.each([["*"], ["services"], ["spec.egress"]])("rejects mask entry %s", async (field) => {
     const { transport } = recordingTransport();
 
     await expect(
@@ -165,6 +186,21 @@ describe("updateNetworkConfigRecord", () => {
         { updateMask: [field] as unknown as readonly ["egress"] },
       ),
     ).rejects.toBeInstanceOf(CWSandboxValidationError);
+  });
+
+  it("lists every accepted field when a mask entry is rejected", async () => {
+    const { transport } = recordingTransport();
+
+    await expect(
+      updateNetworkConfigRecord(
+        transport,
+        "agent-net",
+        {},
+        { updateMask: ["services"] as unknown as readonly ["egress"] },
+      ),
+    ).rejects.toThrow(
+      'updateMask entries must be one of "denyEgress", "denyIngress", "dnsEgress", "egress", "ingress"; got "services".',
+    );
   });
 
   it("validates rules and the id before any RPC", async () => {

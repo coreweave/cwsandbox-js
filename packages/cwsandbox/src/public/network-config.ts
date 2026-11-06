@@ -6,12 +6,18 @@ import type { RequestOptions } from "./common.js";
 import type { NetworkOptions } from "./network.js";
 
 /** Top-level `NetworkOptions` fields an update can write. */
-export type NetworkConfigUpdateField = "denyEgress" | "denyIngress" | "dnsEgress" | "egress";
+export type NetworkConfigUpdateField =
+  | "denyEgress"
+  | "denyIngress"
+  | "dnsEgress"
+  | "egress"
+  | "ingress";
 
 /**
- * Parts of a stored NetworkConfig that this SDK's `NetworkOptions` cannot
- * show: non-hostname egress rules (address, tenant, any, selector) or name
- * rules with ports other than TCP 443, and ingress rules.
+ * Rule lists in a stored NetworkConfig that this SDK's `NetworkOptions`
+ * cannot show in full, such as rules from a newer API version, hostname
+ * excepts, or a hostname rule on ports other than TCP 443. The list is left
+ * out of `network` when it is reported here.
  */
 export type NetworkConfigUnsupportedField = "egress" | "ingress";
 

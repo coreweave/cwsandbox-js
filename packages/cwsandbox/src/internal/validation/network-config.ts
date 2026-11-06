@@ -19,6 +19,7 @@ const UPDATE_FIELDS: ReadonlySet<string> = new Set<NetworkConfigUpdateField>([
   "denyIngress",
   "dnsEgress",
   "egress",
+  "ingress",
 ]);
 
 export function validateCreateNetworkConfigOptions(options: CreateNetworkConfigOptions): void {
@@ -67,7 +68,7 @@ export function validateUpdateNetworkConfigOptions(
   for (const field of mask) {
     if (typeof field !== "string" || !UPDATE_FIELDS.has(field)) {
       throw new CWSandboxValidationError(
-        `updateMask entries must be "denyEgress", "denyIngress", "dnsEgress", or "egress"; got ${JSON.stringify(field)}.`,
+        `updateMask entries must be one of ${[...UPDATE_FIELDS].map((name) => JSON.stringify(name)).join(", ")}; got ${JSON.stringify(field)}.`,
       );
     }
   }

@@ -962,6 +962,25 @@ console.log(sandbox.dnsEgressNames);
 console.log((await sandbox.inspect()).dnsEgressNames);
 ```
 
+Other egress rules name an address range, other sandboxes, any destination,
+or cluster workloads by label. Each rule sets exactly one of `dnsName`,
+`cidr`, `tenant`, `any: true`, or `selector`, plus optional `ports` (omitted
+means all ports; a `dnsName` rule is always TCP 443). A rule outside the
+runner policy's allowed egress is rejected, never narrowed:
+
+```ts
+await client.run(["python"], {
+  network: {
+    egress: [
+      { dnsName: "pypi.org" },
+      { cidr: { cidr: "10.0.0.0/8", exceptCidrs: ["10.1.0.0/16"] }, ports: [{ port: 5432 }] },
+      { tenant: "same_org", ports: [{ port: 8000, endPort: 8099 }] },
+      { selector: { podLabels: { app: "db" } } },
+    ],
+  },
+});
+```
+
 `effectiveEgress` and `effectiveIngress` echo the full rule sets in effect: the
 declared rules, or the policy default when none were declared. Each rule sets
 exactly one destination (`dnsName`, `cidr`, `tenant`, `any`, or `selector`; an
@@ -977,7 +996,7 @@ Allow inbound traffic to CUSTOM-visibility services with `ingress` rules. Each
 rule sets exactly one source (`cidr`, `tenant`, or `any: true`) and optional
 `ports`; omitted ports mean every CUSTOM port. Rules are allow-only over a
 default deny, and a rule outside the runner policy's allowed ingress is
-rejected at create. `denyIngress: true` ignores the rules:
+rejected. `denyIngress: true` ignores the rules:
 
 ```ts
 await client.run(["python", "-m", "http.server", "8000"], {
@@ -1132,8 +1151,8 @@ console.log(sandbox.execStats); // { execCount, execCompletedOk, execCompletedNo
 Each sandbox is bound to one NetworkConfig that holds its desired rules.
 `sandbox.updateNetwork(...)` updates it and applies the change to the running
 sandbox before returning. Only the fields you set change, so granting a
-hostname leaves the deny flags alone. `egress` replaces the whole hostname
-list; `egress: []` clears it back to the policy default:
+hostname leaves the deny flags alone. `egress` and `ingress` each replace the
+whole list; `egress: []` clears it back to the policy default:
 
 ```ts
 const sandbox = await client.create({
@@ -1151,10 +1170,10 @@ await sandbox.updateNetwork({ egress: [] });
 Pass `updateMask` to choose fields explicitly; a named field you leave unset
 is cleared. Pass `etag` from an earlier read to reject the write if someone
 else changed the config in between (`CWSandboxEtagMismatchError`; read again
-and retry). When an update writes `egress`, the SDK reads the config first and
-uses its etag. It also refuses the write if the stored list holds rules this
-SDK cannot show, such as address ranges; `unsupportedFields` on the result
-lists those. A sandbox that is still starting is waited on, bounded by
+and retry). When an update writes `egress` or `ingress`, the SDK reads the
+config first and uses its etag. It also refuses the write if that stored list
+holds rules this SDK cannot show, such as rules from a newer API version;
+`unsupportedFields` on the result lists those. A sandbox that is still starting is waited on, bounded by
 `timeoutMs`. Adding the first hostname to a sandbox created without any may
 be rejected if the sandbox's runner can't add hostnames to a running sandbox;
 create a new sandbox in that case.
@@ -1170,10 +1189,18 @@ await sandbox.updateNetwork({ dnsEgress: "deny" });
 console.log(sandbox.effectiveDnsEgress); // "deny"
 ```
 
-This SDK updates hostname egress, the deny flags, and `dnsEgress`. Address,
-tenant, and selector egress rules are not modeled yet, and `network.ingress`
-can be set on create but not changed with `updateNetwork`; the Python SDK
-supports both.
+Ingress rules apply only to CUSTOM-visibility ports, so updating `ingress`
+needs a sandbox that exposes one. `effectiveEgress` and `effectiveIngress`
+refresh after the update; the policy may add its own rules to them:
+
+```ts
+const server = await client.run(["python", "-m", "http.server", "8080"], {
+  services: [{ port: 8080, visibility: "custom" }],
+});
+
+await server.updateNetwork({ ingress: [{ tenant: "same_org", ports: [{ port: 8080 }] }] });
+console.log(server.effectiveIngress);
+```
 
 `create` without `networkConfigId` makes a config for that sandbox and
 deletes it when the sandbox ends (`platformManaged: true`). To keep rules

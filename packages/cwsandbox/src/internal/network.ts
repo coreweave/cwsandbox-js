@@ -10,6 +10,7 @@ import type {
   IngressRule,
   NetworkOptions,
   PortRange,
+  SelectorBlock,
   Service,
 } from "../public/network.js";
 
@@ -17,7 +18,7 @@ const ENDPOINT_AUTHS = new Set(["open", "share_token"]);
 const ENDPOINT_KINDS = new Set(["https", "tls_passthrough"]);
 const SERVICE_PROTOCOLS = new Set(["sctp", "tcp", "udp", "unspecified"]);
 const SERVICE_VISIBILITIES = new Set(["custom", "private", "public", "unspecified"]);
-// "unspecified" is excluded from IngressRule.tenant; untyped callers are rejected here.
+// "unspecified" is excluded from rule tenants; untyped callers are rejected here.
 const TENANT_SCOPES: ReadonlySet<string> = new Set(["same_org", "same_user", "sandbox_network"]);
 
 const DNS1123_LABEL = "[a-z0-9](?:[-a-z0-9]*[a-z0-9])?";
@@ -96,21 +97,90 @@ function validateEgress(network: NetworkOptions | undefined): void {
 
   const egress = network.egress as unknown;
   if (typeof egress === "string" || !Array.isArray(egress)) {
-    throw new CWSandboxValidationError("network.egress must be a sequence of { dnsName: string }");
+    throw new CWSandboxValidationError("network.egress must be an array of egress rules");
   }
 
-  for (const rule of egress) {
-    if (!isEgressRule(rule)) {
-      throw new CWSandboxValidationError(
-        "network.egress must be a sequence of { dnsName: string }",
-      );
-    }
-    normalizeDnsName(rule.dnsName);
+  for (const [index, rule] of (egress as readonly unknown[]).entries()) {
+    validateEgressRule(rule, `network.egress[${index}]`);
   }
 
   if (network.denyEgress === true && egress.length > 0) {
     throw new CWSandboxValidationError("network.denyEgress cannot be combined with egress rules");
   }
+}
+
+function validateEgressRule(value: unknown, field: string): void {
+  if (!isObject(value)) {
+    throw new CWSandboxValidationError(`${field} must be an object`);
+  }
+  const rule = value as EgressRule;
+  if (rule.any !== undefined && typeof rule.any !== "boolean") {
+    throw new CWSandboxValidationError(`${field}.any must be a boolean`);
+  }
+  const destinations = [
+    rule.dnsName !== undefined,
+    rule.cidr !== undefined,
+    rule.tenant !== undefined,
+    rule.any === true,
+    rule.selector !== undefined,
+  ];
+  if (destinations.filter(Boolean).length !== 1) {
+    throw new CWSandboxValidationError(
+      `${field} requires exactly one destination: dnsName, cidr, tenant, any: true, or selector`,
+    );
+  }
+  if (rule.dnsName !== undefined) {
+    if (typeof rule.dnsName !== "string") {
+      throw new CWSandboxValidationError(`${field}.dnsName must be a string`);
+    }
+    normalizeDnsName(rule.dnsName);
+  }
+  if (rule.cidr !== undefined) {
+    validateCidrBlock(rule.cidr, `${field}.cidr`);
+  }
+  if (rule.tenant !== undefined) {
+    validateTenantScope(rule.tenant, `${field}.tenant`);
+  }
+  if (rule.selector !== undefined) {
+    validateSelectorBlock(rule.selector, `${field}.selector`);
+  }
+  validatePortRanges(rule.ports, `${field}.ports`);
+  if (rule.dnsName !== undefined && !isHttpsOnlyPorts(rule.ports)) {
+    throw new CWSandboxValidationError(
+      `${field}.ports must be omitted or list only TCP 443 on a dnsName rule`,
+    );
+  }
+}
+
+/** True when `ports` is omitted or lists only TCP 443 (repeats allowed). */
+export function isHttpsOnlyPorts(ports: readonly PortRange[] | undefined): boolean {
+  return ports === undefined || ports.every(isHttps443);
+}
+
+/** True when `range` is exactly TCP 443. */
+export function isHttps443(range: PortRange): boolean {
+  return (
+    range.port === 443 &&
+    (range.endPort === undefined || range.endPort === 443) &&
+    (range.protocol === undefined || range.protocol.toUpperCase() === "TCP")
+  );
+}
+
+function validateSelectorBlock(value: unknown, field: string): void {
+  if (!isObject(value)) {
+    throw new CWSandboxValidationError(`${field} must be an object`);
+  }
+  const selector = value as SelectorBlock;
+  if (!isLabelMap(selector.podLabels) || Object.keys(selector.podLabels).length === 0) {
+    throw new CWSandboxValidationError(`${field}.podLabels must set at least one string label`);
+  }
+  if (selector.namespaceLabels !== undefined && !isLabelMap(selector.namespaceLabels)) {
+    throw new CWSandboxValidationError(`${field}.namespaceLabels must map strings to strings`);
+  }
+}
+
+function isLabelMap(value: unknown): value is Readonly<Record<string, string>> {
+  return isObject(value) && Object.values(value).every((label) => typeof label === "string");
 }
 
 function validateIngress(network: NetworkOptions | undefined): void {
@@ -142,18 +212,29 @@ function validateIngressRule(value: unknown, field: string): void {
   if (rule.cidr !== undefined) {
     validateCidrBlock(rule.cidr, `${field}.cidr`);
   }
-  if (rule.tenant !== undefined && !TENANT_SCOPES.has(rule.tenant)) {
+  if (rule.tenant !== undefined) {
+    validateTenantScope(rule.tenant, `${field}.tenant`);
+  }
+  validatePortRanges(rule.ports, `${field}.ports`);
+}
+
+function validateTenantScope(value: unknown, field: string): void {
+  if (typeof value !== "string" || !TENANT_SCOPES.has(value)) {
     throw new CWSandboxValidationError(
-      `${field}.tenant must be "same_org", "same_user", or "sandbox_network"`,
+      `${field} must be "same_org", "same_user", or "sandbox_network"`,
     );
   }
-  if (rule.ports !== undefined) {
-    if (!Array.isArray(rule.ports)) {
-      throw new CWSandboxValidationError(`${field}.ports must be an array`);
-    }
-    for (const [index, port] of (rule.ports as readonly unknown[]).entries()) {
-      validatePortRange(port, `${field}.ports[${index}]`);
-    }
+}
+
+function validatePortRanges(value: unknown, field: string): void {
+  if (value === undefined) {
+    return;
+  }
+  if (!Array.isArray(value)) {
+    throw new CWSandboxValidationError(`${field} must be an array`);
+  }
+  for (const [index, port] of (value as readonly unknown[]).entries()) {
+    validatePortRange(port, `${field}[${index}]`);
   }
 }
 
@@ -204,14 +285,6 @@ function validateDnsEgress(network: NetworkOptions | undefined): void {
   if (mode !== undefined && mode !== "allow" && mode !== "deny") {
     throw new CWSandboxValidationError('network.dnsEgress must be "allow" or "deny"');
   }
-}
-
-function isEgressRule(value: unknown): value is EgressRule {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as { readonly dnsName?: unknown }).dnsName === "string"
-  );
 }
 
 function isDnsNameGrant(name: string): boolean {

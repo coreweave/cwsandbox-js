@@ -598,6 +598,20 @@ test("public API types", async () => {
   // @ts-expect-error tenant is a closed set of values
   const badTenant: IngressRule = { tenant: "everyone" };
   void badTenant;
+  const everyEgressRule: NetworkOptions = {
+    egress: [
+      { dnsName: "pypi.org", ports: [{ port: 443, protocol: "TCP" }] },
+      { cidr: { cidr: "10.0.0.0/8", exceptCidrs: ["10.1.0.0/16"] }, ports: [{ port: 5432 }] },
+      { tenant: "same_user" },
+      { any: true, ports: [{ port: 53, protocol: "UDP" }] },
+      { selector: { podLabels: { app: "db" }, namespaceLabels: { team: "a" } } },
+    ],
+  };
+  expectTypeOf(everyEgressRule).toExtend<NetworkOptions>();
+  expectTypeOf<EgressRule["dnsName"]>().toEqualTypeOf<string | undefined>();
+  // @ts-expect-error "unspecified" is a read-back value, not a rule tenant
+  const unspecifiedTenant: EgressRule = { tenant: "unspecified" };
+  void unspecifiedTenant;
   expectTypeOf(endpoint).toExtend<Endpoint>();
   expectTypeOf(service).toExtend<Service>();
   expectTypeOf(serviceUrl).toExtend<ServiceUrl>();
@@ -824,7 +838,7 @@ test("public API types", async () => {
     readonly NetworkConfigUnsupportedField[]
   >();
   expectTypeOf<NetworkConfigUpdateField>().toEqualTypeOf<
-    "denyEgress" | "denyIngress" | "dnsEgress" | "egress"
+    "denyEgress" | "denyIngress" | "dnsEgress" | "egress" | "ingress"
   >();
   expectTypeOf<NetworkConfigUnsupportedField>().toEqualTypeOf<"egress" | "ingress">();
   expectTypeOf<NetworkOptions["dnsEgress"]>().toEqualTypeOf<DnsEgressMode | undefined>();
@@ -835,7 +849,7 @@ test("public API types", async () => {
   >();
 
   // @ts-expect-error updateMask is limited to fields NetworkOptions can express.
-  client.updateNetworkConfig("agent-net", {}, { updateMask: ["ingress"] });
+  client.updateNetworkConfig("agent-net", {}, { updateMask: ["services"] });
 
   // @ts-expect-error runFromFile cannot bind a NetworkConfig.
   client.runFromFile(composeBytes, { networkConfigId: "agent-net", primaryService: "main" });
