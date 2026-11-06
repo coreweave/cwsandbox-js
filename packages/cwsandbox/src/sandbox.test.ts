@@ -266,7 +266,7 @@ describe("Sandbox", () => {
           resourceLimits: { cpu: "4", memory: "8Gi" },
           resourceRequests: { cpu: "1", memory: "1Gi" },
           runnerId: "runner-id",
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
           startedAt,
           status: "running",
@@ -295,7 +295,7 @@ describe("Sandbox", () => {
       async start(request) {
         return {
           endpointShareToken: "create-only-token",
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
           status: "running",
         };
@@ -315,7 +315,7 @@ describe("Sandbox", () => {
       ...createFakeTransport(),
       async start(request) {
         return {
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
           status: "creating",
         };
@@ -369,7 +369,7 @@ describe("Sandbox", () => {
       async start(request) {
         return {
           exposedPorts: ports,
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
           status: "running",
         };
@@ -403,7 +403,7 @@ describe("Sandbox", () => {
       async start(request) {
         return {
           endpointShareToken: "create-only-token",
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
           status: "running",
         };
@@ -432,7 +432,7 @@ describe("Sandbox", () => {
       ...createFakeTransport(),
       async start(request) {
         return {
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           status: "creating",
         };
       },
@@ -465,7 +465,7 @@ describe("Sandbox", () => {
       async start(request) {
         return {
           exposedPorts: ports,
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           status: "running",
         };
       },
@@ -491,7 +491,7 @@ describe("Sandbox", () => {
       async start(request) {
         return {
           exposedPorts: [{ name: "http", port: 8000, protocol: "tcp" }],
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           status: "running",
         };
       },
@@ -529,7 +529,7 @@ describe("Sandbox", () => {
       ...createFakeTransport(),
       async start(request) {
         return {
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           serviceEndpoints: [created],
           status: "running",
         };
@@ -554,7 +554,7 @@ describe("Sandbox", () => {
       ...createFakeTransport(),
       async start(request) {
         return {
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           serviceEndpoints: [created],
           status: "running",
         };
@@ -578,7 +578,7 @@ describe("Sandbox", () => {
       async start(request) {
         return {
           dnsEgressNames: ["pypi.org", "*.pypi.org"],
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           status: "running",
         };
       },
@@ -606,7 +606,7 @@ describe("Sandbox", () => {
       async start(request) {
         return {
           dnsEgressNames: ["pypi.org"],
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           status: "running",
         };
       },
@@ -632,7 +632,7 @@ describe("Sandbox", () => {
       async start(request) {
         return {
           dnsEgressNames: ["pypi.org"],
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           status: "running",
         };
       },
@@ -660,7 +660,7 @@ describe("Sandbox", () => {
       ...createFakeTransport(),
       async start(request) {
         return {
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           status: "creating",
         };
       },
@@ -712,7 +712,7 @@ describe("Sandbox", () => {
       async start(request) {
         return {
           exposedPorts: [{ name: "tls", port: 8443, protocol: "tcp" }],
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           serviceAddresses: [address],
           status: "creating",
         };
@@ -747,7 +747,7 @@ describe("Sandbox", () => {
       async start(request) {
         return {
           exposedPorts: [{ name: "tls", port: 8443, protocol: "tcp" }],
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           serviceAddresses: [address],
           status: "creating",
         };
@@ -775,7 +775,7 @@ describe("Sandbox", () => {
       async start(request) {
         return {
           exposedPorts: [{ name: "tls", port: 8443, protocol: "tcp" }],
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           serviceAddresses: [
             {
               address: "8443-tls-id.example:443",
@@ -808,7 +808,7 @@ describe("Sandbox", () => {
       async start(request) {
         return {
           exposedPorts: [{ name: "tls", port: 8443, protocol: "tcp" }],
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           serviceAddresses: [
             {
               address: "8443-tls-id.example:443",
@@ -841,7 +841,7 @@ describe("Sandbox", () => {
       async start(request) {
         return {
           exposedPorts: [{ name: "tls", port: 8443, protocol: "tcp" }],
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           serviceAddresses: [
             {
               address: "8443-tls-id.example:443",
@@ -876,7 +876,7 @@ describe("Sandbox", () => {
       async start(request) {
         return {
           exposedPorts: [{ name: "tls", port: 8443, protocol: "tcp" }],
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           serviceAddresses: [
             {
               address: "8443-tls-id.example:443",
@@ -911,7 +911,7 @@ describe("Sandbox", () => {
       async start(request) {
         return {
           exposedPorts: [{ name: "tls", port: 8443, protocol: "tcp" }],
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           serviceAddresses: [
             {
               address: "8443-tls-id.example:443",
@@ -943,7 +943,7 @@ describe("Sandbox", () => {
       async start(request) {
         return {
           exposedPorts: [{ name: "tls", port: 8443, protocol: "tcp" }],
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           serviceAddresses: [
             {
               address: "8443-tls-id.example:443",
@@ -978,7 +978,7 @@ describe("Sandbox", () => {
       async start(request) {
         return {
           endpointShareToken: "create-only-token",
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           serviceUrls: [{ name: "http", port: 8000, url: "https://sandbox.example.com" }],
           status: "running",
         };
@@ -1008,7 +1008,7 @@ describe("Sandbox", () => {
       ...createFakeTransport(),
       async start(request) {
         return {
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           status: "running",
         };
       },
@@ -1034,7 +1034,7 @@ describe("Sandbox", () => {
       ...createFakeTransport(),
       async start(request) {
         return {
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           status: "creating",
         };
       },
@@ -1060,7 +1060,7 @@ describe("Sandbox", () => {
       async start(request) {
         return {
           endpointShareToken: "create-only-token",
-          sandboxId: `sandbox-for-${request.command[0]}`,
+          sandboxId: `sandbox-for-${request.command?.[0]}`,
           status: "creating",
         };
       },
