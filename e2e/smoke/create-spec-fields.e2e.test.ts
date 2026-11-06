@@ -78,6 +78,7 @@ describeWithCredentials("live create-spec fields smoke", { sequential: true }, (
         async (sandbox) => {
           console.log(`Started sandbox with runtimeClass ${runtimeClass}: ${sandbox.sandboxId}`);
           await expect(sandbox.getStatus()).resolves.toBe("running");
+          expect(sandbox.effectiveRuntimeClass).toBe(runtimeClass);
         },
       );
     },
@@ -104,6 +105,14 @@ describeWithCredentials("live create-spec fields smoke", { sequential: true }, (
         async (sandbox) => {
           console.log(`Started sandbox with ingress: ${sandbox.sandboxId}`);
           await expect(sandbox.getStatus()).resolves.toBe("running");
+          expect(sandbox.effectiveIngress).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                ports: expect.arrayContaining([expect.objectContaining({ port: 8000 })]),
+                tenant: "same_org",
+              }),
+            ]),
+          );
         },
       );
     },
@@ -129,6 +138,9 @@ describeWithCredentials("live create-spec fields smoke", { sequential: true }, (
           const mount = await sandbox.exec(["sh", "-c", "test -d /data && ! touch /data/.probe"]);
           logProcessResult("read-only mount", mount);
           expect(mount.exitCode).toBe(0);
+
+          await sandbox.inspect();
+          expect(sandbox.attachedVolumeIds).toEqual(expect.arrayContaining([id]));
 
           const listed = await waitUntilListCondition(client, {
             expectedSandboxIds: [sandbox.sandboxId],
