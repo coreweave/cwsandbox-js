@@ -30,6 +30,8 @@ import type {
   ReadFileRequest,
   ReadFileResult,
   ReadStreamRequest,
+  RunScriptRequest,
+  RunScriptResult,
   WriteFileRequest,
   WriteStreamRequest,
 } from "../../transport/file-adapter.js";
@@ -138,7 +140,110 @@ export function createGrpcFileAdapter(
     write: (request) => selectedWriteFile(clients.client, directDataPlane, request),
     readStream: (request) => selectedReadStream(clients.client, directDataPlane, request),
     writeStream: (request) => selectedWriteStream(clients.client, directDataPlane, request),
+    runScript: (request) => selectedRunScript(clients.client, directDataPlane, request),
   };
+}
+
+async function selectedRunScript(
+  gatewayClient: SandboxServiceClient,
+  directDataPlane: DirectDataPlane | undefined,
+  request: RunScriptRequest,
+): Promise<RunScriptResult> {
+  // stdin is a buffer, so a direct call refused by a retiring shard is safe to
+  // replay once on a new lease (same policy as readStream).
+  for (let attempt = 0; ; attempt += 1) {
+    const lease = await acquireFileLease(
+      directDataPlane,
+      request,
+      SandboxDataPermission.STREAM_EXEC,
+    );
+    let discard = false;
+    try {
+      return await grpcRunScript(lease?.client ?? gatewayClient, request);
+    } catch (error) {
+      if (lease !== undefined && isGrpcUnavailable(error)) {
+        discard = true;
+        await lease.discard();
+      }
+      if (lease !== undefined && attempt === 0 && isRunnerShardRetiringError(error)) {
+        continue;
+      }
+      throw error;
+    } finally {
+      await lease?.release({ discard });
+    }
+  }
+}
+
+async function grpcRunScript(
+  streamingClient: StreamExecClient,
+  request: RunScriptRequest,
+): Promise<RunScriptResult> {
+  const session = await startExecSession(streamingClient, {
+    command: request.command,
+    sandboxId: request.sandboxId,
+    stdin: request.stdin !== undefined,
+    ...(request.container === undefined ? {} : { container: request.container }),
+    ...(request.signal === undefined ? {} : { signal: request.signal }),
+    ...(request.timeoutMs === undefined ? {} : { timeoutMs: request.timeoutMs }),
+  });
+  const decoder = new TextDecoder();
+  let exitCode: number | undefined;
+  let stdout = "";
+  let stderr = "";
+  const collect = (async () => {
+    for await (const frame of session.frames) {
+      switch (frame.type) {
+        case "stdout":
+          stdout += decoder.decode(frame.data, { stream: true });
+          break;
+        case "stderr":
+          if (stderr.length < STREAMING_READ_STDERR_CAP_BYTES) {
+            stderr += new TextDecoder().decode(frame.data);
+          }
+          break;
+        case "exit":
+          exitCode = frame.exitCode;
+          break;
+        case "error":
+          throw frame.error;
+        case "ready":
+          break;
+      }
+    }
+  })();
+  // Observed below; keep an early rejection from being reported as unhandled
+  // while stdin is still being written.
+  collect.catch(() => undefined);
+  try {
+    if (request.stdin !== undefined && session.input !== undefined) {
+      try {
+        for await (const chunk of iterateFileChunks(request.stdin)) {
+          await session.input.write(chunk);
+        }
+        await session.input.close();
+      } catch (error) {
+        // A script that reads a counted number of bytes may exit before the
+        // close frame is sent; its exit status is what counts.
+        await collect;
+        if (exitCode === undefined) {
+          throw error;
+        }
+      }
+    }
+    await collect;
+  } catch (error) {
+    session.cancel(error);
+    throw error;
+  }
+  if (exitCode === undefined) {
+    throw new CWSandboxFileError("Upload directory exec ended without exit status from sandbox", {
+      operation: "Upload directory",
+      reason: CWSANDBOX_FILE_IO_FAILED,
+      sandboxId: request.sandboxId,
+    });
+  }
+  return { exitCode, stderr: stderr.trim(), stdout };
 }
 
 async function selectedWriteFile(
@@ -304,7 +409,12 @@ function gatewayRetry(
 
 function acquireFileLease(
   directDataPlane: DirectDataPlane | undefined,
-  request: ReadFileRequest | ReadStreamRequest | WriteFileRequest | WriteStreamRequest,
+  request:
+    | ReadFileRequest
+    | ReadStreamRequest
+    | RunScriptRequest
+    | WriteFileRequest
+    | WriteStreamRequest,
   permission: SandboxDataPermission,
 ): Promise<DirectDataPlaneLease | undefined> {
   if (directDataPlane === undefined) {

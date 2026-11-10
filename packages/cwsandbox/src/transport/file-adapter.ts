@@ -56,10 +56,27 @@ export interface WriteStreamRequest extends RequestOptions {
   readonly expectedBytes?: number;
 }
 
+/** One shell script exec used by `files.uploadDirectory`. */
+export interface RunScriptRequest extends RequestOptions {
+  readonly command: readonly [string, ...string[]];
+  readonly container?: string;
+  readonly dataPlaneMode?: DataPlaneMode;
+  readonly sandboxId: SandboxId;
+  /** Sent in full, then stdin is closed. Omit to request no stdin. */
+  readonly stdin?: Uint8Array;
+}
+
+export interface RunScriptResult {
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
 /** Low-level file I/O.  No gRPC or command-runtime concepts. */
 export interface FileAdapter {
   read(request: ReadFileRequest): Promise<ReadFileResult>;
   write(request: WriteFileRequest): Promise<void>;
   readStream(request: ReadStreamRequest): AsyncIterable<Uint8Array>;
   writeStream(request: WriteStreamRequest): Promise<void>;
+  runScript(request: RunScriptRequest): Promise<RunScriptResult>;
 }

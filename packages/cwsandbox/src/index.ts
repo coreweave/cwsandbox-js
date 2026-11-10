@@ -94,6 +94,9 @@ export type { Milliseconds, RequestOptions, Seconds } from "./public/common.js";
 export type { Container, VolumeMount } from "./public/containers.js";
 export type { DataPlaneMode, DataPlaneOptions } from "./public/data-plane.js";
 export type {
+  DirectoryUploadOptions,
+  DirectoryUploadProgress,
+  DirectoryUploadResult,
   FileChunkSource,
   FileContent,
   FileOptions,

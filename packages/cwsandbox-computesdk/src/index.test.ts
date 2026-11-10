@@ -408,6 +408,9 @@ function createTrackingClient(options: TrackingClientOptions = {}): TrackingClie
     const files: SandboxFiles = {
       read: (async () => new Uint8Array()) as unknown as SandboxFiles["read"],
       readStream: () => emptyBinaryIterable(),
+      uploadDirectory: async () => {
+        throw new Error("not used");
+      },
       readText: (async (filePath: string) => {
         if (filePath === "/workspace/app/output.txt") {
           return "file contents";

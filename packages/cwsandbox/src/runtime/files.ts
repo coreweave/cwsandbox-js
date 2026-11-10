@@ -21,6 +21,7 @@ import type {
   FileWrites,
   SandboxFiles,
 } from "../public/files.js";
+import { uploadDirectory } from "./directory-upload.js";
 import type { FileTransfer } from "./file-transfer.js";
 
 const textDecoder = new TextDecoder();
@@ -32,6 +33,8 @@ export function createSandboxFiles(fileTransfer: FileTransfer): SandboxFiles {
     readText: readTextFile.bind(undefined, fileTransfer) as SandboxFiles["readText"],
     write: writeFile.bind(undefined, fileTransfer) as SandboxFiles["write"],
     writeStream: (path, source, options) => writeStreamingFile(fileTransfer, path, source, options),
+    uploadDirectory: (localPath, remotePath, options) =>
+      uploadDirectory(fileTransfer, localPath, remotePath, options),
   };
 }
 
