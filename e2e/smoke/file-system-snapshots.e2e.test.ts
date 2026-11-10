@@ -229,4 +229,44 @@ describeWithCredentials("live file-system snapshot smoke", { sequential: true },
     },
     snapshotTimeoutMs,
   );
+
+  it(
+    "lists only the snapshots of the requested source sandbox",
+    async () => {
+      const snapshotIds: string[] = [];
+      const snapshotFromNewSandbox = () =>
+        withDedicatedTaggedSandbox(
+          client,
+          {
+            create: (tag) =>
+              client.create({
+                fileSystemSnapshot: { mountPath: MOUNT_PATH, size: "1Gi" },
+                maxLifetimeSeconds: 600,
+                tags: [tag],
+              }),
+            waitUntilRunning: true,
+          },
+          async (source) => {
+            const snapshot = await source.snapshot();
+            snapshotIds.push(snapshot.snapshotId);
+            return snapshot;
+          },
+        );
+
+      try {
+        const [first, second] = await Promise.all([
+          snapshotFromNewSandbox(),
+          snapshotFromNewSandbox(),
+        ]);
+        expect(first.sourceSandboxId).not.toBe(second.sourceSandboxId);
+
+        const listed = await client.listSnapshots({ sourceSandboxId: first.sourceSandboxId });
+        expect(listed.map((row) => row.snapshotId)).toEqual([first.snapshotId]);
+        expect(listed[0]?.sourceSandboxId).toBe(first.sourceSandboxId);
+      } finally {
+        await Promise.all(snapshotIds.map((id) => client.deleteSnapshot(id, { missingOk: true })));
+      }
+    },
+    snapshotTimeoutMs,
+  );
 });

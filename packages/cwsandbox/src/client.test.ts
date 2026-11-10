@@ -878,7 +878,7 @@ describe("SandboxClient", () => {
       expect(getCalls).toBe(1);
     });
 
-    it("collects every listSnapshots page then filters client-side", async () => {
+    it("sends sourceSandboxId on every listSnapshots page and filters state client-side", async () => {
       const listRequests: Parameters<SandboxTransport["listFileSystemSnapshots"]>[0][] = [];
       const transport: SandboxTransport = {
         ...createFakeTransport(),
@@ -916,12 +916,32 @@ describe("SandboxClient", () => {
         createFakeSnapshot("snap-a", { sourceSandboxId: "sbx-1", state: "ready" }),
       ]);
       expect(listRequests).toHaveLength(2);
-      expect(listRequests[0]).not.toHaveProperty("sourceSandboxId");
+      expect(listRequests[0]).toMatchObject({ sourceSandboxId: "sbx-1" });
+      expect(listRequests[0]).not.toHaveProperty("pageToken");
       expect(listRequests[0]).not.toHaveProperty("pageSize");
       expect(listRequests[0]).not.toHaveProperty("state");
-      expect(listRequests[1]).toMatchObject({ pageToken: "page-2" });
-      expect(listRequests[1]).not.toHaveProperty("sourceSandboxId");
+      expect(listRequests[1]).toMatchObject({ pageToken: "page-2", sourceSandboxId: "sbx-1" });
       expect(listRequests[1]).not.toHaveProperty("pageSize");
+    });
+
+    it("omits sourceSandboxId from listSnapshots requests when no source filter is set", async () => {
+      const listRequests: Parameters<SandboxTransport["listFileSystemSnapshots"]>[0][] = [];
+      const transport: SandboxTransport = {
+        ...createFakeTransport(),
+        async listFileSystemSnapshots(request) {
+          listRequests.push(request);
+          return {
+            snapshots: [
+              createFakeSnapshot("snap-a", { sourceSandboxId: "sbx-1" }),
+              createFakeSnapshot("snap-b", { sourceSandboxId: "sbx-2" }),
+            ],
+          };
+        },
+      };
+
+      await expect(createClient(transport).listSnapshots()).resolves.toHaveLength(2);
+      expect(listRequests).toHaveLength(1);
+      expect(listRequests[0]).not.toHaveProperty("sourceSandboxId");
     });
   });
 

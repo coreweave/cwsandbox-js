@@ -674,8 +674,8 @@ The public default wait is 600s (plus 5s internal observation slack). Pass
 `timeoutMs` to override the archive budget. Snapshots are not deleted when the
 sandbox stops; call `deleteSnapshot`. Inspect without waiting with
 `client.getSnapshot(snapshotId)` and `client.listSnapshots({ sourceSandboxId, state })`.
-`listSnapshots` collects every page and filters client-side (it does not send
-`sourceSandboxId` on the List RPC).
+`listSnapshots` collects every page. The server filters by `sourceSandboxId`;
+`state` is filtered client-side.
 
 Snapshot creation retries transient failures for 30 seconds by default. Set
 `retryBudgetMs` to extend this budget for first-use storage provisioning, or `0`
