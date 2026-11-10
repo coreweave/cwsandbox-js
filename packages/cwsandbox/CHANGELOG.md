@@ -8,6 +8,8 @@ SPDX-PackageName: cwsandbox
 
 ## Unreleased
 
+## 1.1.0
+
 - Add GPU resources on create and on template container overrides:
   `resources.gpu` (`{ count, type?, memoryGb? }`), matching the Python SDK's
   `gpu` resource option. In requests/limits form, `gpu` sits next to
