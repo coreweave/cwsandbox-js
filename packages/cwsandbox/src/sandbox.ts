@@ -20,6 +20,7 @@ import type {
   TerminalSession,
 } from "./public/commands.js";
 import type { RequestOptions } from "./public/common.js";
+import type { Container } from "./public/containers.js";
 import type { DataPlaneMode } from "./public/data-plane.js";
 import type { SandboxFiles } from "./public/files.js";
 import type { SandboxLogs } from "./public/logs.js";
@@ -171,6 +172,12 @@ export class Sandbox implements PublicSandbox {
 
   public get execStats(): SandboxExecStats {
     return { ...this.execCounters };
+  }
+
+  public get containers(): readonly Container[] | undefined {
+    return this.metadata.containers === undefined
+      ? undefined
+      : cloneContainers(this.metadata.containers);
   }
 
   public get exitCode(): number | undefined {
@@ -694,6 +701,22 @@ function cloneIngressRules(
   }));
 }
 
+function cloneContainers(containers: readonly Container[]): readonly Container[] {
+  return containers.map((container) => ({
+    ...container,
+    ...(container.args === undefined ? {} : { args: [...container.args] }),
+    ...(container.environmentVariables === undefined
+      ? {}
+      : { environmentVariables: { ...container.environmentVariables } }),
+    ...(container.volumeMounts === undefined
+      ? {}
+      : { volumeMounts: container.volumeMounts.map((mount) => ({ ...mount })) }),
+    ...(container.secrets === undefined
+      ? {}
+      : { secrets: container.secrets.map((secret) => ({ ...secret })) }),
+  }));
+}
+
 function cloneMetadata(metadata: SandboxMetadata | undefined): Partial<SandboxMetadata> {
   if (metadata === undefined) {
     return {};
@@ -709,6 +732,9 @@ function cloneMetadata(metadata: SandboxMetadata | undefined): Partial<SandboxMe
     ...(metadata.containerStatuses === undefined
       ? {}
       : { containerStatuses: metadata.containerStatuses.map((row) => ({ ...row })) }),
+    ...(metadata.containers === undefined
+      ? {}
+      : { containers: cloneContainers(metadata.containers) }),
     ...(metadata.dnsEgressNames === undefined
       ? {}
       : { dnsEgressNames: [...metadata.dnsEgressNames] }),

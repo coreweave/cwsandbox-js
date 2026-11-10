@@ -207,7 +207,7 @@ export function createFakeTransport(
   return {
     async start(request) {
       return {
-        sandboxId: `sandbox-for-${request.command[0]}`,
+        sandboxId: `sandbox-for-${request.command?.[0]}`,
         status: "running",
       };
     },

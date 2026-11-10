@@ -14,6 +14,11 @@ export type MountedFiles = readonly MountedFile[] | Readonly<Record<string, Moun
 /** Chunk source for `files.writeStream` (no Web/Node stream types in v1). */
 export type FileChunkSource = Uint8Array | AsyncIterable<Uint8Array> | Iterable<Uint8Array>;
 
+export interface FileOptions extends RequestOptions {
+  /** Target container name. Omit or empty for the primary. */
+  readonly container?: string;
+}
+
 export interface MountedFile {
   readonly content: MountedFileContent;
   readonly path: string;
@@ -25,8 +30,8 @@ export interface FileWrite {
 }
 
 export interface SandboxFiles {
-  read(path: string, options?: RequestOptions): Promise<Uint8Array>;
-  read(paths: readonly string[], options?: RequestOptions): Promise<FileReadResult>;
+  read(path: string, options?: FileOptions): Promise<Uint8Array>;
+  read(paths: readonly string[], options?: FileOptions): Promise<FileReadResult>;
   /**
    * Incrementally read a remote file as binary chunks. Prefer this over
    * buffered `read` for large files. Drain promptly to avoid stream backpressure.
@@ -34,14 +39,14 @@ export interface SandboxFiles {
    * `timeoutMs` is one wall-clock budget for the integrity `stat` and the
    * file transfer combined. The clock starts when iteration begins.
    */
-  readStream(path: string, options?: RequestOptions): AsyncIterable<Uint8Array>;
-  readText(path: string, options?: RequestOptions): Promise<string>;
-  readText(paths: readonly string[], options?: RequestOptions): Promise<FileTextReadResult>;
-  write(path: string, content: FileContent, options?: RequestOptions): Promise<void>;
-  write(files: FileWrites, options?: RequestOptions): Promise<void>;
+  readStream(path: string, options?: FileOptions): AsyncIterable<Uint8Array>;
+  readText(path: string, options?: FileOptions): Promise<string>;
+  readText(paths: readonly string[], options?: FileOptions): Promise<FileTextReadResult>;
+  write(path: string, content: FileContent, options?: FileOptions): Promise<void>;
+  write(files: FileWrites, options?: FileOptions): Promise<void>;
   /**
    * Incrementally write a remote file from a buffer or chunk iterable.
    * A mid-stream failure or abort may leave a partial remote file.
    */
-  writeStream(path: string, source: FileChunkSource, options?: RequestOptions): Promise<void>;
+  writeStream(path: string, source: FileChunkSource, options?: FileOptions): Promise<void>;
 }

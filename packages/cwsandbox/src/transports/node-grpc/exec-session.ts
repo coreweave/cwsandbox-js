@@ -57,6 +57,7 @@ export interface StartExecSessionOptions extends RequestOptions {
   readonly command: Command;
   readonly sandboxId: string;
   readonly stdin?: boolean;
+  readonly container?: string;
   readonly cwd?: string;
 }
 
