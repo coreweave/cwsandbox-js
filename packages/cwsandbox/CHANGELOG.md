@@ -16,6 +16,15 @@ SPDX-PackageName: cwsandbox
   sending. A name another active sandbox holds throws the new
   `CWSandboxNameInUseError` (reason `CWSANDBOX_SANDBOX_DISPLAY_NAME_IN_USE`).
   Matches the Python SDK.
+- Add `files.uploadDirectory(localPath, remotePath, options)` to copy a local
+  directory tree into the sandbox, matching the Python SDK's
+  `Sandbox.upload_directory`. It streams a tar (gzip by default) in 32 MiB
+  parts, verifies each part and the whole archive by SHA256 before
+  extracting, retries failed parts, and resumes an interrupted upload of the
+  same tree. Options: `exclude`, `compress`, `onProgress`, `timeoutMs`,
+  `signal`, `container`. Symlinks that point outside the tree are rejected.
+  `SandboxFiles` gains the method, so hand-written `SandboxFiles` fakes need
+  it too.
 
 ## 1.1.0
 

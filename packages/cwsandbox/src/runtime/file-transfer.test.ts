@@ -262,6 +262,7 @@ function createFakeAdapter(overrides: Partial<FileAdapter> = {}): FileAdapter {
     write: overrides.write ?? (async () => undefined),
     readStream: overrides.readStream ?? (() => emptyChunks()),
     writeStream: overrides.writeStream ?? (async () => undefined),
+    runScript: overrides.runScript ?? (async () => ({ exitCode: 0, stderr: "", stdout: "" })),
   };
 }
 

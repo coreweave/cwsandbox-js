@@ -17,7 +17,7 @@ import {
 import type { DataPlaneMode } from "../public/data-plane.js";
 import type { FileChunkSource, FileOptions } from "../public/files.js";
 import type { SandboxId } from "../public/sandbox.js";
-import type { FileAdapter } from "../transport/file-adapter.js";
+import type { FileAdapter, RunScriptResult } from "../transport/file-adapter.js";
 
 /** Per-sandbox file transfer state and policy. */
 export class FileTransfer {
@@ -115,6 +115,22 @@ export class FileTransfer {
       sandboxId: this.sandboxId,
       source: validatedChunkSource(source),
     });
+  }
+
+  public runScript(
+    command: readonly [string, ...string[]],
+    options: FileOptions & { readonly stdin?: Uint8Array },
+  ): Promise<RunScriptResult> {
+    return this.adapter.runScript({
+      ...options,
+      ...(this.dataPlaneMode === undefined ? {} : { dataPlaneMode: this.dataPlaneMode }),
+      command,
+      sandboxId: this.sandboxId,
+    });
+  }
+
+  public get id(): SandboxId {
+    return this.sandboxId;
   }
 
   public readStream(path: string, options: FileOptions): AsyncIterable<Uint8Array> {

@@ -141,6 +141,9 @@ function createTrackingClient(): TrackingClient {
         return new Uint8Array();
       }) as SandboxFiles["read"],
       readStream: () => emptyBinaryIterable(),
+      uploadDirectory: async () => {
+        throw new Error("not used");
+      },
       readText: (async (path: string) => {
         if (path === "/workspace/app/output.txt") {
           return "file contents";

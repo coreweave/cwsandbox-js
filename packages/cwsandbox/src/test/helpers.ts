@@ -194,6 +194,9 @@ export function createFakeFileAdapter(overrides: Partial<FileAdapter> = {}): Fil
     async writeStream() {
       return undefined;
     },
+    async runScript() {
+      return { exitCode: 0, stderr: "", stdout: "" };
+    },
     ...overrides,
   };
 }

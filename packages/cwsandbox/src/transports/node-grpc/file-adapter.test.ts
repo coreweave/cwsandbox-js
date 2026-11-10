@@ -197,6 +197,76 @@ describe("createGrpcFileAdapter StreamExec paths", () => {
     });
   });
 
+  it("runScript sends the script, stdin and a close, and returns exit and output", async () => {
+    const harness = createStreamingHarness();
+    const adapter = createGrpcFileAdapter(harness.clients);
+    harness.onCall(0, (duplex) => {
+      duplex.push(readyFrame("script-1"));
+      duplex.push(stderrFrame("part 000000: checksum mismatch\n"));
+      duplex.push(exitFrame(42));
+      duplex.end();
+    });
+
+    const result = await adapter.runScript({
+      command: ["/bin/sh", "-c", "head -c 3 > /tmp/x", "cwsandbox-upload-part"],
+      container: "helper",
+      sandboxId: "sbx",
+      stdin: new Uint8Array([1, 2, 3]),
+    });
+
+    expect(result).toEqual({
+      exitCode: 42,
+      stderr: "part 000000: checksum mismatch",
+      stdout: "",
+    });
+    const sent = harness.calls[0]?.sent ?? [];
+    expect(initCommand(sent)).toEqual([
+      "/bin/sh",
+      "-c",
+      "head -c 3 > /tmp/x",
+      "cwsandbox-upload-part",
+    ]);
+    expect(sent.flatMap((m) => (m.message.oneofKind === "stdin" ? [m.message.stdin] : []))).toEqual(
+      [new Uint8Array([1, 2, 3])],
+    );
+    expect(sent.some((m) => m.message.oneofKind === "close")).toBe(true);
+  });
+
+  it("runScript without stdin sends no stdin frames and keeps stdout", async () => {
+    const harness = createStreamingHarness();
+    const adapter = createGrpcFileAdapter(harness.clients);
+    harness.onCall(0, (duplex) => {
+      duplex.push(readyFrame("script-2"));
+      duplex.push(stdoutFrame("000000-ab.part\n"));
+      duplex.push(exitFrame(0));
+      duplex.end();
+    });
+
+    const result = await adapter.runScript({
+      command: ["/bin/sh", "-c", "ls", "cwsandbox-upload-preflight"],
+      sandboxId: "sbx",
+    });
+
+    expect(result).toEqual({ exitCode: 0, stderr: "", stdout: "000000-ab.part\n" });
+    const sent = harness.calls[0]?.sent ?? [];
+    expect(
+      sent.some((m) => m.message.oneofKind === "stdin" || m.message.oneofKind === "close"),
+    ).toBe(false);
+  });
+
+  it("runScript fails when the stream ends without an exit status", async () => {
+    const harness = createStreamingHarness();
+    const adapter = createGrpcFileAdapter(harness.clients);
+    harness.onCall(0, (duplex) => {
+      duplex.push(readyFrame("script-3"));
+      duplex.end();
+    });
+
+    await expect(
+      adapter.runScript({ command: ["/bin/sh", "-c", "true", "x"], sandboxId: "sbx" }),
+    ).rejects.toBeInstanceOf(CWSandboxTransportError);
+  });
+
   it("selects direct vs atomic write scripts from mode", async () => {
     const harness = createStreamingHarness();
     const adapter = createGrpcFileAdapter(harness.clients);

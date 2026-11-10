@@ -160,7 +160,7 @@ pnpm --dir examples/tanstack typecheck
 - `client.run(command, options)` starts a sandbox with a custom main process.
 - `sandbox.commands.run(...)` buffers command output.
 - `sandbox.commands.start(...)` streams command output and optionally accepts stdin.
-- `sandbox.files.*` reads and writes sandbox files (`readStream` / `writeStream` for incremental transfers).
+- `sandbox.files.*` reads and writes sandbox files (`readStream` / `writeStream` for incremental transfers, `uploadDirectory` for local directory trees).
 - `sandbox.logs.*` reads or streams the sandbox main process logs.
 - `create({ containers })` runs a primary plus sidecars; pass `container` to exec, shell,
   logs, and file calls to target a non-primary container.
@@ -605,6 +605,41 @@ const files = await sandbox.files.read(["/tmp/b.bin"]);
 console.log(texts["/tmp/a.txt"]);
 console.log(files["/tmp/b.bin"]);
 ```
+
+### Directory upload
+
+`files.uploadDirectory` copies a local directory tree into the sandbox (Node.js
+only). The contents land inside `remotePath`, which is created if missing;
+remote files at the same paths are overwritten and other remote files are kept.
+
+```ts
+const result = await sandbox.files.uploadDirectory("./src", "/workspace/src", {
+  exclude: ["node_modules", "*.log"],
+  onProgress: ({ bytesDone, bytesTotal }) => console.log(`${bytesDone}/${bytesTotal}`),
+});
+console.log(result.files, result.archiveBytes, result.resumedBytes);
+```
+
+- The SDK streams a tar (gzip unless `compress: false`) in 32 MiB parts, checks
+  each part's size and SHA256 in the sandbox and the whole archive before `tar`
+  extracts it, and retries a failed part up to 3 times.
+- Interrupted uploads resume: staged parts are kept under
+  `remotePath/.cwsandbox-upload-<key>/`, and calling again on the unchanged tree
+  sends only the missing parts (`resumedBytes`). Staging untouched for 24 hours
+  is removed by later uploads into the same directory.
+- `exclude` globs without `/` match any single name; globs with `/` match the
+  path relative to the local directory. `.git` is included unless excluded.
+- Symbolic links are uploaded as links. A link that is absolute or points
+  outside the tree fails with stage `archive`; exclude it to upload the rest.
+- Permission bits and mtimes are kept; ownership, setuid, setgid and sticky
+  bits are not. Sockets, FIFOs and devices are listed in `result.skipped`.
+- `timeoutMs` is an overall deadline (none by default).
+- Failures throw `CWSandboxFileError` with `metadata.stage`: `archive`,
+  `preflight` (missing tools in `metadata.missing_tools`), `transfer`, `verify`
+  (`remotePath` unchanged) or `extract` (`remotePath` may be partly updated).
+- The image needs `/bin/sh`, `tar`, `sha256sum`, `head`, `wc`, `cat`, `mv`,
+  `rm`, `mkdir` and, when compressing, `gzip`. The behavior matches the Python
+  SDK's `Sandbox.upload_directory`.
 
 ## Start Options
 
