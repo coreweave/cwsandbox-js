@@ -1003,6 +1003,13 @@ describe("node transport mappers", () => {
       expect(primaryContainer(request)?.workingDir).toBe("");
       expect(primaryContainer(request)?.securityContext).toBeUndefined();
     });
+
+    it("sends displayName on the sandbox, not the spec", () => {
+      const request = toProtoCreateRequest({ command: ["python"], displayName: "my-box" });
+
+      expect(request.sandbox?.displayName).toBe("my-box");
+      expect(toProtoCreateRequest({ command: ["python"] }).sandbox?.displayName).toBe("");
+    });
   });
 
   describe("create from template requests", () => {
@@ -1017,6 +1024,14 @@ describe("node transport mappers", () => {
       );
       expect(request.overrides).toBeUndefined();
       expect(overrideFieldNumbers(request)).toEqual([]);
+    });
+
+    it("sends displayName on the request without creating overrides", () => {
+      const request = toProtoCreateFromTemplateRequest({ templateId, displayName: "my-box" });
+
+      expect(request.displayName).toBe("my-box");
+      expect(request.overrides).toBeUndefined();
+      expect(toProtoCreateFromTemplateRequest({ templateId }).displayName).toBe("");
     });
 
     it("splits template command argv into proto command and args", () => {
@@ -1378,6 +1393,21 @@ describe("node transport mappers", () => {
       expect(request.requestId).toBe("caller-key");
     });
 
+    it("sends displayName when set", () => {
+      const withName = toProtoCreateFromFileRequest({
+        contents: compose,
+        displayName: "my-box",
+        primaryService: "main",
+      });
+      const withoutName = toProtoCreateFromFileRequest({
+        contents: compose,
+        primaryService: "main",
+      });
+
+      expect(withName.displayName).toBe("my-box");
+      expect(withoutName.displayName).toBe("");
+    });
+
     it("omits default resources, image overrides, and CKS mode when unset", () => {
       const request = toProtoCreateFromFileRequest({
         contents: compose,
@@ -1480,6 +1510,20 @@ describe("node transport mappers", () => {
       expect(toSdkSandboxInfo(sandbox(Control.CONTAINER_ENGINE)).control).toBe("container_engine");
       expect(toSdkGetSandboxResult(sandbox(Control.UNSPECIFIED))).not.toHaveProperty("control");
       expect(toSdkGetSandboxResult(sandbox(99 as Control)).control).toBe("unspecified");
+    });
+
+    it("reads displayName back and omits an empty one", () => {
+      const sandbox = (displayName: string): ReturnType<typeof ProtoSandbox.create> =>
+        ProtoSandbox.create({
+          displayName,
+          sandboxId: "sandbox-123",
+          status: { state: State.RUNNING },
+        });
+
+      expect(toSdkStartSandboxResult(sandbox("my-box")).displayName).toBe("my-box");
+      expect(toSdkGetSandboxResult(sandbox("my-box")).displayName).toBe("my-box");
+      expect(toSdkSandboxInfo(sandbox("my-box")).displayName).toBe("my-box");
+      expect(toSdkGetSandboxResult(sandbox(""))).not.toHaveProperty("displayName");
     });
 
     it("maps create responses to SDK sandbox metadata", () => {

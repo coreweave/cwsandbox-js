@@ -9,6 +9,7 @@ import {
   type CWSandboxError,
   CWSandboxEtagMismatchError,
   CWSandboxFileError,
+  CWSandboxNameInUseError,
   CWSandboxNetworkConfigInUseError,
   CWSandboxNotFoundError,
   CWSandboxNotImplementedError,
@@ -35,6 +36,7 @@ import {
   CWSANDBOX_NETWORK_CONFIG_IN_USE,
   CWSANDBOX_NETWORK_CONFIG_NOT_FOUND,
   CWSANDBOX_RUNNER_SHARD_RETIRING,
+  CWSANDBOX_SANDBOX_DISPLAY_NAME_IN_USE,
   CWSANDBOX_SANDBOX_NOT_FOUND,
   FILE_ERROR_REASONS,
   UNAVAILABLE_REASONS,
@@ -89,6 +91,9 @@ export function mapGrpcError(error: unknown, context: GrpcErrorContext): CWSandb
       }
       if (reason === CWSANDBOX_NETWORK_CONFIG_IN_USE) {
         return new CWSandboxNetworkConfigInUseError(message, details);
+      }
+      if (reason === CWSANDBOX_SANDBOX_DISPLAY_NAME_IN_USE) {
+        return new CWSandboxNameInUseError(message, details);
       }
       if (reason === CWSANDBOX_ETAG_MISMATCH) {
         return new CWSandboxEtagMismatchError(message, details);

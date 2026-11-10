@@ -6,6 +6,8 @@ import { expectTypeOf, test } from "vitest";
 
 import {
   CWSandboxExecutionError,
+  type CWSandboxNameInUseError,
+  type CWSandboxTransportError,
   DEFAULT_GRACEFUL_SHUTDOWN_SECONDS,
   DEFAULT_KEEP_ALIVE_COMMAND,
   DEFAULT_SNAPSHOT_TIMEOUT_MS,
@@ -982,4 +984,15 @@ test("multi-container types", async () => {
   >();
   expectTypeOf(sandbox.shell({ container: "cache" })).toEqualTypeOf<Promise<TerminalSession>>();
   expectTypeOf(sandbox.logs.stream({ container: "cache" })).toEqualTypeOf<Promise<LogStream>>();
+});
+
+test("display name types", async () => {
+  const sandbox = await client.create({ displayName: "my-box" });
+  expectTypeOf(sandbox.displayName).toEqualTypeOf<string | undefined>();
+  expectTypeOf<SandboxRunFromTemplateOptions["displayName"]>().toEqualTypeOf<string | undefined>();
+  expectTypeOf<SandboxRunFromFileOptions["displayName"]>().toEqualTypeOf<string | undefined>();
+  expectTypeOf<GetSandboxResult["displayName"]>().toEqualTypeOf<string | undefined>();
+  expectTypeOf<SandboxInfo["displayName"]>().toEqualTypeOf<string | undefined>();
+  expectTypeOf(client.fromId("my-box")).toEqualTypeOf<Promise<Sandbox>>();
+  expectTypeOf<CWSandboxNameInUseError>().toExtend<CWSandboxTransportError>();
 });

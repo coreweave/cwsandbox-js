@@ -8,6 +8,15 @@ SPDX-PackageName: cwsandbox
 
 ## Unreleased
 
+- Add sandbox display names. `create`, `run`, `runFromTemplate`, `runFromFile`,
+  and the `withSandbox*` helpers accept `displayName`; handles, `get()`, and
+  list results read it back. `get()` and `fromId()` accept the name of an
+  active sandbox as well as a UUID, and a `fromId()` handle now always uses
+  the UUID the server returns. The SDK checks the server's name rules before
+  sending. A name another active sandbox holds throws the new
+  `CWSandboxNameInUseError` (reason `CWSANDBOX_SANDBOX_DISPLAY_NAME_IN_USE`).
+  Matches the Python SDK.
+
 ## 1.1.0
 
 - Add GPU resources on create and on template container overrides:
