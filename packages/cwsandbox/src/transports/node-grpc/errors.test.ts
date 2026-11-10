@@ -14,12 +14,14 @@ import {
   CWSandboxNotFoundError,
   CWSandboxNotImplementedError,
   CWSandboxResourceExhaustedError,
+  CWSandboxSnapshotBackendThrottledError,
   CWSandboxSnapshotBucketMismatchError,
   CWSandboxSnapshotBucketProvisioningError,
   CWSandboxSnapshotError,
   isSnapshotError,
   CWSandboxSnapshotQuotaExceededError,
   CWSandboxSnapshotSizeExceededError,
+  CWSandboxSnapshotWaitTimeoutError,
   CWSandboxTimeoutError,
   CWSandboxTransportError,
   CWSandboxUnavailableError,
@@ -37,14 +39,18 @@ import {
   CWSANDBOX_FILE_TOO_LARGE,
   CWSANDBOX_FSS_BACKEND_THROTTLED,
   CWSANDBOX_FSS_BUCKET_MISMATCH,
+  CWSANDBOX_FSS_BUCKET_PROVISIONING,
+  CWSANDBOX_FSS_INFLIGHT_LIMIT,
   CWSANDBOX_FSS_NOT_FOUND,
   CWSANDBOX_FSS_NOT_READY,
   CWSANDBOX_FSS_NOT_SUPPORTED,
   CWSANDBOX_FSS_QUOTA_EXCEEDED,
   CWSANDBOX_FSS_SIZE_EXCEEDED,
+  CWSANDBOX_FSS_WAIT_TIMEOUT,
   CWSANDBOX_SANDBOX_NOT_FOUND,
 } from "../../internal/error-info.js";
 import { mapGrpcError as mapGrpcErrorImpl, type GrpcErrorContext } from "./errors.js";
+import { GrpcSandboxTransport } from "./grpc-transport.js";
 import { statusDetailsMeta } from "./test/status-details.js";
 
 function mapGrpcError(error: unknown, context: GrpcErrorContext): CWSandboxTransportError {
@@ -340,7 +346,7 @@ describe("mapGrpcError", () => {
     expect(error.reason).toBe(CWSANDBOX_FSS_NOT_READY);
   });
 
-  it("maps trusted FSS throttle reasons to unavailable", () => {
+  it("maps trusted FSS throttle reasons by reason, not status code", () => {
     const cause = new RpcError(
       "throttled",
       "INTERNAL",
@@ -351,8 +357,93 @@ describe("mapGrpcError", () => {
 
     const error = mapGrpcError(cause, { operation: "Create file-system snapshot" });
 
+    expect(error).toBeInstanceOf(CWSandboxSnapshotBackendThrottledError);
     expect(error).toBeInstanceOf(CWSandboxUnavailableError);
     expect(error.reason).toBe(CWSANDBOX_FSS_BACKEND_THROTTLED);
+  });
+
+  it.each([CWSANDBOX_FSS_BACKEND_THROTTLED, CWSANDBOX_FSS_INFLIGHT_LIMIT])(
+    "maps trusted %s on UNAVAILABLE to the throttled snapshot class",
+    (reason) => {
+      const cause = new RpcError(
+        "throttled",
+        "UNAVAILABLE",
+        statusDetailsMeta({ errorInfos: [{ reason }], retryInfos: [{ retrySeconds: 2 }] }),
+      );
+
+      const error = mapGrpcError(cause, {
+        fileSystemSnapshotId: "snap-123",
+        operation: "Get file-system snapshot",
+      });
+
+      expect(error).toBeInstanceOf(CWSandboxSnapshotBackendThrottledError);
+      expect(error).toBeInstanceOf(CWSandboxUnavailableError);
+      expect(error).not.toBeInstanceOf(CWSandboxSnapshotError);
+      expect(error.code).toBe("unavailable");
+      expect(error.reason).toBe(reason);
+      expect(error.retryDelayMs).toBe(2_000);
+      expect((error as CWSandboxSnapshotBackendThrottledError).fileSystemSnapshotId).toBe(
+        "snap-123",
+      );
+    },
+  );
+
+  it.each([CWSANDBOX_FSS_BACKEND_THROTTLED, CWSANDBOX_FSS_INFLIGHT_LIMIT])(
+    "does not map %s under an untrusted domain to the throttled class",
+    (reason) => {
+      const cause = new RpcError(
+        "spoof",
+        "UNAVAILABLE",
+        statusDetailsMeta({ errorInfos: [{ domain: "evil.example.com", reason }] }),
+      );
+
+      const error = mapGrpcError(cause, { operation: "Create file-system snapshot" });
+
+      expect(error).toBeInstanceOf(CWSandboxUnavailableError);
+      expect(error).not.toBeInstanceOf(CWSandboxSnapshotBackendThrottledError);
+    },
+  );
+
+  it("maps trusted CWSANDBOX_FSS_WAIT_TIMEOUT to the wait-timeout snapshot class", () => {
+    const cause = new RpcError(
+      "wait expired",
+      "DEADLINE_EXCEEDED",
+      statusDetailsMeta({ errorInfos: [{ reason: CWSANDBOX_FSS_WAIT_TIMEOUT }] }),
+    );
+
+    const error = mapGrpcError(cause, {
+      fileSystemSnapshotId: "snap-123",
+      operation: "Get file-system snapshot",
+    });
+
+    expect(error).toBeInstanceOf(CWSandboxSnapshotWaitTimeoutError);
+    expect(error).toBeInstanceOf(CWSandboxTimeoutError);
+    expect(error.code).toBe("timeout_error");
+    expect((error as CWSandboxSnapshotWaitTimeoutError).fileSystemSnapshotId).toBe("snap-123");
+  });
+
+  it.each([
+    { reason: CWSANDBOX_FSS_SIZE_EXCEEDED, ErrorClass: CWSandboxSnapshotSizeExceededError },
+    { reason: CWSANDBOX_FSS_QUOTA_EXCEEDED, ErrorClass: CWSandboxSnapshotQuotaExceededError },
+    { reason: CWSANDBOX_FSS_BUCKET_MISMATCH, ErrorClass: CWSandboxSnapshotBucketMismatchError },
+    {
+      reason: CWSANDBOX_FSS_BUCKET_PROVISIONING,
+      ErrorClass: CWSandboxSnapshotBucketProvisioningError,
+    },
+  ] as const)("carries the context snapshot ID on $reason", ({ reason, ErrorClass }) => {
+    const cause = new RpcError(
+      "refused",
+      "FAILED_PRECONDITION",
+      statusDetailsMeta({ errorInfos: [{ reason }] }),
+    );
+
+    const error = mapGrpcError(cause, {
+      fileSystemSnapshotId: "snap-123",
+      operation: "Delete file-system snapshot",
+    });
+
+    expect(error).toBeInstanceOf(ErrorClass);
+    expect((error as InstanceType<typeof ErrorClass>).fileSystemSnapshotId).toBe("snap-123");
   });
 
   it.each([
@@ -533,5 +624,85 @@ describe("snapshot failure classification", () => {
     expect(isSnapshotError(error)).toBe(false);
     expect(isSnapshotError(new CWSandboxUnavailableError("network"))).toBe(false);
     expect(isSnapshotError(new CWSandboxSnapshotError("archive failed"))).toBe(true);
+  });
+});
+
+describe("GrpcSandboxTransport snapshot error context", () => {
+  type Unary = () => { response: Promise<unknown> };
+
+  function transportWith(client: Record<string, Unary>): GrpcSandboxTransport {
+    const transport = new GrpcSandboxTransport({ apiKey: "test", baseUrl: "http://127.0.0.1:1" });
+    Object.defineProperty(transport, "client", { value: client });
+    return transport;
+  }
+
+  function rejecting(reason: string): Unary {
+    return () => ({
+      response: Promise.reject(
+        new RpcError(
+          "refused",
+          "FAILED_PRECONDITION",
+          statusDetailsMeta({ errorInfos: [{ reason }] }),
+        ),
+      ),
+    });
+  }
+
+  async function caught(promise: Promise<unknown>): Promise<unknown> {
+    return promise.then(
+      () => {
+        throw new Error("expected a rejection");
+      },
+      (error: unknown) => error,
+    );
+  }
+
+  it("sets fileSystemSnapshotId from the get and delete request", async () => {
+    const transport = transportWith({
+      getFileSystemSnapshot: rejecting(CWSANDBOX_FSS_BUCKET_MISMATCH),
+      deleteFileSystemSnapshot: rejecting(CWSANDBOX_FSS_BUCKET_MISMATCH),
+    });
+
+    for (const error of [
+      await caught(transport.getFileSystemSnapshot({ snapshotId: "snap-get" })),
+      await caught(transport.deleteFileSystemSnapshot({ snapshotId: "snap-get" })),
+    ]) {
+      expect(error).toBeInstanceOf(CWSandboxSnapshotBucketMismatchError);
+      expect((error as CWSandboxSnapshotBucketMismatchError).fileSystemSnapshotId).toBe("snap-get");
+    }
+  });
+
+  it("sets fileSystemSnapshotId from the restore ID on create", async () => {
+    const transport = transportWith({
+      createSandbox: rejecting(CWSANDBOX_FSS_BUCKET_MISMATCH),
+      createSandboxFromTemplate: rejecting(CWSANDBOX_FSS_BUCKET_MISMATCH),
+    });
+    const fileSystemSnapshot = { mountPath: "/workspace", restoreFromSnapshotId: "snap-restore" };
+
+    for (const error of [
+      await caught(transport.start({ command: ["sleep", "60"], fileSystemSnapshot })),
+      await caught(
+        transport.startFromTemplate({ templateId: "template-test", fileSystemSnapshot }),
+      ),
+    ]) {
+      expect(error).toBeInstanceOf(CWSandboxSnapshotBucketMismatchError);
+      expect((error as CWSandboxSnapshotBucketMismatchError).fileSystemSnapshotId).toBe(
+        "snap-restore",
+      );
+    }
+  });
+
+  it("leaves fileSystemSnapshotId unset on create without a restore ID", async () => {
+    const transport = transportWith({ createSandbox: rejecting(CWSANDBOX_FSS_SIZE_EXCEEDED) });
+
+    const error = await caught(
+      transport.start({
+        command: ["sleep", "60"],
+        fileSystemSnapshot: { mountPath: "/workspace" },
+      }),
+    );
+
+    expect(error).toBeInstanceOf(CWSandboxSnapshotSizeExceededError);
+    expect((error as CWSandboxSnapshotSizeExceededError).fileSystemSnapshotId).toBeUndefined();
   });
 });

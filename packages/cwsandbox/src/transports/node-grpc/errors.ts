@@ -13,10 +13,12 @@ import {
   CWSandboxNotFoundError,
   CWSandboxNotImplementedError,
   CWSandboxResourceExhaustedError,
+  CWSandboxSnapshotBackendThrottledError,
   CWSandboxSnapshotBucketMismatchError,
   CWSandboxSnapshotBucketProvisioningError,
   CWSandboxSnapshotQuotaExceededError,
   CWSandboxSnapshotSizeExceededError,
+  CWSandboxSnapshotWaitTimeoutError,
   CWSandboxTimeoutError,
   CWSandboxTransportError,
   CWSandboxUnavailableError,
@@ -26,12 +28,15 @@ import {
   CWSANDBOX_COMMAND_TIMEOUT,
   CWSANDBOX_ERROR_DOMAIN,
   CWSANDBOX_ETAG_MISMATCH,
+  CWSANDBOX_FSS_BACKEND_THROTTLED,
   CWSANDBOX_FSS_BUCKET_MISMATCH,
   CWSANDBOX_FSS_BUCKET_PROVISIONING,
+  CWSANDBOX_FSS_INFLIGHT_LIMIT,
   CWSANDBOX_FSS_NOT_FOUND,
   CWSANDBOX_FSS_NOT_SUPPORTED,
   CWSANDBOX_FSS_QUOTA_EXCEEDED,
   CWSANDBOX_FSS_SIZE_EXCEEDED,
+  CWSANDBOX_FSS_WAIT_TIMEOUT,
   CWSANDBOX_NETWORK_CONFIG_IN_USE,
   CWSANDBOX_NETWORK_CONFIG_NOT_FOUND,
   CWSANDBOX_RUNNER_SHARD_RETIRING,
@@ -43,6 +48,7 @@ import { parseStatusDetailsFromMetadata } from "./error-info.js";
 
 export interface GrpcErrorContext {
   readonly filepath?: string;
+  readonly fileSystemSnapshotId?: string;
   readonly operation: string;
   readonly sandboxId?: string;
 }
@@ -92,6 +98,12 @@ export function mapGrpcError(error: unknown, context: GrpcErrorContext): CWSandb
       }
       if (reason === CWSANDBOX_ETAG_MISMATCH) {
         return new CWSandboxEtagMismatchError(message, details);
+      }
+      if (reason === CWSANDBOX_FSS_BACKEND_THROTTLED || reason === CWSANDBOX_FSS_INFLIGHT_LIMIT) {
+        return new CWSandboxSnapshotBackendThrottledError(message, details);
+      }
+      if (reason === CWSANDBOX_FSS_WAIT_TIMEOUT) {
+        return new CWSandboxSnapshotWaitTimeoutError(message, details);
       }
       if (UNAVAILABLE_REASONS.has(reason)) {
         return new CWSandboxUnavailableError(message, details);

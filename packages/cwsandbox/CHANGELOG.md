@@ -129,6 +129,18 @@ SPDX-PackageName: cwsandbox
 - `EgressRule.dnsName` is now optional, so reading it from an `EgressRule`
   gives `string | undefined`. Code that only builds hostname rules is
   unaffected.
+- Snapshot errors share a base class and carry the snapshot ID, matching the
+  Python SDK. `CWSandboxSnapshotError` is the base for terminal snapshot
+  failures: new `CWSandboxSnapshotFailedError` (the snapshot reached `failed`)
+  and the existing size, quota and bucket-mismatch errors extend it. New
+  `CWSandboxSnapshotBackendThrottledError` (trusted
+  `CWSANDBOX_FSS_BACKEND_THROTTLED` / `CWSANDBOX_FSS_INFLIGHT_LIMIT`) extends
+  `CWSandboxUnavailableError`, and new `CWSandboxSnapshotWaitTimeoutError`
+  (`CWSANDBOX_FSS_WAIT_TIMEOUT`) extends `CWSandboxTimeoutError`. Snapshot
+  error classes expose `fileSystemSnapshotId` when known. Not breaking: every
+  error is still an instance of the class it was before, with the same `code`.
+  `error.name` now reports the more specific class for failed snapshots,
+  snapshot wait timeouts and throttled snapshot calls.
 
 ## 1.0.0
 

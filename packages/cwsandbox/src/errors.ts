@@ -45,6 +45,11 @@ export interface CWSandboxTransportErrorOptions extends ErrorOptions {
    */
   readonly filepath?: string;
   /**
+   * File-system snapshot involved in the failure, when known. Exposed only by
+   * the snapshot error classes.
+   */
+  readonly fileSystemSnapshotId?: string;
+  /**
    * AIP-193 `ErrorInfo.metadata` map. Always treated as a string map; omit or
    * pass `{}` when no ErrorInfo metadata was present.
    */
@@ -294,12 +299,37 @@ export class CWSandboxFileError extends CWSandboxTransportError {
 }
 
 /**
+ * Base class for terminal file-system snapshot failures (Python
+ * `SandboxSnapshotError` peer). Retryable or timeout snapshot failures keep
+ * their `CWSandboxUnavailableError` / `CWSandboxTimeoutError` parent instead;
+ * use `isSnapshotError()` to match every snapshot failure.
+ */
+export class CWSandboxSnapshotError extends CWSandboxTransportError {
+  /** Snapshot involved in the failure, when known. */
+  public readonly fileSystemSnapshotId: string | undefined;
+
+  public constructor(message: string, options: CWSandboxTransportErrorOptions = {}) {
+    super(message, options, "transport_error");
+    this.name = "CWSandboxSnapshotError";
+    this.fileSystemSnapshotId = options.fileSystemSnapshotId;
+  }
+}
+
+/** A snapshot reached the failed state while waiting for it to become ready. */
+export class CWSandboxSnapshotFailedError extends CWSandboxSnapshotError {
+  public constructor(message: string, options: CWSandboxTransportErrorOptions = {}) {
+    super(message, options);
+    this.name = "CWSandboxSnapshotFailedError";
+  }
+}
+
+/**
  * Requested scratch mount size exceeds the allowed maximum.
  * Emitted for trusted `CWSANDBOX_FSS_SIZE_EXCEEDED`.
  */
-export class CWSandboxSnapshotSizeExceededError extends CWSandboxTransportError {
+export class CWSandboxSnapshotSizeExceededError extends CWSandboxSnapshotError {
   public constructor(message: string, options: CWSandboxTransportErrorOptions = {}) {
-    super(message, options, "transport_error");
+    super(message, options);
     this.name = "CWSandboxSnapshotSizeExceededError";
   }
 }
@@ -308,9 +338,9 @@ export class CWSandboxSnapshotSizeExceededError extends CWSandboxTransportError 
  * Organization snapshot quota (count or storage) is exhausted.
  * Emitted for trusted `CWSANDBOX_FSS_QUOTA_EXCEEDED`. Fatal; not resource-exhausted.
  */
-export class CWSandboxSnapshotQuotaExceededError extends CWSandboxTransportError {
+export class CWSandboxSnapshotQuotaExceededError extends CWSandboxSnapshotError {
   public constructor(message: string, options: CWSandboxTransportErrorOptions = {}) {
-    super(message, options, "transport_error");
+    super(message, options);
     this.name = "CWSandboxSnapshotQuotaExceededError";
   }
 }
@@ -319,9 +349,9 @@ export class CWSandboxSnapshotQuotaExceededError extends CWSandboxTransportError
  * Snapshot object bucket differs from the org's current FSS bucket.
  * Emitted for trusted `CWSANDBOX_FSS_BUCKET_MISMATCH`.
  */
-export class CWSandboxSnapshotBucketMismatchError extends CWSandboxTransportError {
+export class CWSandboxSnapshotBucketMismatchError extends CWSandboxSnapshotError {
   public constructor(message: string, options: CWSandboxTransportErrorOptions = {}) {
-    super(message, options, "transport_error");
+    super(message, options);
     this.name = "CWSandboxSnapshotBucketMismatchError";
   }
 }
@@ -392,25 +422,54 @@ export class CWSandboxTerminatedError extends CWSandboxError {
   }
 }
 
-/** A snapshot reached a failed state. Existing transport error catches still apply. */
-export class CWSandboxSnapshotError extends CWSandboxTransportError {
-  public constructor(message: string, options: CWSandboxTransportErrorOptions = {}) {
-    super(message, options);
-    this.name = "CWSandboxSnapshotError";
-  }
-}
-
 /** First-use snapshot storage is still being provisioned. */
 export class CWSandboxSnapshotBucketProvisioningError extends CWSandboxUnavailableError {
+  /** Snapshot involved in the failure, when known. */
+  public readonly fileSystemSnapshotId: string | undefined;
+
   public constructor(message: string, options: CWSandboxTransportErrorOptions = {}) {
     super(message, options);
     this.name = "CWSandboxSnapshotBucketProvisioningError";
+    this.fileSystemSnapshotId = options.fileSystemSnapshotId;
   }
 }
 
 /**
- * Recognize snapshot failures without changing existing unavailable, timeout,
- * or not-found inheritance. This does not imply that a failure is retryable.
+ * The snapshot backend is throttled or at its in-flight limit. Back off and retry.
+ * Emitted for trusted `CWSANDBOX_FSS_BACKEND_THROTTLED` and `CWSANDBOX_FSS_INFLIGHT_LIMIT`.
+ */
+export class CWSandboxSnapshotBackendThrottledError extends CWSandboxUnavailableError {
+  /** Snapshot involved in the failure, when known. */
+  public readonly fileSystemSnapshotId: string | undefined;
+
+  public constructor(message: string, options: CWSandboxTransportErrorOptions = {}) {
+    super(message, options);
+    this.name = "CWSandboxSnapshotBackendThrottledError";
+    this.fileSystemSnapshotId = options.fileSystemSnapshotId;
+  }
+}
+
+/**
+ * The snapshot did not become ready within the wait budget
+ * (`CWSANDBOX_FSS_WAIT_TIMEOUT`). It may still complete; check with `getSnapshot`.
+ * `fileSystemSnapshotId` is unset when the deadline passed before create returned.
+ */
+export class CWSandboxSnapshotWaitTimeoutError extends CWSandboxTimeoutError {
+  /** Snapshot that was still pending, when known. */
+  public readonly fileSystemSnapshotId: string | undefined;
+
+  public constructor(message: string, options: CWSandboxTransportErrorOptions = {}) {
+    super(message, options);
+    this.name = "CWSandboxSnapshotWaitTimeoutError";
+    this.fileSystemSnapshotId = options.fileSystemSnapshotId;
+  }
+}
+
+/**
+ * Recognize any snapshot failure: `CWSandboxSnapshotError` and its subclasses,
+ * the provisioning, throttled and wait-timeout classes (which keep their
+ * unavailable or timeout parent), and other errors with a trusted
+ * `CWSANDBOX_FSS_*` reason. This does not imply that a failure is retryable.
  */
 export function isSnapshotError(
   error: unknown,
@@ -418,9 +477,8 @@ export function isSnapshotError(
   return (
     error instanceof CWSandboxSnapshotError ||
     error instanceof CWSandboxSnapshotBucketProvisioningError ||
-    error instanceof CWSandboxSnapshotSizeExceededError ||
-    error instanceof CWSandboxSnapshotQuotaExceededError ||
-    error instanceof CWSandboxSnapshotBucketMismatchError ||
+    error instanceof CWSandboxSnapshotBackendThrottledError ||
+    error instanceof CWSandboxSnapshotWaitTimeoutError ||
     ((error instanceof CWSandboxTransportError || error instanceof CWSandboxNotImplementedError) &&
       error.domain === "cwsandbox.com" &&
       error.reason?.startsWith("CWSANDBOX_FSS_") === true)
