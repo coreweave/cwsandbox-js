@@ -54,8 +54,17 @@ export interface SandboxClient {
    * immediately after accept with no automatic cleanup.
    */
   run(command: CommandInput, options?: SandboxRunOptions): Promise<Sandbox>;
-  get(sandboxId: SandboxId, options?: RequestOptions): Promise<GetSandboxResult>;
-  fromId(sandboxId: SandboxId, options?: FromIdOptions): Promise<Sandbox>;
+  /**
+   * Accepts a sandbox UUID or the `displayName` of an active sandbox. A name
+   * does not match a terminal sandbox; use its UUID. Use the returned
+   * `sandboxId` afterwards, since a name can be reused once its sandbox ends.
+   */
+  get(sandboxIdOrName: string, options?: RequestOptions): Promise<GetSandboxResult>;
+  /**
+   * Adopts a sandbox by UUID or by the `displayName` of an active sandbox. The
+   * handle uses the resolved UUID for every later call.
+   */
+  fromId(sandboxIdOrName: string, options?: FromIdOptions): Promise<Sandbox>;
   list(options?: ListSandboxesOptions): Promise<ListSandboxesResult>;
   listSandboxes(options?: SandboxListOptions): SandboxList;
   listAll(options?: SandboxListOptions): Promise<readonly Sandbox[]>;

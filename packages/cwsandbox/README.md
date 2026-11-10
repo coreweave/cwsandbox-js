@@ -914,6 +914,33 @@ await client.run(["python"], {
 
 Do not put secrets in annotations. Use `secrets` for store-backed injection.
 
+### Display Names
+
+`displayName` gives a sandbox a lookup name. `create`, `run`, `runFromTemplate`,
+`runFromFile`, and the `withSandbox*` helpers accept it, and handles, `get()`, and list
+results read it back:
+
+```ts
+import { CWSandboxNameInUseError } from "@coreweave/cwsandbox";
+
+try {
+  const sandbox = await client.create({ displayName: "build-agent-1" });
+  console.log(sandbox.displayName);
+} catch (error) {
+  if (error instanceof CWSandboxNameInUseError) {
+    console.error("Another active sandbox already uses that name.");
+  } else {
+    throw error;
+  }
+}
+```
+
+A name is unique among active sandboxes in the organization and becomes free again once
+its sandbox is terminal. It is case-sensitive, at most 128 UTF-8 bytes, and cannot have
+leading or trailing whitespace, `/`, `\`, `:`, control characters, or be a UUID. Names
+cannot be changed after create. The SDK checks these rules before sending and throws
+`CWSandboxValidationError`; the server is still the final judge.
+
 ### Secrets
 
 Pass secret-store references at create/run time. The gateway resolves them
@@ -1422,6 +1449,15 @@ Reconnect to an existing sandbox:
 
 ```ts
 const sandbox = await client.fromId("sandbox-id");
+```
+
+`get()` and `fromId()` also accept the `displayName` of an active sandbox. A name does
+not match a terminal sandbox; use its UUID. The handle keeps the resolved `sandboxId`
+for every later call, so a name reused by a newer sandbox does not redirect it:
+
+```ts
+const byName = await client.fromId("build-agent-1");
+console.log(byName.sandboxId);
 ```
 
 Use `fromId()` when you need to run commands, read files, stream logs, or manage lifecycle through a `Sandbox` instance. Use `get()` when you only need current metadata.

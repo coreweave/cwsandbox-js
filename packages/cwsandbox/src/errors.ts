@@ -338,6 +338,18 @@ export class CWSandboxNetworkConfigInUseError extends CWSandboxTransportError {
 }
 
 /**
+ * Another active sandbox in the organization already uses the requested
+ * `displayName`. The name becomes free once that sandbox is terminal.
+ * Emitted for trusted `CWSANDBOX_SANDBOX_DISPLAY_NAME_IN_USE`.
+ */
+export class CWSandboxNameInUseError extends CWSandboxTransportError {
+  public constructor(message: string, options: CWSandboxTransportErrorOptions = {}) {
+    super(message, options, "transport_error");
+    this.name = "CWSandboxNameInUseError";
+  }
+}
+
+/**
  * The resource changed since the supplied etag was read. Read it again and
  * retry the update. Emitted for trusted `CWSANDBOX_ETAG_MISMATCH`.
  */

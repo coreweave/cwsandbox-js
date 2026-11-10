@@ -10,6 +10,7 @@ import {
   CWSandboxError,
   CWSandboxEtagMismatchError,
   CWSandboxFileError,
+  CWSandboxNameInUseError,
   CWSandboxNetworkConfigInUseError,
   CWSandboxNotFoundError,
   CWSandboxNotImplementedError,
@@ -42,6 +43,7 @@ import {
   CWSANDBOX_FSS_NOT_SUPPORTED,
   CWSANDBOX_FSS_QUOTA_EXCEEDED,
   CWSANDBOX_FSS_SIZE_EXCEEDED,
+  CWSANDBOX_SANDBOX_DISPLAY_NAME_IN_USE,
   CWSANDBOX_SANDBOX_NOT_FOUND,
 } from "../../internal/error-info.js";
 import { mapGrpcError as mapGrpcErrorImpl, type GrpcErrorContext } from "./errors.js";
@@ -422,6 +424,30 @@ describe("mapGrpcError", () => {
 
     expect(error).toBeInstanceOf(ErrorClass);
     expect(error.reason).toBe(reason);
+  });
+
+  it("maps a trusted display name conflict to CWSandboxNameInUseError", () => {
+    const reason = CWSANDBOX_SANDBOX_DISPLAY_NAME_IN_USE;
+    const trusted = new RpcError(
+      "display_name is already in use by an active sandbox",
+      "ALREADY_EXISTS",
+      statusDetailsMeta({ errorInfos: [{ reason }] }),
+    );
+    const spoofed = new RpcError(
+      "spoof",
+      "ALREADY_EXISTS",
+      statusDetailsMeta({ errorInfos: [{ domain: "example.com", reason }] }),
+    );
+
+    const error = mapGrpcError(trusted, { operation: "Create sandbox" });
+
+    expect(error).toBeInstanceOf(CWSandboxNameInUseError);
+    expect(error.name).toBe("CWSandboxNameInUseError");
+    expect(error.reason).toBe(reason);
+    expect(error.transportCode).toBe("ALREADY_EXISTS");
+    expect(mapGrpcError(spoofed, { operation: "Create sandbox" })).not.toBeInstanceOf(
+      CWSandboxNameInUseError,
+    );
   });
 
   it.each([CWSANDBOX_NETWORK_CONFIG_IN_USE, CWSANDBOX_ETAG_MISMATCH])(

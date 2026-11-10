@@ -180,6 +180,10 @@ export class Sandbox implements PublicSandbox {
       : cloneContainers(this.metadata.containers);
   }
 
+  public get displayName(): string | undefined {
+    return this.metadata.displayName;
+  }
+
   public get exitCode(): number | undefined {
     return this.metadata.exitCode;
   }
@@ -735,6 +739,7 @@ function cloneMetadata(metadata: SandboxMetadata | undefined): Partial<SandboxMe
     ...(metadata.containers === undefined
       ? {}
       : { containers: cloneContainers(metadata.containers) }),
+    ...(metadata.displayName === undefined ? {} : { displayName: metadata.displayName }),
     ...(metadata.dnsEgressNames === undefined
       ? {}
       : { dnsEgressNames: [...metadata.dnsEgressNames] }),

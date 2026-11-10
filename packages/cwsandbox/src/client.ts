@@ -240,25 +240,32 @@ export class SandboxClient implements SandboxClientInterface {
     return sandbox;
   }
 
-  public async get(sandboxId: SandboxId, options: RequestOptions = {}): Promise<GetSandboxResult> {
+  public async get(
+    sandboxIdOrName: string,
+    options: RequestOptions = {},
+  ): Promise<GetSandboxResult> {
     validateRequestOptions(options);
     return this.transport.get({
-      sandboxId,
+      sandboxId: sandboxIdOrName,
       ...(options.signal === undefined ? {} : { signal: options.signal }),
       ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
     });
   }
 
-  public async fromId(sandboxId: SandboxId, options: FromIdOptions = {}): Promise<PublicSandbox> {
+  public async fromId(
+    sandboxIdOrName: string,
+    options: FromIdOptions = {},
+  ): Promise<PublicSandbox> {
     validateDataPlaneMode(options.dataPlaneMode);
     const { dataPlaneMode, ...requestOptions } = options;
-    const result = await this.get(sandboxId, requestOptions);
+    const result = await this.get(sandboxIdOrName, requestOptions);
 
     return new SandboxImpl({
       fileAdapter: this.fileAdapter,
       dataPlaneMode: dataPlaneMode ?? this.dataPlaneMode,
       metadata: result,
-      sandboxId,
+      // A name can be reused after the sandbox ends, so pin the resolved UUID.
+      sandboxId: result.sandboxId,
       transport: this.transport,
     });
   }

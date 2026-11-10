@@ -55,6 +55,7 @@ export interface StartSandboxFromFileRequest extends RequestOptions, CreateRetry
   readonly imageOverrides?: Readonly<Record<string, string>>;
   readonly defaultResources?: ResourceOptions;
   readonly annotations?: SandboxAnnotations;
+  readonly displayName?: string;
   readonly maxLifetimeSeconds?: Seconds;
   readonly network?: NetworkOptions;
   readonly objectStorageAccess?: SandboxObjectStorageAccess;
@@ -68,6 +69,7 @@ export interface StartSandboxFromTemplateRequest extends RequestOptions, CreateR
   readonly annotations?: SandboxAnnotations;
   readonly containerImage?: string;
   readonly command?: Command;
+  readonly displayName?: string;
   readonly environmentVariables?: EnvironmentVariables;
   readonly fileSystemSnapshot?: FileSystemSnapshotOptions;
   readonly mountedFiles?: MountedFiles;

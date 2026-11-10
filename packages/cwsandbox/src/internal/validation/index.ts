@@ -29,6 +29,7 @@ import { validateResources } from "../resources.js";
 import { validateSecrets } from "../secrets.js";
 import { validateAnnotations } from "./annotations.js";
 import { validateContainerTarget } from "./containers.js";
+import { validateDisplayName } from "./display-name.js";
 import { validateSandboxVolumeCreateOptions } from "./file-system-snapshot.js";
 import { validateObjectStorageAccess } from "./object-storage.js";
 import { validateSecurityContext } from "./security-context.js";
@@ -92,6 +93,7 @@ export function validateSandboxRunOptions(options: SandboxRunOptions): void {
   validateRequestOptions(options);
   validateNonNegativeFinite(options.createRetryBudgetMs, "createRetryBudgetMs");
   validateAnnotations(options.annotations);
+  validateDisplayName(options.displayName);
   validateNonNegativeFinite(options.maxLifetimeSeconds, "maxLifetimeSeconds");
   validateMountedFiles(options.mountedFiles);
   validateSandboxVolumeCreateOptions(options);
@@ -157,6 +159,7 @@ export function validateSandboxRunFromTemplateOptions(
     normalizeCommand(options.command);
   }
   validateAnnotations(options.annotations);
+  validateDisplayName(options.displayName);
   validateNonNegativeFinite(options.maxLifetimeSeconds, "maxLifetimeSeconds");
   validateMountedFiles(options.mountedFiles);
   validateSandboxVolumeCreateOptions(options);
@@ -224,6 +227,7 @@ export function validateSandboxRunFromFileOptions(
   validateRequestOptions(options);
   validateNonNegativeFinite(options.createRetryBudgetMs, "createRetryBudgetMs");
   validateAnnotations(options.annotations);
+  validateDisplayName(options.displayName);
   validateNonNegativeFinite(options.maxLifetimeSeconds, "maxLifetimeSeconds");
   validateObjectStorageAccess(options.objectStorageAccess);
   validateNetworkOptions(undefined, options.network);

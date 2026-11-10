@@ -147,6 +147,7 @@ export function toProtoCreateRequest(request: StartSandboxRequest): CreateSandbo
   return CreateSandboxRequest.create({
     requestId: randomUUID(),
     sandbox: ProtoSandbox.create({
+      ...(request.displayName ? { displayName: request.displayName } : {}),
       spec: SandboxSpec.create({
         annotations: { ...request.annotations },
         containers:
@@ -203,6 +204,7 @@ export function toProtoCreateFromFileRequest(
     ...(network === undefined ? {} : { network }),
     ...(objectStorageAccess === undefined ? {} : { objectStorageAccess }),
     annotations: { ...request.annotations },
+    ...(request.displayName ? { displayName: request.displayName } : {}),
     tags: [...(request.tags ?? [])],
     ...(runnerIds.length === 0 ? {} : { mode: SandboxMode.CKS, runnerIds }),
   });
@@ -286,6 +288,7 @@ export function toProtoCreateFromTemplateRequest(
   return CreateSandboxFromTemplateRequest.create({
     requestId: randomUUID(),
     templateId: request.templateId,
+    ...(request.displayName ? { displayName: request.displayName } : {}),
     ...(hasOverride ? { overrides } : {}),
   });
 }
@@ -934,6 +937,7 @@ function toSdkSandboxMetadata(sandbox: ProtoSandboxMessage): SandboxMetadata {
       : { attachedVolumeIds: [...status.attachedVolumeIds] }),
     ...(containerStatuses === undefined ? {} : { containerStatuses }),
     ...(containers === undefined ? {} : { containers }),
+    ...(sandbox.displayName === "" ? {} : { displayName: sandbox.displayName }),
     ...(status?.exitCode === undefined ? {} : { exitCode: status.exitCode }),
     ...(dnsEgressNames === undefined ? {} : { dnsEgressNames }),
     ...(effectiveEgress === undefined ? {} : { effectiveEgress }),

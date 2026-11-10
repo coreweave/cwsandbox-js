@@ -39,6 +39,9 @@ export const FILE_ERROR_REASONS: ReadonlySet<string> = new Set([
 
 // Not-found reasons per context
 export const CWSANDBOX_SANDBOX_NOT_FOUND = "CWSANDBOX_SANDBOX_NOT_FOUND";
+
+// Sandbox create reasons
+export const CWSANDBOX_SANDBOX_DISPLAY_NAME_IN_USE = "CWSANDBOX_SANDBOX_DISPLAY_NAME_IN_USE";
 export const CWSANDBOX_FSS_NOT_FOUND = "CWSANDBOX_FSS_NOT_FOUND";
 
 // File-system snapshot reasons

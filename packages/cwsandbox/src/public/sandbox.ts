@@ -241,6 +241,14 @@ export interface SandboxRunOptions extends RequestOptions, DataPlaneOptions, Cre
   readonly annotations?: SandboxAnnotations;
   readonly containerImage?: string;
   /**
+   * Lookup name for the new sandbox, unique among active sandboxes in the
+   * organization and reusable once the sandbox is terminal. Case-sensitive,
+   * at most 128 UTF-8 bytes; leading or trailing whitespace, `/`, `\`, `:`,
+   * control characters, and UUIDs are rejected. Immutable. A name already in
+   * use throws `CWSandboxNameInUseError`. Omit or `""` for no name.
+   */
+  readonly displayName?: string;
+  /**
    * Containers to run, in place of the single-container options. Mutually
    * exclusive with `containerImage`, `environmentVariables`, `mountedFiles`,
    * `resources`, `secrets`, and the `run()` command. Containers without a
@@ -328,6 +336,11 @@ export interface SandboxRunFromTemplateOptions
    * are not inherited from the template.
    */
   readonly command?: CommandInput;
+  /**
+   * Lookup name for the new sandbox. Not inherited from the template. Same
+   * rules as `SandboxRunOptions.displayName`.
+   */
+  readonly displayName?: string;
   /**
    * A non-empty map becomes the replacement environment. Omitted or empty
    * produces an empty replacement environment when `containerImage` is set.
@@ -447,6 +460,8 @@ export interface SandboxRunFromFileOptions
    */
   readonly defaultResources?: ResourceOptions;
   readonly annotations?: SandboxAnnotations;
+  /** Lookup name for the new sandbox. Same rules as `SandboxRunOptions.displayName`. */
+  readonly displayName?: string;
   readonly maxLifetimeSeconds?: Seconds;
   readonly network?: NetworkOptions;
   readonly objectStorageAccess?: SandboxObjectStorageAccess;
@@ -566,6 +581,8 @@ export interface SandboxMetadata {
    * create. Fields the SDK's `Container` type does not model are omitted.
    */
   readonly containers?: readonly Container[];
+  /** Lookup name set at create. Omitted when the sandbox has none. */
+  readonly displayName?: string;
   readonly dnsEgressNames?: readonly string[];
   readonly effectiveEgress?: readonly EffectiveEgressRule[];
   readonly effectiveIngress?: readonly EffectiveIngressRule[];
@@ -636,6 +653,8 @@ export interface Sandbox {
    * `SandboxMetadata.containers` for when it can be passed back to create.
    */
   readonly containers?: readonly Container[] | undefined;
+  /** Lookup name set at create, or `undefined` when the sandbox has none. */
+  readonly displayName?: string | undefined;
   readonly dnsEgressNames: readonly string[] | undefined;
   readonly effectiveEgress?: readonly EffectiveEgressRule[] | undefined;
   readonly effectiveIngress?: readonly EffectiveIngressRule[] | undefined;
