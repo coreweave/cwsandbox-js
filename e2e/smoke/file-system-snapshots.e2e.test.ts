@@ -253,17 +253,20 @@ describeWithCredentials("live file-system snapshot smoke", { sequential: true },
           },
         );
 
+      const pending = [snapshotFromNewSandbox(), snapshotFromNewSandbox()] as const;
       try {
-        const [first, second] = await Promise.all([
-          snapshotFromNewSandbox(),
-          snapshotFromNewSandbox(),
-        ]);
-        expect(first.sourceSandboxId).not.toBe(second.sourceSandboxId);
+        const [first, second] = await Promise.all(pending);
+        const sourceId = first.sourceSandboxId;
+        if (sourceId === undefined) {
+          throw new Error("Expected a source sandbox ID.");
+        }
+        expect(sourceId).not.toBe(second.sourceSandboxId);
 
-        const listed = await client.listSnapshots({ sourceSandboxId: first.sourceSandboxId });
+        const listed = await client.listSnapshots({ sourceSandboxId: sourceId });
         expect(listed.map((row) => row.snapshotId)).toEqual([first.snapshotId]);
-        expect(listed[0]?.sourceSandboxId).toBe(first.sourceSandboxId);
+        expect(listed[0]?.sourceSandboxId).toBe(sourceId);
       } finally {
+        await Promise.allSettled(pending);
         await Promise.all(snapshotIds.map((id) => client.deleteSnapshot(id, { missingOk: true })));
       }
     },

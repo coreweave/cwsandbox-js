@@ -894,7 +894,7 @@ describe("SandboxClient", () => {
                 }),
                 createFakeSnapshot("snap-b", {
                   sourceSandboxId: "sbx-2",
-                  state: "failed",
+                  state: "ready",
                 }),
               ],
             };
