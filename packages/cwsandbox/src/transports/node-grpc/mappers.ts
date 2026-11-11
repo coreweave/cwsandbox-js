@@ -145,7 +145,7 @@ export function toProtoCreateRequest(request: StartSandboxRequest): CreateSandbo
   const volumes = toProtoVolumes(request);
   const objectStorageAccess = toProtoObjectStorageAccess(request.objectStorageAccess);
   return CreateSandboxRequest.create({
-    requestId: randomUUID(),
+    requestId: request.requestId ?? randomUUID(),
     sandbox: ProtoSandbox.create({
       ...(request.displayName ? { displayName: request.displayName } : {}),
       spec: SandboxSpec.create({

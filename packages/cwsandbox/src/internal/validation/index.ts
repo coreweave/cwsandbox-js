@@ -91,6 +91,7 @@ export function validateSandboxRunOptions(options: SandboxRunOptions): void {
     rejectRemovedKeys(options.network, ["egressMode", "exposedPorts", "ingressMode"]);
   }
   validateRequestOptions(options);
+  validateOptionalNonBlankString(options.requestId, "requestId");
   validateNonNegativeFinite(options.createRetryBudgetMs, "createRetryBudgetMs");
   validateAnnotations(options.annotations);
   validateDisplayName(options.displayName);
