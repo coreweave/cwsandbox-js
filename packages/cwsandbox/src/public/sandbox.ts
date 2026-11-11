@@ -238,6 +238,8 @@ export interface SnapshotOptions extends RequestOptions {
 }
 
 export interface SandboxRunOptions extends RequestOptions, DataPlaneOptions, CreateRetryOptions {
+  /** Persist and reuse with identical create inputs after an ambiguous response or restart. */
+  readonly requestId?: string;
   readonly annotations?: SandboxAnnotations;
   readonly containerImage?: string;
   /**

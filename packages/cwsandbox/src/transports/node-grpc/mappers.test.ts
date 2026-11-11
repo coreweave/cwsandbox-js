@@ -62,6 +62,11 @@ function primaryContainer(request: ReturnType<typeof toProtoCreateRequest>) {
 
 describe("node transport mappers", () => {
   describe("create requests", () => {
+    it("preserves a durable create request ID across reconstructed requests", () => {
+      const input = { command: ["sleep", "infinity"] as const, requestId: "attempt-123" };
+      expect(toProtoCreateRequest(input).requestId).toBe(input.requestId);
+      expect(toProtoCreateRequest({ ...input }).requestId).toBe(input.requestId);
+    });
     it("maps start commands to the primary container", () => {
       const request = toProtoCreateRequest({
         command: ["python", "-c", "print('hello')"],

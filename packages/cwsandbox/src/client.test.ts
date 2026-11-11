@@ -926,6 +926,25 @@ describe("SandboxClient", () => {
   });
 
   describe("validation", () => {
+    it("forwards a caller-owned create requestId and rejects a blank one", async () => {
+      const requests: (string | undefined)[] = [];
+      const base = createFakeTransport();
+      const transport: SandboxTransport = {
+        ...base,
+        async start(request) {
+          requests.push(request.requestId);
+          return base.start(request);
+        },
+      };
+      await createClient(transport).create({
+        requestId: "launch-1",
+        waitUntilRunning: false,
+      });
+      expect(requests).toEqual(["launch-1"]);
+      await expect(createClient(transport).create({ requestId: " " })).rejects.toThrow(
+        CWSandboxValidationError,
+      );
+    });
     it("throws a typed validation error for invalid list page sizes", async () => {
       const client = createClient();
 

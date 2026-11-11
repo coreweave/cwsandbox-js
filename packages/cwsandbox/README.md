@@ -941,6 +941,27 @@ leading or trailing whitespace, `/`, `\`, `:`, control characters, or be a UUID.
 cannot be changed after create. The SDK checks these rules before sending and throws
 `CWSandboxValidationError`; the server is still the final judge.
 
+### Request IDs
+
+Pass `requestId` to `create`, `run`, or `withSandbox` to make an ambiguous create
+error (for example a timeout or dropped connection) safe to retry: repeating the
+same request with the same key returns the original sandbox instead of creating
+another. The same key with different options fails with
+`CWSANDBOX_REQUEST_ID_CONFLICT`. Without it, each call gets a fresh key. Save the
+key before the first attempt if a restarted process may retry:
+
+```ts
+import { randomUUID } from "node:crypto";
+
+const requestId = randomUUID(); // Persist this before calling create.
+const sandbox = await client.create({ requestId, waitUntilRunning: false });
+await sandbox.wait();
+```
+
+The key does not help after a readiness failure: the SDK may already have stopped
+the sandbox, so a retry with the same key gets that stopped sandbox back. Use a
+new key, or pass `waitUntilRunning: false` and call `wait()` yourself.
+
 ### Secrets
 
 Pass secret-store references at create/run time. The gateway resolves them

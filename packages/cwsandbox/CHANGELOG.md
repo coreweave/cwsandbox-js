@@ -16,6 +16,11 @@ SPDX-PackageName: cwsandbox
   sending. A name another active sandbox holds throws the new
   `CWSandboxNameInUseError` (reason `CWSANDBOX_SANDBOX_DISPLAY_NAME_IN_USE`).
   Matches the Python SDK.
+- Add `requestId` to `create`, `run` and `withSandbox` options, as
+  `runFromFile` already has. The key makes an ambiguous create error safe to
+  retry with the same inputs. A blank key throws `CWSandboxValidationError`.
+  After a readiness failure the SDK may have stopped the sandbox, so use a new
+  key, or pass `waitUntilRunning: false` and call `wait()` yourself.
 
 ## 1.1.0
 
