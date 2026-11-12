@@ -256,9 +256,12 @@ export class GrpcSandboxTransport implements SandboxTransport {
       "List file-system snapshots",
       () =>
         this.client.listFileSystemSnapshots(
-          ProtoListFileSystemSnapshotsRequest.create(
-            request.pageToken === undefined ? {} : { pageToken: request.pageToken },
-          ),
+          ProtoListFileSystemSnapshotsRequest.create({
+            ...(request.pageToken === undefined ? {} : { pageToken: request.pageToken }),
+            ...(request.sourceSandboxId === undefined
+              ? {}
+              : { sourceSandboxId: request.sourceSandboxId }),
+          }),
           toRpcOptions(request),
         ).response,
     );

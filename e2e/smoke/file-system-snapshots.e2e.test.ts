@@ -229,4 +229,47 @@ describeWithCredentials("live file-system snapshot smoke", { sequential: true },
     },
     snapshotTimeoutMs,
   );
+
+  it(
+    "lists only the snapshots of the requested source sandbox",
+    async () => {
+      const snapshotIds: string[] = [];
+      const snapshotFromNewSandbox = () =>
+        withDedicatedTaggedSandbox(
+          client,
+          {
+            create: (tag) =>
+              client.create({
+                fileSystemSnapshot: { mountPath: MOUNT_PATH, size: "1Gi" },
+                maxLifetimeSeconds: 600,
+                tags: [tag],
+              }),
+            waitUntilRunning: true,
+          },
+          async (source) => {
+            const snapshot = await source.snapshot();
+            snapshotIds.push(snapshot.snapshotId);
+            return snapshot;
+          },
+        );
+
+      const pending = [snapshotFromNewSandbox(), snapshotFromNewSandbox()] as const;
+      try {
+        const [first, second] = await Promise.all(pending);
+        const sourceId = first.sourceSandboxId;
+        if (sourceId === undefined) {
+          throw new Error("Expected a source sandbox ID.");
+        }
+        expect(sourceId).not.toBe(second.sourceSandboxId);
+
+        const listed = await client.listSnapshots({ sourceSandboxId: sourceId });
+        expect(listed.map((row) => row.snapshotId)).toEqual([first.snapshotId]);
+        expect(listed[0]?.sourceSandboxId).toBe(sourceId);
+      } finally {
+        await Promise.allSettled(pending);
+        await Promise.all(snapshotIds.map((id) => client.deleteSnapshot(id, { missingOk: true })));
+      }
+    },
+    snapshotTimeoutMs,
+  );
 });

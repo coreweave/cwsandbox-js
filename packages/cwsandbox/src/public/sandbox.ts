@@ -211,7 +211,7 @@ export interface FileSystemSnapshotResult {
 }
 
 export interface ListSnapshotsOptions extends RequestOptions {
-  /** Client-side filter after a full collect. Not sent on the List RPC. */
+  /** Sent on every List page so the server filters by source sandbox. */
   readonly sourceSandboxId?: string;
   /** Client-side filter after a full collect (Python `status`). */
   readonly state?: FileSystemSnapshotState;

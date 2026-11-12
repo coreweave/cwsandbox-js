@@ -34,6 +34,7 @@ import type { Secrets } from "../public/secrets.js";
 
 export interface ListFileSystemSnapshotsRequest extends RequestOptions {
   readonly pageToken?: string;
+  readonly sourceSandboxId?: string;
 }
 
 export interface ListFileSystemSnapshotsResult {

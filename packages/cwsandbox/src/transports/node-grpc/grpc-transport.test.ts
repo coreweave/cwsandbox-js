@@ -8,7 +8,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CWSandboxTimeoutError, CWSandboxUnavailableError } from "../../errors.js";
 import { CWSANDBOX_RUNNER_SHARD_RETIRING } from "../../internal/error-info.js";
 import type { DirectDataPlaneLease } from "./direct-data-plane.js";
-import { ExecResponse } from "./generated/coreweave/sandbox/v1/sandbox.js";
+import {
+  ExecResponse,
+  ListFileSystemSnapshotsResponse,
+} from "./generated/coreweave/sandbox/v1/sandbox.js";
 import { GrpcSandboxTransport } from "./grpc-transport.js";
 import { statusDetailsMeta } from "./test/status-details.js";
 
@@ -176,5 +179,37 @@ describe("exec retry on a retiring runner shard", () => {
 
     expect(t.acquireTimeouts).toEqual([undefined, undefined]);
     expect(t.execTimeouts).toEqual([undefined, undefined]);
+  });
+});
+
+describe("listFileSystemSnapshots request", () => {
+  function spyOnList() {
+    const transport = new GrpcSandboxTransport({ apiKey: "test", baseUrl: "http://127.0.0.1:1" });
+    const list = vi.spyOn(transport.clients.client, "listFileSystemSnapshots").mockImplementation(
+      () =>
+        ({
+          response: Promise.resolve(ListFileSystemSnapshotsResponse.create()),
+        }) as unknown as ReturnType<typeof transport.clients.client.listFileSystemSnapshots>,
+    );
+    return { list, transport };
+  }
+
+  it("sends sourceSandboxId and pageToken on the List RPC", async () => {
+    const { list, transport } = spyOnList();
+
+    await transport.listFileSystemSnapshots({ pageToken: "page-2", sourceSandboxId: "sbx-1" });
+
+    expect(list.mock.calls[0]?.[0]).toMatchObject({
+      pageToken: "page-2",
+      sourceSandboxId: "sbx-1",
+    });
+  });
+
+  it("leaves sourceSandboxId empty when no source filter is set", async () => {
+    const { list, transport } = spyOnList();
+
+    await transport.listFileSystemSnapshots({});
+
+    expect(list.mock.calls[0]?.[0]).toMatchObject({ pageToken: "", sourceSandboxId: "" });
   });
 });

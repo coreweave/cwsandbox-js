@@ -16,6 +16,10 @@ SPDX-PackageName: cwsandbox
   sending. A name another active sandbox holds throws the new
   `CWSandboxNameInUseError` (reason `CWSANDBOX_SANDBOX_DISPLAY_NAME_IN_USE`).
   Matches the Python SDK.
+- `listSnapshots({ sourceSandboxId })` now sends `sourceSandboxId` on every
+  List request, so the server returns only that sandbox's snapshots instead of
+  every snapshot in the org. Results are unchanged. `state` is still filtered
+  client-side.
 
 ## 1.1.0
 

@@ -21,7 +21,8 @@ import { getFileSystemSnapshotRecord } from "./snapshot.js";
 const LIST_SNAPSHOTS_OPERATION = "List file-system snapshots";
 
 /**
- * List is a different algorithm from capture: token loop, then client-side
+ * List is a different algorithm from capture: token loop (the source filter
+ * is sent on every page, since a page token is tied to it), then client-side
  * filters. Get delegates to `getFileSystemSnapshotRecord`.
  */
 export async function getSnapshotRecord(
@@ -66,6 +67,9 @@ export async function listSnapshotRecords(
         return transport.listFileSystemSnapshots({
           timeoutMs: pageTimeoutMs,
           ...(pageToken === undefined ? {} : { pageToken }),
+          ...(options.sourceSandboxId === undefined
+            ? {}
+            : { sourceSandboxId: options.sourceSandboxId }),
           ...(options.signal === undefined ? {} : { signal: options.signal }),
         });
       },
@@ -107,6 +111,7 @@ function applySnapshotFilters(
   options: ListSnapshotsOptions,
 ): readonly FileSystemSnapshotResult[] {
   return snapshots.filter((snapshot) => {
+    // The server already filters by source; this check is a cheap safety net.
     if (
       options.sourceSandboxId !== undefined &&
       snapshot.sourceSandboxId !== options.sourceSandboxId
