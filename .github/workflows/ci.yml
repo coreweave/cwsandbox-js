@@ -12,7 +12,7 @@ permissions:
 jobs:
   check:
     name: Offline checks
-    runs-on: ubuntu-latest
+    runs-on: cw-static-pub-x64-4c
 
     steps:
       - name: Checkout
@@ -52,7 +52,7 @@ jobs:
   runtime-tests:
     name: Runtime tests (Node ${{ matrix.node-version }})
     needs: check
-    runs-on: ubuntu-latest
+    runs-on: cw-static-pub-x64-4c
     strategy:
       fail-fast: false
       matrix:
